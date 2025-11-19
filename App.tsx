@@ -6,7 +6,7 @@ import { MessageInput } from './components/MessageInput';
 import { JournalViewer } from './components/JournalViewer';
 import { CharacterManager } from './components/CharacterManager';
 import type { Message, ChatJournal, DailyChat, Character, SavedData, CharacterThought } from './types';
-import { initChat, sendMessage, textToSpeech, translateAndExplainText, summarizeConversation, generateCharacterThoughts, generateToneDescription, generateRelationshipSummary, generateContextSuggestion } from './services/geminiService';
+import { initChat, sendMessage, textToSpeech, translateAndExplainText, summarizeConversation, generateCharacterThoughts, generateToneDescription, generateRelationshipSummary, generateContextSuggestion, generateMessageSuggestions } from './services/geminiService';
 import http, { API_URL } from './services/HTTPService';
 
 const initialCharacters: Character[] = [
@@ -56,6 +56,8 @@ const App: React.FC = () => {
   const [context, setContext] = useState<string>("at Mimi's house");
   const [relationshipSummary, setRelationshipSummary] = useState<string>('');
   const [isGeneratingSuggestion, setIsGeneratingSuggestion] = useState(false);
+  const [messageSuggestions, setMessageSuggestions] = useState<string[]>([]);
+  const [isGeneratingMessageSuggestions, setIsGeneratingMessageSuggestions] = useState(false);
   const [isCharacterManagerOpen, setCharacterManagerOpen] = useState(false);
   const [editingMessageId, setEditingMessageId] = useState<string | null>(null);
   const [isGeneratingThoughts, setIsGeneratingThoughts] = useState<string | null>(null);
@@ -377,6 +379,28 @@ const App: React.FC = () => {
       console.error('Failed to generate context suggestion:', error);
     } finally {
       setIsGeneratingSuggestion(false);
+    }
+  };
+
+  const handleGenerateMessageSuggestions = async () => {
+    const currentChat = getCurrentChat();
+    if (!currentChat) return;
+    
+    const activeChars = getActiveCharacters();
+    if (activeChars.length === 0) return;
+    
+    setIsGeneratingMessageSuggestions(true);
+    try {
+      const suggestions = await generateMessageSuggestions(
+        activeChars,
+        context,
+        currentChat.messages
+      );
+      setMessageSuggestions(suggestions);
+    } catch (error) {
+      console.error('Failed to generate message suggestions:', error);
+    } finally {
+      setIsGeneratingMessageSuggestions(false);
     }
   };
 
@@ -821,7 +845,14 @@ const App: React.FC = () => {
               </button>
             </div>
           </div>
-          <MessageInput onSendMessage={handleSendMessage} isLoading={isLoading || isSummarizing} onSummarize={handleEndDay} />
+          <MessageInput 
+            onSendMessage={handleSendMessage} 
+            isLoading={isLoading || isSummarizing} 
+            onSummarize={handleEndDay}
+            suggestions={messageSuggestions}
+            onGenerateSuggestions={handleGenerateMessageSuggestions}
+            isGeneratingSuggestions={isGeneratingMessageSuggestions}
+          />
         </>
       ) : (
         <JournalViewer

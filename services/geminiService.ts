@@ -516,3 +516,55 @@ Bối cảnh mới:`;
     return "at home"; // fallback
   }
 };
+
+export const generateMessageSuggestions = async (
+  characters: Character[],
+  context: string,
+  recentMessages: Message[]
+): Promise<string[]> => {
+  const characterDescriptions = characters.map(c => 
+    `- ${c.name}: ${c.personality}`
+  ).join('\n');
+
+  const conversationText = recentMessages.slice(-5).map(msg => 
+    `${msg.sender === 'user' ? 'User' : msg.characterName}: ${msg.text}`
+  ).join('\n');
+
+  const prompt = `Bạn là trợ lý gợi ý tin nhắn. Dựa trên ngữ cảnh và cuộc hội thoại gần đây, hãy đề xuất 3 câu trả lời phù hợp cho người dùng.
+
+THÔNG TIN NHÂN VẬT:
+${characterDescriptions}
+
+BỐI CẢNH: ${context}
+
+${conversationText ? `HỘI THOẠI GẦN ĐÂY:
+${conversationText}
+
+` : ''}NHIỆM VỤ:
+Đề xuất 3 câu trả lời bằng TIẾNG VIỆT mà người dùng có thể nói tiếp.
+
+YÊU CẦU:
+- Mỗi câu ngắn gọn (5-10 từ tiếng Việt)
+- Phù hợp với ngữ cảnh và cuộc hội thoại
+- Đa dạng: 1 câu hỏi, 1 câu phản hồi, 1 câu chủ động
+- CHỈ trả về 3 câu, mỗi câu một dòng
+- KHÔNG giải thích, KHÔNG đánh số
+
+Gợi ý:`;
+
+  try {
+    const response = await ai.models.generateContent({
+      model: "gemini-2.5-flash",
+      contents: prompt,
+    });
+    const suggestions = response.text
+      .trim()
+      .split('\n')
+      .filter(line => line.trim())
+      .slice(0, 3);
+    return suggestions;
+  } catch (error) {
+    console.error("Gemini message suggestions error:", error);
+    return ['Bạn khỏe không?', 'Hôm nay làm gì?', 'Được rồi'];
+  }
+};
