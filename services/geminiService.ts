@@ -1,0 +1,518 @@
+import { GoogleGenAI, Chat, GenerateContentResponse, Content, Modality, Type } from "@google/genai";
+import type { Message, Character } from '../types';
+import http, { API_URL } from './HTTPService';
+
+let API_KEY: string | null = null;
+let ai: GoogleGenAI | null = null;
+
+export const initChat = async (
+  activeCharacters: Character[],
+  context: string,
+  history: Content[] = [],
+  contextSummary: string = '',
+  relationshipSummary: string = ''
+): Promise<Chat> => {
+  // Lazy load API key
+  if (!API_KEY) {
+    const res = await http.get<{ apiKey: string }>(API_URL.API_GET_API_KEY);
+    if (!res.ok || !res.data?.apiKey) {
+      throw new Error(res.error || 'Cannot retrieve API key');
+    }
+    API_KEY = res.data.apiKey;
+  }
+  // Init client once
+  if (!ai) {
+    ai = new GoogleGenAI({ apiKey: API_KEY });
+  }
+
+  const characterDescriptions = activeCharacters.map(c => {
+    let desc = `- ${c.name} (${c.gender === 'female' ? 'girl' : 'boy'}): ${c.personality}`;
+    
+    // Add user opinion if exists
+    if (c.userOpinion && c.userOpinion.opinion) {
+      const sentiment = c.userOpinion.sentiment === 'positive' ? '(positive)' : 
+                       c.userOpinion.sentiment === 'negative' ? '(negative)' : '(neutral)';
+      desc += `\n    * Opinion about the user ${sentiment}: ${c.userOpinion.opinion}`;
+    }
+    
+    // Add relations if exist
+    if (c.relations && Object.keys(c.relations).length > 0) {
+      const relationsList = Object.entries(c.relations)
+        .filter(([_, rel]) => rel.opinion)
+        .map(([targetId, rel]) => {
+          const targetChar = activeCharacters.find(ch => ch.id === targetId);
+          if (!targetChar) return null;
+          const sentiment = rel.sentiment === 'positive' ? '(positive)' : 
+                           rel.sentiment === 'negative' ? '(negative)' : '(neutral)';
+          return `      - About ${targetChar.name} ${sentiment}: ${rel.opinion}`;
+        })
+        .filter(r => r !== null);
+      
+      if (relationsList.length > 0) {
+        desc += '\n    * Relationships:\n' + relationsList.join('\n');
+      }
+    }
+    
+    return desc;
+  }).join('\n      ');
+
+  const systemInstruction =
+    `You are a scriptwriter for a conversation between a Vietnamese user and several young Korean characters. I will speak to you in Vietnamese.
+      The Korean characters must only speak Korean. They must use very short and simple sentences, no more than 5 Korean words per sentence, suitable for a Korean learner (Comprehensible Input). They should never speak more than one sentence at a time. They often repeat important or familiar words.
+
+      CONVERSATION SETTING:
+      ${context}
+
+      ${relationshipSummary ? `RELATIONSHIP CONTEXT:
+      ${relationshipSummary}
+
+      ` : ''}CHARACTERS IN THIS SCENE:
+      ${characterDescriptions}
+
+      BEHAVIOR RULES:
+      - After the user speaks, generate a short conversation between the AI characters. This should be an array of 1 to 4 turns.
+      - Decide which character should speak next based on the context and their personality. If only one character is present, they should do all the talking.
+      - The user speaks Vietnamese. The characters ONLY speak Korean.
+      - Every time a character speaks, they must also include a short English action description showing their emotion or gesture, a Tone tag, and a single relevant emoji at the end of their Korean text that matches their tone.
+      - The characters should naturally repeat or reuse words they have said recently or that the user said.
+      - The characters always react emotionally to what the user says. The user might also use emojis.
+
+      TONE DESCRIPTION:
+      - Provide a short, easy-to-understand English description of the character's tone for text-to-speech, using 3-5 words (e.g., "cheerful and playful", "soft and shy", "thoughtful and calm").
+
+      ${contextSummary ? `\nHere is a summary of our last conversation to help you remember: ${contextSummary}` : ''}
+      `;
+
+      console.log(systemInstruction )
+
+  const chat: Chat = ai.chats.create({
+    model: 'gemini-2.5-flash',
+    history,
+    config: {
+      systemInstruction,
+      responseMimeType: "application/json",
+      responseSchema: {
+        type: Type.ARRAY,
+        items: {
+          type: Type.OBJECT,
+          properties: {
+            CharacterName: { type: Type.STRING },
+            Text: { type: Type.STRING },
+            Action: { type: Type.STRING },
+            Tone: { type: Type.STRING },
+          }
+        }
+      },
+    },
+  });
+  return chat;
+};
+
+export const sendMessage = async (chat: Chat, message: string): Promise<string> => {
+  try {
+    const response: GenerateContentResponse = await chat.sendMessage({ message });
+    console.log("Gemini response:", response.text);
+    return response.text;
+  } catch (error) {
+    console.error("Gemini API error:", error);
+    return "Đã xảy ra sự cố khi kết nối với Gemini. Vui lòng thử lại sau.";
+  }
+};
+
+export const textToSpeech = async (
+  text: string,
+  tone: string = 'cheerfully',
+  voiceName: string = 'echo'
+): Promise<string | null> => {
+  // Regex to remove a wide range of emojis.
+  const emojiRegex = /(\u00a9|\u00ae|[\u2000-\u3300]|\ud83c[\ud000-\udfff]|\ud83d[\ud000-\udfff]|\ud83e[\ud000-\udfff])/g;
+  const textWithoutEmoji = text.replace(emojiRegex, '').trim();
+
+  if (!textWithoutEmoji) {
+    return null;
+  }
+  try {
+    const rs = await http.get(API_URL.API_TTS + `?text=${encodeURIComponent(textWithoutEmoji)}&voice=${encodeURIComponent(voiceName)}&instructions=${encodeURIComponent(`Say ${tone}`)}`)
+    if (rs.ok && rs.data?.output){
+      return rs.data.output;
+    }
+    return null;
+
+  } catch (error) {
+    console.error("Gemini TTS API error:", error);
+    return null;
+  }
+};
+
+
+// export const textToSpeech = async (
+//   text: string,
+//   tone: string = 'cheerfully',
+//   voiceName: string = 'echo'
+// ): Promise<string | null> => {
+//   // Regex to remove a wide range of emojis.
+//   const emojiRegex = /(\u00a9|\u00ae|[\u2000-\u3300]|\ud83c[\ud000-\udfff]|\ud83d[\ud000-\udfff]|\ud83e[\ud000-\udfff])/g;
+//   const textWithoutEmoji = text.replace(emojiRegex, '').trim();
+
+//   if (!textWithoutEmoji) {
+//     return null;
+//   }
+//   try {
+//     const ttsPrompt = `Say ${tone}: ${textWithoutEmoji}`;
+
+//     const response = await ai.models.generateContent({
+//       model: "gemini-2.5-flash-preview-tts",
+//       contents: [{ parts: [{ text: ttsPrompt }] }],
+//       config: {
+//         responseModalities: [Modality.AUDIO],
+//         speechConfig: {
+//           voiceConfig: {
+//             prebuiltVoiceConfig: { voiceName: voiceName || 'echo' },
+//           },
+//         },
+//       },
+//     });
+
+//     const base64Audio = response.candidates?.[0]?.content?.parts?.[0]?.inlineData?.data;
+//     if (base64Audio == null) {
+//       return null
+//     }
+//     const Wav = pcmToWav(decode(base64Audio), 24000, 1, 16)
+//     const base64Wav = await blobToBase64(Wav)
+//     const outputName = await http.post(API_URL.API_UPLOAD_AUDIO, { base64WavData: base64Wav })
+
+//     console.log(outputName)
+//     if (outputName.ok)
+//       return outputName.data.data
+//     return null;
+
+//   } catch (error) {
+//     console.error("Gemini TTS API error:", error);
+//     return null;
+//   }
+// };
+
+function blobToBase64(blob) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onloadend = () => resolve(reader.result);  // reader.result = base64
+    reader.onerror = reject;
+    reader.readAsDataURL(blob); // chuyển blob → dataURL (base64)
+  });
+}
+
+// Helper functions for WAV creation
+const decode = (base64: string): Uint8Array => {
+  const binaryString = atob(base64);
+  const len = binaryString.length;
+  const bytes = new Uint8Array(len);
+  for (let i = 0; i < len; i++) {
+    bytes[i] = binaryString.charCodeAt(i);
+  }
+  return bytes;
+};
+
+const pcmToWav = (pcmData: Uint8Array, sampleRate: number, numChannels: number, bitsPerSample: number): Blob => {
+  const dataSize = pcmData.length;
+  const buffer = new ArrayBuffer(44 + dataSize);
+  const view = new DataView(buffer);
+
+  // RIFF chunk descriptor
+  writeString(view, 0, 'RIFF');
+  view.setUint32(4, 36 + dataSize, true);
+  writeString(view, 8, 'WAVE');
+
+  // "fmt " sub-chunk
+  writeString(view, 12, 'fmt ');
+  view.setUint32(16, 16, true); // Subchunk1Size for PCM
+  view.setUint16(20, 1, true);   // AudioFormat (PCM)
+  view.setUint16(22, numChannels, true);
+  view.setUint32(24, sampleRate, true);
+  view.setUint32(28, sampleRate * numChannels * (bitsPerSample / 8), true); // ByteRate
+  view.setUint16(32, numChannels * (bitsPerSample / 8), true); // BlockAlign
+  view.setUint16(34, bitsPerSample, true);
+
+  // "data" sub-chunk
+  writeString(view, 36, 'data');
+  view.setUint32(40, dataSize, true);
+
+  // Write PCM data
+  new Uint8Array(buffer, 44).set(pcmData);
+
+  return new Blob([view], { type: 'audio/wav' });
+};
+
+const writeString = (view: DataView, offset: number, string: string) => {
+  for (let i = 0; i < string.length; i++) {
+    view.setUint8(offset + i, string.charCodeAt(i));
+  }
+};
+
+export const translateAndExplainText = async (text: string): Promise<string> => {
+  if (!text.trim()) {
+    return "Không có gì để dịch.";
+  }
+  try {
+    const prompt = `Translate the following Korean sentence into Vietnamese. Just translate it roughly without adding any notes: "${text}"`;
+
+    const response = await ai.models.generateContent({
+      model: "gemini-2.5-flash",
+      contents: prompt,
+    });
+
+    let htmlContent = response.text.trim();
+    if (htmlContent.startsWith('```html') && htmlContent.endsWith('```')) {
+      htmlContent = htmlContent.substring(7, htmlContent.length - 3).trim();
+    } else if (htmlContent.startsWith('```') && htmlContent.endsWith('```')) {
+      htmlContent = htmlContent.substring(3, htmlContent.length - 3).trim();
+    }
+
+    return htmlContent;
+  } catch (error) {
+    console.error("Gemini translation error:", error);
+    return "<p>Xin lỗi, đã xảy ra lỗi trong quá trình dịch.</p>";
+  }
+};
+
+export const summarizeConversation = async (messages: Message[]): Promise<string> => {
+  if (messages.length === 0) {
+    return "Không có cuộc trò chuyện nào để tóm tắt.";
+  }
+
+  const charactersInConversation = [...new Set(messages.filter(m => m.sender === 'bot' && m.characterName).map(m => m.characterName))];
+  const characterList = charactersInConversation.join(', ') || 'the characters';
+
+
+  const conversationText = messages
+    .map(msg => `${msg.sender === 'user' ? 'User' : msg.characterName || 'Mimi'}: ${msg.text}`)
+    .join('\n');
+
+  const prompt = `Please summarize the following conversation between a user (speaking Vietnamese) and the Korean character(s) (${characterList}). The summary should be in Vietnamese and capture the main topics and feelings of the conversation in one or two short sentences.
+    
+    Conversation:
+    ${conversationText}
+    
+    Summary (in Vietnamese):`;
+
+  try {
+    const response = await ai.models.generateContent({
+      model: "gemini-2.5-flash",
+      contents: prompt,
+    });
+    return response.text.trim();
+  } catch (error) {
+    console.error("Gemini summarization error:", error);
+    throw new Error("Failed to summarize conversation.");
+  }
+};
+
+export const generateCharacterThoughts = async (messages: Message[], characters: Character[]): Promise<string> => {
+  if (messages.length === 0) {
+    return "[]";
+  }
+
+  const characterDescriptions = characters.map(c => `- ${c.name} (${c.gender === 'female' ? 'cô bé' : 'cậu bé'}): ${c.personality}`).join('\n      ');
+
+  const conversationText = messages
+    .map(msg => `${msg.sender === 'user' ? 'User' : msg.characterName || 'Bot'}: ${msg.text}`)
+    .join('\n');
+
+  const systemInstruction = `You are a scriptwriter. Based on the following conversation, write a short, reflective thought from the perspective of EACH character involved.
+
+  CONVERSATION:
+  ${conversationText}
+
+  CHARACTERS:
+  ${characterDescriptions}
+
+  TASK:
+  - For each character, write a short, reflective thought about the conversation.
+  - The thought MUST be in very short, simple Korean sentences (max 5 words per sentence, max 3 sentences total).
+  - The thought should capture the character's personality, feelings, and key takeaways from the chat.
+  - Also provide a "Tone" for each thought, which will be used for text-to-speech.
+
+  TONE DESCRIPTION:
+  - Provide a short, easy-to-understand English description of the character's tone for text-to-speech, using 3-5 words (e.g., "cheerful and playful", "soft and shy", "thoughtful and calm").`;
+
+  try {
+    const response = await ai.models.generateContent({
+      model: "gemini-2.5-flash",
+      contents: systemInstruction,
+      config: {
+        responseMimeType: "application/json",
+        responseSchema: {
+          type: Type.ARRAY,
+          items: {
+            type: Type.OBJECT,
+            properties: {
+              CharacterName: { type: Type.STRING },
+              Text: { type: Type.STRING },
+              Tone: { type: Type.STRING },
+            }
+          }
+        },
+      }
+    });
+    return response.text;
+  } catch (error) {
+    console.error("Gemini thought generation error:", error);
+    throw new Error("Failed to generate character thoughts.");
+  }
+};
+
+export const generateToneDescription = async (text: string, character: Character): Promise<string> => {
+  try {
+    const prompt = `Based on the following Korean text spoken by a character, provide a very short, simple English description of their tone of voice (one or two words is best).
+      Character personality: ${character.personality}
+      Text: "${text}"
+      
+      Tone:`;
+
+    const response = await ai.models.generateContent({
+      model: "gemini-2.5-flash",
+      contents: prompt,
+    });
+
+    const newTone = response.text.trim().replace(/["'.]/g, ''); // Clean up response
+    return newTone || 'neutral';
+
+  } catch (error) {
+    console.error("Gemini tone generation error:", error);
+    return "neutral"; // fallback
+  }
+};
+
+export const generateRelationshipSummary = async (
+  messages: Message[], 
+  characters: Character[],
+  currentSummary: string = ''
+): Promise<string> => {
+  if (messages.length === 0 && !currentSummary) {
+    return "";
+  }
+
+  const characterNames = characters.map(c => c.name).join(', ');
+  
+  // Build detailed character descriptions with relationships
+  const characterDescriptions = characters.map(c => {
+    let desc = `- ${c.name}: ${c.personality}`;
+    
+    // Add user opinion
+    if (c.userOpinion && c.userOpinion.opinion) {
+      desc += `\n  * Về người dùng: ${c.userOpinion.opinion}`;
+    }
+    
+    // Add relations with other characters
+    if (c.relations && Object.keys(c.relations).length > 0) {
+      const relations = Object.entries(c.relations)
+        .filter(([_, rel]) => rel.opinion)
+        .map(([targetId, rel]) => {
+          const targetChar = characters.find(ch => ch.id === targetId);
+          if (!targetChar) return null;
+          return `  * Về ${targetChar.name}: ${rel.opinion}`;
+        })
+        .filter(r => r !== null);
+      
+      if (relations.length > 0) {
+        desc += '\n' + relations.join('\n');
+      }
+    }
+    
+    return desc;
+  }).join('\n');
+  
+  const conversationText = messages
+    .map(msg => `${msg.sender === 'user' ? 'User' : msg.characterName || 'Bot'}: ${msg.text}`)
+    .join('\n');
+
+  const prompt = `Bạn là trợ lý tóm tắt bối cảnh. Nhiệm vụ của bạn là viết một đoạn tóm tắt NGẮN GỌN (4-5 câu) bằng TIẾNG VIỆT về bối cảnh tổng thể hiện tại.
+
+THÔNG TIN CÁC NHÂN VẬT:
+${characterDescriptions}
+
+${currentSummary ? `TÓM TẮT BỐI CẢNH TRƯỚC ĐÓ:
+${currentSummary}
+
+` : ''}CUỘC HỘI THOẠI MỚI:
+${conversationText}
+
+NHIỆM VỤ:
+Dựa trên:
+1. Mô tả tính cách và quan điểm của các nhân vật
+2. Tóm tắt bối cảnh trước đó (nếu có)
+3. Cuộc hội thoại mới vừa xảy ra
+
+Hãy viết một đoạn tóm tắt CHUNG về bối cảnh hiện tại:
+- Các nhân vật đang ở đâu, làm gì
+- Tình trạng mối quan hệ giữa họ
+- Tâm trạng và cảm xúc chung
+- Các sự kiện đã xảy ra gần đây
+
+YÊU CẦU:
+- Chỉ 4-5 câu ngắn gọn, súc tích
+- Bằng tiếng Việt, dễ hiểu
+- Tóm tắt TỔNG QUAN về bối cảnh, không chỉ mối quan hệ
+- Phải phản ánh đúng tính cách và quan điểm đã mô tả
+- Kế thừa và cập nhật từ bối cảnh cũ
+
+Tóm tắt bối cảnh chung:`;
+
+  try {
+    const response = await ai.models.generateContent({
+      model: "gemini-2.5-flash",
+      contents: prompt,
+    });
+    return response.text.trim();
+  } catch (error) {
+    console.error("Gemini relationship summary error:", error);
+    return currentSummary; // fallback to current summary
+  }
+};
+
+export const generateContextSuggestion = async (
+  characters: Character[],
+  relationshipSummary: string,
+  currentContext: string
+): Promise<string> => {
+  const characterDescriptions = characters.map(c => 
+    `- ${c.name}: ${c.personality}`
+  ).join('\n');
+
+  const prompt = `Bạn là trợ lý gợi ý bối cảnh trò chuyện. Dựa trên thông tin về các nhân vật và tóm tắt bối cảnh hiện tại, hãy đề xuất MỘT bối cảnh mới thú vị cho cuộc hội thoại tiếp theo.
+
+THÔNG TIN CÁC NHÂN VẬT:
+${characterDescriptions}
+
+${relationshipSummary ? `BỐI CẢNH HIỆN TẠI:
+${relationshipSummary}
+
+` : ''}${currentContext ? `Bối cảnh gần đây: ${currentContext}
+
+` : ''}NHIỆM VỤ:
+Đề xuất MỘT bối cảnh mới (ngắn gọn, bằng TIẾNG VIỆT) cho cuộc hội thoại.
+
+Bối cảnh có thể:
+- Thay đổi địa điểm (ở công viên, ở trường học, ở quán cà phê...)
+- Thêm hoạt động (chơi game, nấu ăn cùng nhau, học bài...)
+- Thêm nhân vật mới vào cuộc trò chuyện nếu phú hợp
+- Tạo tình huống mới (lên kế hoạch đi chơi, ăn mừng sinh nhật...)
+
+YÊU CẦU:
+- CHỈ trả về bối cảnh bằng tiếng Việt, ngắn gọn
+- KHÔNG giải thích, KHÔNG thêm gì khác
+- Phù hợp với tính cách nhân vật
+- Tự nhiên, thú vị
+
+Bối cảnh mới:`;
+
+  try {
+    const response = await ai.models.generateContent({
+      model: "gemini-2.5-flash",
+      contents: prompt,
+    });
+    return response.text.trim().replace(/['"]/g, '');
+  } catch (error) {
+    console.error("Gemini context suggestion error:", error);
+    return "at home"; // fallback
+  }
+};

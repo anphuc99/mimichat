@@ -1,0 +1,5 @@
+{
+  "name": "Gemini Messenger",
+  "description": "A web-based chat application that mimics the look and feel of Facebook Messenger, powered by the Gemini API for intelligent, real-time conversations.",
+  "requestFramePermissions": []
+}
