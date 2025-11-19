@@ -20,6 +20,19 @@ const __dirname = process.cwd();
 
 // ffmpeg.setFfmpegPath(ffmpegInstaller.path);
 
+// Initialize or load persistent JWT secret
+const jwtSecretPath = path.join(__dirname, "jwt_secret.key");
+let JWT_SECRET: string;
+
+if (fs.existsSync(jwtSecretPath)) {
+  JWT_SECRET = fs.readFileSync(jwtSecretPath, "utf-8");
+  console.log("Loaded existing JWT secret");
+} else {
+  JWT_SECRET = generateMD5Hash(crypto.randomUUID() + Date.now().toString());
+  fs.writeFileSync(jwtSecretPath, JWT_SECRET);
+  console.log("Created new JWT secret");
+}
+
 const app = express();
 const port = process.env.PORT || 3002;
 
@@ -83,14 +96,7 @@ app.use((req: Request, res: Response, next: NextFunction) => {
   }
 
   try {
-    const jwtSecretPath = path.join(__dirname, "/jwt_secret.key");
-    
-    if (!fs.existsSync(jwtSecretPath)) {
-      return res.status(401).json({ error: "Invalid token" });
-    }
-
-    const jwtSecret = fs.readFileSync(jwtSecretPath, "utf-8");
-    const user = jwt.verify(token, jwtSecret);
+    const user = jwt.verify(token, JWT_SECRET);
     req.user = user;
     next();
   } catch (err) {
@@ -109,11 +115,7 @@ app.post("/api/login", (req: Request, res: Response) => {
   const { token } = req.body;
   if (token === process.env.CLIENT_TOKEN) {
     const user = { id: "user1" };
-
-    const jwt_secret = generateMD5Hash(crypto.randomUUID());
-    fs.writeFileSync("jwt_secret.key", jwt_secret);
-
-    const accessToken = jwt.sign(user, jwt_secret, { expiresIn: "7d" });
+    const accessToken = jwt.sign(user, JWT_SECRET, { expiresIn: "365d" });
     res.json({ accessToken });
   } else {
     res.status(401).send("Unauthorized");
