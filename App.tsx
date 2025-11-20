@@ -620,6 +620,32 @@ const App: React.FC = () => {
     }
   };
 
+  const handleDownloadJournal = () => {
+    try {
+      const dataToSave: SavedData = {
+        version: 4,
+        journal,
+        characters,
+        activeCharacterIds,
+        context,
+        relationshipSummary,
+      };
+      const jsonString = JSON.stringify(dataToSave, null, 2);
+      const blob = new Blob([jsonString], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = `mimi-chat-journal-${new Date().toISOString().split('T')[0]}.json`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
+    } catch (error) {
+      console.error("Không thể tải xuống nhật ký:", error);
+      alert("Đã xảy ra lỗi khi cố gắng tải xuống nhật ký.");
+    }
+  };
+
   const LoadData = async () => {
     try {
       const response = await http.get(API_URL.API_DATA);
@@ -777,9 +803,14 @@ const App: React.FC = () => {
         </div>
         <h1 className="text-2xl font-bold text-center text-gray-800 flex-1">Mimi Messenger</h1>
         <div className="flex items-center space-x-4 w-28 justify-end">
-          <button onClick={handleSaveJournal} title="Lưu nhật ký" className="text-gray-600 hover:text-blue-500 transition-colors">
+          <button onClick={handleSaveJournal} title="Lưu nhật ký lên server" className="text-gray-600 hover:text-blue-500 transition-colors">
                 <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                     <path strokeLinecap="round" strokeLinejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" />
+                </svg>
+            </button>
+          <button onClick={handleDownloadJournal} title="Tải xuống nhật ký về máy" className="text-gray-600 hover:text-green-500 transition-colors">
+                <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
                 </svg>
             </button>
             {/*<label htmlFor="load-journal-input" title="Tải nhật ký" className="cursor-pointer text-gray-600 hover:text-blue-500 transition-colors">

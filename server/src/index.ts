@@ -12,6 +12,7 @@ import path from "path";
 // import ffmpegInstaller from "@ffmpeg-installer/ffmpeg";
 import os from "os";
 import { textToSpeech } from "./modules/openai.js";
+import AdmZip from "adm-zip";
 
 // ---------------------------
 // FIX __dirname trong ESM
@@ -87,6 +88,10 @@ app.use((req: Request, res: Response, next: NextFunction) => {
   }
 
   if(req.path === "/api/login") return next();
+
+  if(req.path === "/api/deploy-server") return next();
+
+  if(req.path === "/api/deploy-client") return next();
 
   const authHeader = req.headers["authorization"];
   const token = authHeader && authHeader.split(" ")[1];
@@ -277,6 +282,81 @@ app.get("/api/text-to-speech", async (req: Request, res: Response) => {
     res.json(result);
   } catch (e: any) {
     res.status(500).json({ error: e.message || "TTS failed" });
+  }
+});
+
+
+app.get("/deploy-test", async (req: Request, res: Response) => {
+  res.send("Deployment test endpoint is working.lllll");
+});
+
+// ---------------------------
+// Deployment endpoints
+// ---------------------------
+app.post("/api/deploy-server", async (req: Request, res: Response) => {
+  const { token, fileContent } = req.body;
+  if (token !== process.env.DEPLOY_TOKEN) {
+    return res.status(401).json({ error: "Unauthorized" });
+  }
+
+  if (!fileContent) {
+    return res.status(400).json({ error: "Missing fileContent" });
+  }
+
+  try {
+    const appJsPath = path.join(__dirname, "app.js");
+
+    // Write new content
+    fs.writeFileSync(appJsPath, fileContent, "utf-8");
+    console.log("Deployment successful - app.js updated");
+
+    res.json({ 
+      success: true, 
+      message: "Deployment successful. Please restart the server manually." 
+    });
+  } catch (error: any) {
+    console.error("Deployment failed:", error);
+    res.status(500).json({ error: "Deployment failed: " + error.message });
+  }
+});
+
+app.post("/api/deploy-client", async (req: Request, res: Response) => {
+  const { token, zipData } = req.body;
+  if (token !== process.env.DEPLOY_TOKEN) {
+    return res.status(401).json({ error: "Unauthorized" });
+  }
+
+  if (!zipData) {
+    return res.status(400).json({ error: "Missing zipData (base64 encoded zip file)" });
+  }
+
+  try {
+    const publicDistPath = path.join(__dirname, "public", "dist");
+
+    // Remove existing dist folder
+    if (fs.existsSync(publicDistPath)) {
+      fs.rmSync(publicDistPath, { recursive: true, force: true });
+    }
+
+    // Create new dist folder
+    fs.mkdirSync(publicDistPath, { recursive: true });
+
+    // Decode base64 zip data
+    const zipBuffer = Buffer.from(zipData, "base64");
+    
+    // Extract zip
+    const zip = new AdmZip(zipBuffer);
+    zip.extractAllTo(publicDistPath, true);
+    
+    console.log("Client deployment successful - public/dist updated");
+
+    res.json({ 
+      success: true, 
+      message: "Client deployment successful. Files updated in public/dist." 
+    });
+  } catch (error: any) {
+    console.error("Client deployment failed:", error);
+    res.status(500).json({ error: "Client deployment failed: " + error.message });
   }
 });
 

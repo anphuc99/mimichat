@@ -12,6 +12,10 @@ interface DailyEntryProps {
 
 const DailyEntry: React.FC<DailyEntryProps> = ({ dailyChat, onReplayAudio, isGeneratingThoughts, onGenerateThoughts }) => {
   const [isExpanded, setIsExpanded] = useState(false);
+  const [isAutoPlaying, setIsAutoPlaying] = useState(false);
+  const [currentPlayingIndex, setCurrentPlayingIndex] = useState<number>(-1);
+  const messageRefs = React.useRef<Map<number, HTMLDivElement>>(new Map());
+  const autoPlayRef = React.useRef<boolean>(false);
 
   const formattedDate = new Date(dailyChat.date).toLocaleDateString('vi-VN', {
     weekday: 'long',
@@ -19,6 +23,49 @@ const DailyEntry: React.FC<DailyEntryProps> = ({ dailyChat, onReplayAudio, isGen
     month: 'long',
     day: 'numeric',
   });
+
+  const handleAutoPlay = async () => {
+    if (isAutoPlaying) {
+      autoPlayRef.current = false;
+      setIsAutoPlaying(false);
+      setCurrentPlayingIndex(-1);
+      return;
+    }
+
+    const messagesWithAudio = dailyChat.messages.filter(msg => msg.audioData);
+    if (messagesWithAudio.length === 0) {
+      alert('Không có tin nhắn nào có audio để phát');
+      return;
+    }
+
+    setIsAutoPlaying(true);
+    autoPlayRef.current = true;
+
+    for (let i = 0; i < dailyChat.messages.length; i++) {
+      if (!autoPlayRef.current) break; // Stop if user clicked stop
+
+      const message = dailyChat.messages[i];
+      if (!message.audioData) continue;
+
+      setCurrentPlayingIndex(i);
+
+      // Scroll to message
+      const messageElement = messageRefs.current.get(i);
+      if (messageElement) {
+        messageElement.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      }
+
+      // Play audio
+      onReplayAudio(message.audioData, message.characterName);
+
+      // Wait for audio duration (estimate ~3 seconds per message, adjust as needed)
+      await new Promise(resolve => setTimeout(resolve, 3500));
+    }
+
+    autoPlayRef.current = false;
+    setIsAutoPlaying(false);
+    setCurrentPlayingIndex(-1);
+  };
 
   return (
     <div className="bg-white p-4 rounded-lg shadow-md border border-gray-200">
@@ -31,9 +78,42 @@ const DailyEntry: React.FC<DailyEntryProps> = ({ dailyChat, onReplayAudio, isGen
       </div>
       {isExpanded && (
         <>
+          <div className="mt-4 mb-2 flex justify-end">
+            <button
+              onClick={handleAutoPlay}
+              className={`px-4 py-2 rounded-lg transition-colors flex items-center space-x-2 ${
+                isAutoPlaying 
+                  ? 'bg-red-500 hover:bg-red-600 text-white' 
+                  : 'bg-blue-500 hover:bg-blue-600 text-white'
+              }`}
+            >
+              {isAutoPlaying ? (
+                <>
+                  <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+                    <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8 7a1 1 0 00-1 1v4a1 1 0 001 1h4a1 1 0 001-1V8a1 1 0 00-1-1H8z" clipRule="evenodd" />
+                  </svg>
+                  <span>Dừng</span>
+                </>
+              ) : (
+                <>
+                  <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+                    <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM9.555 7.168A1 1 0 008 8v4a1 1 0 001.555.832l3-2a1 1 0 000-1.664l-3-2z" clipRule="evenodd" />
+                  </svg>
+                  <span>Tự động phát</span>
+                </>
+              )}
+            </button>
+          </div>
           <div className="mt-4 pt-4 border-t border-gray-200 space-y-4 max-h-96 overflow-y-auto pr-2">
-            {dailyChat.messages.map(message => (
-              <div key={message.id}>
+            {dailyChat.messages.map((message, index) => (
+              <div 
+                key={message.id}
+                ref={(el) => {
+                  if (el) messageRefs.current.set(index, el);
+                  else messageRefs.current.delete(index);
+                }}
+                className={`transition-all ${currentPlayingIndex === index ? 'ring-2 ring-blue-400 rounded-lg' : ''}`}
+              >
                    <MessageBubble 
                       message={message} 
                       onReplayAudio={onReplayAudio} 
