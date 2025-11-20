@@ -29,9 +29,17 @@ class HTTPService {
 	private storageKey = 'jwt';
 
 	constructor() {
-		// Vite env fallback
-		const envBase = (import.meta as any).env?.VITE_API_BASE || '/';
-		this.baseUrl = envBase.replace(/\/$/, '');
+		// Check if in development mode (Vite dev server) or production (built)
+		const isDev = (import.meta as any).env?.DEV;
+		
+		if (isDev) {
+			console.log("Using development server URL for HTTPService");
+			// Development: use localhost server
+			this.baseUrl = (import.meta as any).env?.VITE_API_BASE;
+		} else {
+			// Production: use current origin or environment variable			
+			this.baseUrl = window.location.origin;
+		}
 	}
 
 	setBaseUrl(url: string) {
