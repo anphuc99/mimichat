@@ -8,9 +8,20 @@ interface DailyEntryProps {
   onReplayAudio: (audioData: string, characterName?: string) => void;
   isGeneratingThoughts: string | null;
   onGenerateThoughts: (id: string) => void;
+  isSelected: boolean;
+  onToggleSelect: () => void;
+  playingMessageId: string | null;
 }
 
-const DailyEntry: React.FC<DailyEntryProps> = ({ dailyChat, onReplayAudio, isGeneratingThoughts, onGenerateThoughts }) => {
+const DailyEntry: React.FC<DailyEntryProps> = ({ 
+    dailyChat, 
+    onReplayAudio, 
+    isGeneratingThoughts, 
+    onGenerateThoughts,
+    isSelected,
+    onToggleSelect,
+    playingMessageId
+}) => {
   const [isExpanded, setIsExpanded] = useState(false);
   const [isAutoPlaying, setIsAutoPlaying] = useState(false);
   const [currentPlayingIndex, setCurrentPlayingIndex] = useState<number>(-1);
@@ -23,6 +34,23 @@ const DailyEntry: React.FC<DailyEntryProps> = ({ dailyChat, onReplayAudio, isGen
     month: 'long',
     day: 'numeric',
   });
+
+  // Effect to handle global playback scrolling/expanding
+  React.useEffect(() => {
+    if (playingMessageId) {
+      const index = dailyChat.messages.findIndex(m => m.id === playingMessageId);
+      if (index !== -1) {
+        setIsExpanded(true);
+        // Small delay to allow expansion rendering
+        setTimeout(() => {
+          const el = messageRefs.current.get(index);
+          if (el) {
+            el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+          }
+        }, 100);
+      }
+    }
+  }, [playingMessageId, dailyChat.messages]);
 
   const handleAutoPlay = async () => {
     if (isAutoPlaying) {
@@ -69,11 +97,21 @@ const DailyEntry: React.FC<DailyEntryProps> = ({ dailyChat, onReplayAudio, isGen
 
   return (
     <div className="bg-white p-4 rounded-lg shadow-md border border-gray-200">
-      <div className="cursor-pointer" onClick={() => setIsExpanded(!isExpanded)}>
-        <p className="font-semibold text-gray-600">{formattedDate}</p>
-        <p className="text-gray-800 mt-2 italic">"{dailyChat.summary}"</p>
-        <div className="text-right text-sm text-blue-500 mt-2">
-          {isExpanded ? 'Thu gọn' : 'Xem chi tiết...'} ({dailyChat.messages.length} tin nhắn)
+      <div className="flex items-start space-x-3">
+        <div className="pt-1" onClick={(e) => e.stopPropagation()}>
+            <input 
+                type="checkbox" 
+                checked={isSelected} 
+                onChange={onToggleSelect}
+                className="h-5 w-5 text-blue-600 rounded focus:ring-blue-500 cursor-pointer"
+            />
+        </div>
+        <div className="flex-1 cursor-pointer" onClick={() => setIsExpanded(!isExpanded)}>
+            <p className="font-semibold text-gray-600">{formattedDate}</p>
+            <p className="text-gray-800 mt-2 italic">"{dailyChat.summary}"</p>
+            <div className="text-right text-sm text-blue-500 mt-2">
+            {isExpanded ? 'Thu gọn' : 'Xem chi tiết...'} ({dailyChat.messages.length} tin nhắn)
+            </div>
         </div>
       </div>
       {isExpanded && (
@@ -112,7 +150,7 @@ const DailyEntry: React.FC<DailyEntryProps> = ({ dailyChat, onReplayAudio, isGen
                   if (el) messageRefs.current.set(index, el);
                   else messageRefs.current.delete(index);
                 }}
-                className={`transition-all ${currentPlayingIndex === index ? 'ring-2 ring-blue-400 rounded-lg' : ''}`}
+                className={`transition-all ${currentPlayingIndex === index || playingMessageId === message.id ? 'ring-2 ring-blue-400 rounded-lg' : ''}`}
               >
                    <MessageBubble 
                       message={message} 
@@ -207,7 +245,109 @@ export const JournalViewer: React.FC<JournalViewerProps> = ({
     const [isEditingSummary, setIsEditingSummary] = useState(false);
     const [editedSummary, setEditedSummary] = useState(relationshipSummary);
     
+    // Global Player State
+    const [selectedEntryIds, setSelectedEntryIds] = useState<Set<string>>(new Set());
+    const [isPlaying, setIsPlaying] = useState(false);
+    const [playMode, setPlayMode] = useState<'sequential' | 'loop' | 'shuffle'>('sequential');
+    const [playingMessageId, setPlayingMessageId] = useState<string | null>(null);
+    const playerTimeoutRef = React.useRef<NodeJS.Timeout | null>(null);
+    const isPlayingRef = React.useRef(false);
+
     const summarizedEntries = journal.filter(entry => entry.summary && entry.messages.length > 0).reverse();
+
+    // Cleanup player on unmount
+    React.useEffect(() => {
+        return () => {
+            if (playerTimeoutRef.current) clearTimeout(playerTimeoutRef.current);
+        };
+    }, []);
+
+    const toggleSelectEntry = (id: string) => {
+        const newSet = new Set(selectedEntryIds);
+        if (newSet.has(id)) newSet.delete(id);
+        else newSet.add(id);
+        setSelectedEntryIds(newSet);
+    };
+
+    const selectAll = () => {
+        if (selectedEntryIds.size === summarizedEntries.length) {
+            setSelectedEntryIds(new Set());
+        } else {
+            setSelectedEntryIds(new Set(summarizedEntries.map(e => e.id)));
+        }
+    };
+
+    const getPlaylist = React.useCallback(() => {
+        // Create map for lookup to preserve selection order
+        const entryMap = new Map(summarizedEntries.map(e => [e.id, e]));
+        const entries = Array.from(selectedEntryIds)
+            .map(id => entryMap.get(id))
+            .filter((e): e is DailyChat => e !== undefined);
+            
+        return entries.flatMap(e => e.messages.filter(m => m.audioData));
+    }, [summarizedEntries, selectedEntryIds]);
+
+    const playNext = React.useCallback((currentId: string | null) => {
+        if (!isPlayingRef.current) return;
+
+        const playlist = getPlaylist();
+        if (playlist.length === 0) {
+            setIsPlaying(false);
+            isPlayingRef.current = false;
+            setPlayingMessageId(null);
+            return;
+        }
+
+        let nextIndex = 0;
+        if (currentId) {
+            const currentIndex = playlist.findIndex(m => m.id === currentId);
+            if (currentIndex !== -1) {
+                if (playMode === 'shuffle') {
+                    nextIndex = Math.floor(Math.random() * playlist.length);
+                } else {
+                    nextIndex = currentIndex + 1;
+                }
+            }
+        }
+
+        if (nextIndex >= playlist.length) {
+            if (playMode === 'loop') {
+                nextIndex = 0;
+            } else {
+                setIsPlaying(false);
+                isPlayingRef.current = false;
+                setPlayingMessageId(null);
+                return;
+            }
+        }
+
+        const nextMsg = playlist[nextIndex];
+        setPlayingMessageId(nextMsg.id);
+        onReplayAudio(nextMsg.audioData!, nextMsg.characterName);
+
+        playerTimeoutRef.current = setTimeout(() => {
+            playNext(nextMsg.id);
+        }, 3500);
+
+    }, [getPlaylist, playMode, onReplayAudio]);
+
+    const handlePlayPause = () => {
+        if (isPlaying) {
+            setIsPlaying(false);
+            isPlayingRef.current = false;
+            if (playerTimeoutRef.current) clearTimeout(playerTimeoutRef.current);
+            setPlayingMessageId(null);
+        } else {
+            const playlist = getPlaylist();
+            if (playlist.length === 0) {
+                alert('Vui lòng chọn ít nhất một nhật ký để phát.');
+                return;
+            }
+            setIsPlaying(true);
+            isPlayingRef.current = true;
+            playNext(null);
+        }
+    };
 
     const handleSaveSummary = () => {
         onUpdateRelationshipSummary(editedSummary);
@@ -229,6 +369,76 @@ export const JournalViewer: React.FC<JournalViewerProps> = ({
                 >
                     Quay lại trò chuyện
                 </button>
+            </div>
+
+            {/* Player Controls */}
+            <div className="mb-6 bg-white p-4 rounded-lg shadow-sm border border-gray-200 flex flex-wrap items-center gap-4">
+                <div className="flex items-center space-x-2">
+                    <button 
+                        onClick={selectAll}
+                        className="px-3 py-1.5 text-sm bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-md transition-colors"
+                    >
+                        {selectedEntryIds.size === summarizedEntries.length ? 'Bỏ chọn tất cả' : 'Chọn tất cả'}
+                    </button>
+                    <span className="text-sm text-gray-500">Đã chọn: {selectedEntryIds.size}</span>
+                </div>
+
+                <div className="h-6 w-px bg-gray-300 mx-2 hidden sm:block"></div>
+
+                <div className="flex items-center space-x-2">
+                    <button
+                        onClick={handlePlayPause}
+                        className={`px-4 py-2 rounded-lg flex items-center space-x-2 transition-colors ${
+                            isPlaying ? 'bg-red-500 hover:bg-red-600 text-white' : 'bg-green-500 hover:bg-green-600 text-white'
+                        }`}
+                    >
+                        {isPlaying ? (
+                            <>
+                                <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+                                    <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8 7a1 1 0 00-1 1v4a1 1 0 001 1h4a1 1 0 001-1V8a1 1 0 00-1-1H8z" clipRule="evenodd" />
+                                </svg>
+                                <span>Dừng phát</span>
+                            </>
+                        ) : (
+                            <>
+                                <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+                                    <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM9.555 7.168A1 1 0 008 8v4a1 1 0 001.555.832l3-2a1 1 0 000-1.664l-3-2z" clipRule="evenodd" />
+                                </svg>
+                                <span>Phát đã chọn</span>
+                            </>
+                        )}
+                    </button>
+                </div>
+
+                <div className="flex items-center space-x-2 bg-gray-100 p-1 rounded-lg">
+                    <button
+                        onClick={() => setPlayMode('sequential')}
+                        className={`p-1.5 rounded-md transition-colors ${playMode === 'sequential' ? 'bg-white shadow text-blue-600' : 'text-gray-500 hover:text-gray-700'}`}
+                        title="Tuần tự"
+                    >
+                        <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+                            <path fillRule="evenodd" d="M3 4a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zm0 4a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zm0 4a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zm0 4a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1z" clipRule="evenodd" />
+                        </svg>
+                    </button>
+                    <button
+                        onClick={() => setPlayMode('loop')}
+                        className={`p-1.5 rounded-md transition-colors ${playMode === 'loop' ? 'bg-white shadow text-blue-600' : 'text-gray-500 hover:text-gray-700'}`}
+                        title="Lặp lại"
+                    >
+                        <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+                            <path fillRule="evenodd" d="M4 2a1 1 0 011 1v2.101a7.002 7.002 0 0111.601 2.566 1 1 0 11-1.885.666A5.002 5.002 0 005.999 7H9a1 1 0 010 2H4a1 1 0 01-1-1V3a1 1 0 011-1zm.008 9.057a1 1 0 011.276.61A5.002 5.002 0 0014.001 13H11a1 1 0 110-2h5a1 1 0 011 1v5a1 1 0 11-2 0v-2.101a7.002 7.002 0 01-11.601-2.566 1 1 0 01.61-1.276z" clipRule="evenodd" />
+                        </svg>
+                    </button>
+                    <button
+                        onClick={() => setPlayMode('shuffle')}
+                        className={`p-1.5 rounded-md transition-colors ${playMode === 'shuffle' ? 'bg-white shadow text-blue-600' : 'text-gray-500 hover:text-gray-700'}`}
+                        title="Ngẫu nhiên"
+                    >
+                        <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+                            <path fillRule="evenodd" d="M8 4a4 4 0 100 8 4 4 0 000-8zM2 8a6 6 0 1110.89 3.476l4.817 4.817a1 1 0 01-1.414 1.414l-4.816-4.816A6 6 0 012 8z" clipRule="evenodd" />
+                        </svg>
+                    </button>
+                </div>
             </div>
 
             {/* Relationship Summary Section */}
@@ -314,6 +524,9 @@ export const JournalViewer: React.FC<JournalViewerProps> = ({
                             onReplayAudio={onReplayAudio}
                             isGeneratingThoughts={isGeneratingThoughts}
                             onGenerateThoughts={onGenerateThoughts}
+                            isSelected={selectedEntryIds.has(dailyChat.id)}
+                            onToggleSelect={() => toggleSelectEntry(dailyChat.id)}
+                            playingMessageId={playingMessageId}
                         />
                     ))}
                 </div>
