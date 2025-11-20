@@ -194,7 +194,6 @@ app.get("/api/audio/:filename",async (req: Request, res: Response) => {
   if(process.env.NODE_ENV === "dev"){
     // nếu là dev thì lấy từ server host
     const audioUrl = `${SERVER_HOST}/api/get-audio/${req.params.filename}?key=${encodeURI(process.env.SERVER_API_KEY)}`;
-    console.log(audioUrl)
     const response = await fetch(audioUrl);
     res.setHeader("Content-Type", response.headers.get("Content-Type") || "application/octet-stream");
     res.setHeader("Content-Disposition", response.headers.get("Content-Disposition") || `inline; filename="${req.params.filename}"`);
