@@ -1,9 +1,23 @@
 import { GoogleGenAI, Chat, GenerateContentResponse, Content, Modality, Type } from "@google/genai";
-import type { Message, Character } from '../types';
+import type { Message, Character, VocabularyItem } from '../types';
 import http, { API_URL } from './HTTPService';
 
 let API_KEY: string | null = null;
 let ai: GoogleGenAI | null = null;
+
+// Initialize Gemini service with API key
+export const initializeGeminiService = async (): Promise<void> => {
+  if (!API_KEY) {
+    const res = await http.get<{ apiKey: string }>(API_URL.API_GET_API_KEY);
+    if (!res.ok || !res.data?.apiKey) {
+      throw new Error(res.error || 'Cannot retrieve API key');
+    }
+    API_KEY = res.data.apiKey;
+  }
+  if (!ai) {
+    ai = new GoogleGenAI({ apiKey: API_KEY });
+  }
+};
 
 export const initChat = async (
   activeCharacters: Character[],
@@ -12,17 +26,8 @@ export const initChat = async (
   contextSummary: string = '',
   relationshipSummary: string = ''
 ): Promise<Chat> => {
-  // Lazy load API key
-  if (!API_KEY) {
-    const res = await http.get<{ apiKey: string }>(API_URL.API_GET_API_KEY);
-    if (!res.ok || !res.data?.apiKey) {
-      throw new Error(res.error || 'Cannot retrieve API key');
-    }
-    API_KEY = res.data.apiKey;
-  }
-  // Init client once
   if (!ai) {
-    ai = new GoogleGenAI({ apiKey: API_KEY });
+    throw new Error('Gemini service not initialized. Call initializeGeminiService first.');
   }
 
   const characterDescriptions = activeCharacters.map(c => {
@@ -566,5 +571,83 @@ Gợi ý:`;
   } catch (error) {
     console.error("Gemini message suggestions error:", error);
     return ['Bạn khỏe không?', 'Hôm nay làm gì?', 'Được rồi'];
+  }
+};
+
+export const generateVocabulary = async (
+  messages: Message[],
+  level: string = 'A0-A1'
+): Promise<VocabularyItem[]> => {
+  if (messages.length === 0) {
+    return [];
+  }
+
+  const conversationText = messages
+    .map((msg, index) => `[ID: ${msg.id}] ${msg.sender === 'user' ? 'User' : msg.characterName || 'Bot'}: ${msg.text}`)
+    .join('\n');
+
+  const prompt = `Analyze the following conversation and identify 5-10 vocabulary words or phrases suitable for a beginner Korean learner (Level ${level}).
+
+CONVERSATION:
+${conversationText}
+
+TASK:
+- Pick words/phrases that appear *exactly* as they are in the text (conjugated form). For example, if "가요" (gayo) appears, select "가요", NOT "가다" (gada).
+- Focus on useful, common expressions.
+- Provide the Vietnamese meaning.
+- Return JSON format.
+
+OUTPUT FORMAT:
+JSON Array of objects:
+[
+  { "korean": "exact_word_from_text", "vietnamese": "meaning" }
+]`;
+  console.log(prompt);
+  try {
+    const response = await ai.models.generateContent({
+      model: "gemini-2.5-flash",
+      contents: prompt,
+      config: {
+        responseMimeType: "application/json",
+        responseSchema: {
+          type: Type.ARRAY,
+          items: {
+            type: Type.OBJECT,
+            properties: {
+              korean: { type: Type.STRING },
+              vietnamese: { type: Type.STRING }
+            },
+            required: ["korean", "vietnamese"]
+          }
+        }
+      }
+    });
+
+    console.log(response.text);
+
+    const rawVocabularies = JSON.parse(response.text);
+    
+    // Process each vocabulary to add id and find usageMessageIds
+    const vocabularies: VocabularyItem[] = rawVocabularies.map((vocab: { korean: string; vietnamese: string }) => {
+      // Find all messages that contain this Korean word
+      const usageMessageIds = messages
+        .filter(msg => msg.text.includes(vocab.korean))
+        .map(msg => msg.id);
+      
+      const m = {
+        id: `vocab-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+        korean: vocab.korean,
+        vietnamese: vocab.vietnamese,
+        usageMessageIds
+      };
+
+      console.log(m);
+      return m;
+    });
+
+    return vocabularies.slice(0, 10); // Ensure max 10 items
+  } catch (error) {
+    console.error("Gemini vocabulary generation error:", error);
+    throw new Error("Failed to generate vocabulary.");
   }
 };

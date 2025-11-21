@@ -37,18 +37,50 @@ export interface CharacterThought {
   tone: string;
 }
 
+export interface VocabularyItem {
+  id: string;
+  korean: string;
+  vietnamese: string;
+  usageMessageIds: string[];
+}
+
+export interface VocabularyProgress {
+  vocabularyId: string;
+  correctCount: number;
+  incorrectCount: number;
+  lastPracticed: string;
+  needsReview: boolean;
+  reviewAttempts: number;
+}
+
+export interface QuizState {
+  currentVocabIndex: number;
+  currentQuizType: 'meaning' | 'fill-blank';
+  wrongVocabs: VocabularyItem[];
+  reviewMode: boolean;
+  completedQuizzes: {
+    vocabularyId: string;
+    quizType: string;
+    isCorrect: boolean;
+    timestamp: string;
+  }[];
+  reviewStartTime: number | null;
+}
+
 export interface DailyChat {
   id: string;
   date: string;
   summary: string;
   messages: Message[];
   characterThoughts?: CharacterThought[];
+  vocabularies?: VocabularyItem[];
+  vocabularyProgress?: VocabularyProgress[];
 }
 
 export type ChatJournal = DailyChat[];
 
 export interface SavedData {
-  version: 4;
+  version: 5;
   journal: ChatJournal;
   characters: Character[];
   activeCharacterIds: string[];

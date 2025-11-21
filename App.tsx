@@ -5,8 +5,11 @@ import { ChatWindow } from './components/ChatWindow';
 import { MessageInput } from './components/MessageInput';
 import { JournalViewer } from './components/JournalViewer';
 import { CharacterManager } from './components/CharacterManager';
-import type { Message, ChatJournal, DailyChat, Character, SavedData, CharacterThought } from './types';
-import { initChat, sendMessage, textToSpeech, translateAndExplainText, summarizeConversation, generateCharacterThoughts, generateToneDescription, generateRelationshipSummary, generateContextSuggestion, generateMessageSuggestions } from './services/geminiService';
+import { VocabularyScene } from './components/VocabularyScene';
+import { ChatContextViewer } from './components/ChatContextViewer';
+import type { Message, ChatJournal, DailyChat, Character, SavedData, CharacterThought, QuizState, VocabularyItem } from './types';
+import { initializeGeminiService, initChat, sendMessage, textToSpeech, translateAndExplainText, summarizeConversation, generateCharacterThoughts, generateToneDescription, generateRelationshipSummary, generateContextSuggestion, generateMessageSuggestions, generateVocabulary } from './services/geminiService';
+import { calculateProgress } from './utils/vocabularyQuiz';
 import http, { API_URL } from './services/HTTPService';
 
 const initialCharacters: Character[] = [
@@ -49,7 +52,7 @@ const App: React.FC = () => {
   const [journal, setJournal] = useState<ChatJournal>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [isSummarizing, setIsSummarizing] = useState(false);
-  const [view, setView] = useState<'chat' | 'journal'>('chat');
+  const [view, setView] = useState<'chat' | 'journal' | 'vocabulary' | 'context'>('chat');
 
   const [characters, setCharacters] = useState<Character[]>(initialCharacters);
   const [activeCharacterIds, setActiveCharacterIds] = useState<string[]>(['mimi']);
@@ -62,6 +65,18 @@ const App: React.FC = () => {
   const [editingMessageId, setEditingMessageId] = useState<string | null>(null);
   const [isGeneratingThoughts, setIsGeneratingThoughts] = useState<string | null>(null);
 
+  // Vocabulary learning states
+  const [selectedDailyChatId, setSelectedDailyChatId] = useState<string | null>(null);
+  const [quizState, setQuizState] = useState<QuizState | null>(null);
+  const [contextViewState, setContextViewState] = useState<{
+    vocabulary: VocabularyItem;
+    currentUsageIndex: number;
+    messages: Message[];
+  } | null>(null);
+  const [isGeneratingVocabulary, setIsGeneratingVocabulary] = useState<string | null>(null);
+
+  const [isGeminiInitialized, setIsGeminiInitialized] = useState(false);
+
   const userPromptRef = useRef<string>('');
 
 
@@ -72,7 +87,24 @@ const App: React.FC = () => {
     return characters.filter(c => activeCharacterIds.includes(c.id));
   }, [characters, activeCharacterIds]);
 
+  // Initialize Gemini service first
   useEffect(() => {
+    const initializeApp = async () => {
+      try {
+        await initializeGeminiService();
+        setIsGeminiInitialized(true);
+        console.log("Gemini service initialized successfully");
+      } catch (error) {
+        console.error("Failed to initialize Gemini service:", error);
+        alert("Không thể kết nối với dịch vụ AI. Vui lòng kiểm tra kết nối mạng và thử lại.");
+      }
+    };
+    initializeApp();
+  }, []);
+
+  useEffect(() => {
+    if (!isGeminiInitialized) return;
+    
     const initializeChatSession = async () => {
       const activeChars = getActiveCharacters();
       if (activeChars.length > 0) {
@@ -81,18 +113,20 @@ const App: React.FC = () => {
       }
     };
     initializeChatSession();
-  }, [context, activeCharacterIds, characters, relationshipSummary, getActiveCharacters]);
+  }, [context, activeCharacterIds, characters, relationshipSummary, getActiveCharacters, isGeminiInitialized]);
 
 
   useEffect(() => {
-    const initializeApp = async () => {
+    if (!isGeminiInitialized) return;
+    
+    const loadData = async () => {
       const today = new Date().toISOString().split('T')[0];
       const initialChat: DailyChat = { id: Date.now().toString(), date: today, summary: '', messages: [] };
       setJournal([initialChat]);
       LoadData();
     };
-    initializeApp();
-  }, []);
+    loadData();
+  }, [isGeminiInitialized]);
 
   const getCurrentChat = (): DailyChat | null => {
     if (journal.length === 0) return null;
@@ -600,10 +634,171 @@ const App: React.FC = () => {
     }
   }, [journal, getCharactersInChat, characters]);
 
+  // Vocabulary handlers
+  const handleGenerateVocabulary = useCallback(async (dailyChatId: string) => {
+    const chatIndex = journal.findIndex(dc => dc.id === dailyChatId);
+    if (chatIndex === -1) return;
+
+    const dailyChat = journal[chatIndex];
+    if (dailyChat.vocabularies && dailyChat.vocabularies.length > 0) {
+      return; // Already has vocabularies
+    }
+
+    setIsGeneratingVocabulary(dailyChatId);
+    try {
+      const vocabularies = await generateVocabulary(dailyChat.messages, 'A0-A1');
+      
+      setJournal(prevJournal => {
+        const newJournal = [...prevJournal];
+        newJournal[chatIndex] = {
+          ...newJournal[chatIndex],
+          vocabularies,
+          vocabularyProgress: vocabularies.map(v => ({
+            vocabularyId: v.id,
+            correctCount: 0,
+            incorrectCount: 0,
+            lastPracticed: '',
+            needsReview: false,
+            reviewAttempts: 0
+          }))
+        };
+        return newJournal;
+      });
+
+      // Auto start vocabulary after generation
+      setSelectedDailyChatId(dailyChatId);
+      setQuizState({
+        currentVocabIndex: 0,
+        currentQuizType: 'meaning',
+        wrongVocabs: [],
+        reviewMode: false,
+        completedQuizzes: [],
+        reviewStartTime: null
+      });
+      setView('vocabulary');
+
+    } catch (error) {
+      console.error("Failed to generate vocabulary:", error);
+      alert("Lỗi: Không thể phân tích từ vựng. Vui lòng thử lại.");
+    } finally {
+      setIsGeneratingVocabulary(null);
+    }
+  }, [journal]);
+
+  const handleStartVocabulary = useCallback((dailyChatId: string) => {
+    const dailyChat = journal.find(dc => dc.id === dailyChatId);
+    if (!dailyChat || !dailyChat.vocabularies || dailyChat.vocabularies.length === 0) {
+      alert("Chưa có từ vựng để học!");
+      return;
+    }
+
+    setSelectedDailyChatId(dailyChatId);
+    setQuizState({
+      currentVocabIndex: 0,
+      currentQuizType: 'meaning',
+      wrongVocabs: [],
+      reviewMode: false,
+      completedQuizzes: [],
+      reviewStartTime: null
+    });
+    setView('vocabulary');
+  }, [journal]);
+
+  const handleUpdateQuizState = useCallback((newState: QuizState) => {
+    setQuizState(newState);
+  }, []);
+
+  const handleViewContext = useCallback((vocabulary: VocabularyItem, usageIndex: number) => {
+    const dailyChat = journal.find(dc => dc.id === selectedDailyChatId);
+    if (!dailyChat) return;
+
+    setContextViewState({
+      vocabulary,
+      currentUsageIndex: usageIndex,
+      messages: dailyChat.messages
+    });
+    setView('context');
+  }, [journal, selectedDailyChatId]);
+
+  const handleContextNavigate = useCallback((direction: 'prev' | 'next') => {
+    if (!contextViewState) return;
+
+    const newIndex = direction === 'prev' 
+      ? Math.max(0, contextViewState.currentUsageIndex - 1)
+      : Math.min(contextViewState.vocabulary.usageMessageIds.length - 1, contextViewState.currentUsageIndex + 1);
+
+    setContextViewState({
+      ...contextViewState,
+      currentUsageIndex: newIndex
+    });
+  }, [contextViewState]);
+
+  const handleCloseContext = useCallback(() => {
+    setView('vocabulary');
+  }, []);
+
+  const handleQuizComplete = useCallback(async () => {
+    if (!quizState || !selectedDailyChatId) return;
+
+    const chatIndex = journal.findIndex(dc => dc.id === selectedDailyChatId);
+    if (chatIndex === -1) return;
+
+    const dailyChat = journal[chatIndex];
+    if (!dailyChat.vocabularies) return;
+
+    // Calculate progress for each vocabulary
+    const updatedProgress = dailyChat.vocabularies.map(vocab => {
+      const existingProgress = dailyChat.vocabularyProgress?.find(p => p.vocabularyId === vocab.id);
+      const vocabQuizzes = quizState.completedQuizzes.filter(q => q.vocabularyId === vocab.id);
+      
+      return calculateProgress(vocab.id, vocabQuizzes, existingProgress);
+    });
+
+    // Update journal with new progress
+    setJournal(prevJournal => {
+      const newJournal = [...prevJournal];
+      newJournal[chatIndex] = {
+        ...newJournal[chatIndex],
+        vocabularyProgress: updatedProgress
+      };
+      return newJournal;
+    });
+
+    // Save to server
+    try {
+      const dataToSave: SavedData = {
+        version: 5,
+        journal: journal.map((chat, idx) => 
+          idx === chatIndex 
+            ? { ...chat, vocabularyProgress: updatedProgress }
+            : chat
+        ),
+        characters,
+        activeCharacterIds,
+        context,
+        relationshipSummary,
+      };
+      await http.post(API_URL.API_SAVE_DATA, { data: dataToSave });
+    } catch (error) {
+      console.error("Failed to save vocabulary progress:", error);
+    }
+
+    // Return to journal
+    setView('journal');
+    setQuizState(null);
+    setSelectedDailyChatId(null);
+  }, [quizState, selectedDailyChatId, journal, characters, activeCharacterIds, context, relationshipSummary]);
+
+  const handleBackFromVocabulary = useCallback(() => {
+    setView('journal');
+    setQuizState(null);
+    setSelectedDailyChatId(null);
+  }, []);
+
   const handleSaveJournal = async () => {
     try {
       const dataToSave: SavedData = {
-        version: 4,
+        version: 5,
         journal,
         characters,
         activeCharacterIds,
@@ -623,7 +818,7 @@ const App: React.FC = () => {
   const handleDownloadJournal = () => {
     try {
       const dataToSave: SavedData = {
-        version: 4,
+        version: 5,
         journal,
         characters,
         activeCharacterIds,
@@ -658,10 +853,21 @@ const App: React.FC = () => {
       let loadedRelationshipSummary: string = '';
 
       if (Array.isArray(loadedData)) { // v1 format support
-        loadedJournal = loadedData.map((chat, index) => ({ ...chat, id: chat.id || `${new Date(chat.date).getTime()}-${index}` }));
+        loadedJournal = loadedData.map((chat, index) => ({ 
+          ...chat, 
+          id: chat.id || `${new Date(chat.date).getTime()}-${index}`,
+          vocabularies: [],
+          vocabularyProgress: []
+        }));
         loadedCharacters = initialCharacters;
-      } else if (typeof loadedData === 'object' && (loadedData.version === 2 || loadedData.version === 3 || loadedData.version === 4)) { // v2, v3 & v4 format
-        loadedJournal = loadedData.journal.map((chat: any, index: number) => ({ ...chat, id: chat.id || `${new Date(chat.date).getTime()}-${index}` }));
+      } else if (typeof loadedData === 'object' && (loadedData.version === 2 || loadedData.version === 3 || loadedData.version === 4 || loadedData.version === 5)) { // v2, v3, v4 & v5 format
+        loadedJournal = loadedData.journal.map((chat: any, index: number) => ({
+          ...chat,
+          id: chat.id || `${new Date(chat.date).getTime()}-${index}`,
+          // Add vocabulary fields for v4→v5 migration
+          vocabularies: chat.vocabularies || [],
+          vocabularyProgress: chat.vocabularyProgress || []
+        }));
         // Add default gender, voice, relations and userOpinion for backward compatibility
         loadedCharacters = loadedData.characters.map((c: any) => ({ 
           ...c, 
@@ -724,10 +930,21 @@ const App: React.FC = () => {
         let loadedRelationshipSummary: string = '';
 
         if (Array.isArray(loadedData)) { // v1 format support
-          loadedJournal = loadedData.map((chat, index) => ({ ...chat, id: chat.id || `${new Date(chat.date).getTime()}-${index}` }));
+          loadedJournal = loadedData.map((chat, index) => ({ 
+            ...chat, 
+            id: chat.id || `${new Date(chat.date).getTime()}-${index}`,
+            vocabularies: [],
+            vocabularyProgress: []
+          }));
           loadedCharacters = initialCharacters;
-        } else if (typeof loadedData === 'object' && (loadedData.version === 2 || loadedData.version === 3 || loadedData.version === 4)) { // v2, v3 & v4 format
-          loadedJournal = loadedData.journal.map((chat: any, index: number) => ({ ...chat, id: chat.id || `${new Date(chat.date).getTime()}-${index}` }));
+        } else if (typeof loadedData === 'object' && (loadedData.version === 2 || loadedData.version === 3 || loadedData.version === 4 || loadedData.version === 5)) { // v2, v3, v4 & v5 format
+          loadedJournal = loadedData.journal.map((chat: any, index: number) => ({
+            ...chat,
+            id: chat.id || `${new Date(chat.date).getTime()}-${index}`,
+            // Add vocabulary fields for v4→v5 migration
+            vocabularies: chat.vocabularies || [],
+            vocabularyProgress: chat.vocabularyProgress || []
+          }));
           // Add default gender, voice, relations and userOpinion for backward compatibility
           loadedCharacters = loadedData.characters.map((c: any) => ({ 
             ...c, 
@@ -885,6 +1102,26 @@ const App: React.FC = () => {
             isGeneratingSuggestions={isGeneratingMessageSuggestions}
           />
         </>
+      ) : view === 'vocabulary' && selectedDailyChatId && quizState ? (
+        <VocabularyScene
+          vocabularies={journal.find(d => d.id === selectedDailyChatId)?.vocabularies || []}
+          messages={journal.find(d => d.id === selectedDailyChatId)?.messages || []}
+          quizState={quizState}
+          onUpdateQuizState={handleUpdateQuizState}
+          onViewContext={handleViewContext}
+          onComplete={handleQuizComplete}
+          onBack={handleBackFromVocabulary}
+          onReplayAudio={handleReplayAudio}
+        />
+      ) : view === 'context' && contextViewState ? (
+        <ChatContextViewer
+          messages={contextViewState.messages}
+          vocabulary={contextViewState.vocabulary}
+          currentUsageIndex={contextViewState.currentUsageIndex}
+          onNavigate={handleContextNavigate}
+          onClose={handleCloseContext}
+          onReplayAudio={handleReplayAudio}
+        />
       ) : (
         <JournalViewer
           journal={journal}
@@ -894,6 +1131,9 @@ const App: React.FC = () => {
           onGenerateThoughts={handleGenerateAndShowThoughts}
           relationshipSummary={relationshipSummary}
           onUpdateRelationshipSummary={setRelationshipSummary}
+          isGeneratingVocabulary={isGeneratingVocabulary}
+          onGenerateVocabulary={handleGenerateVocabulary}
+          onStartVocabulary={handleStartVocabulary}
         />
       )}
     </div>

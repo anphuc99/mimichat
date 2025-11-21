@@ -8,6 +8,9 @@ interface DailyEntryProps {
   onReplayAudio: (audioData: string, characterName?: string) => void;
   isGeneratingThoughts: string | null;
   onGenerateThoughts: (id: string) => void;
+  isGeneratingVocabulary: string | null;
+  onGenerateVocabulary: (id: string) => void;
+  onStartVocabulary: (id: string) => void;
   isSelected: boolean;
   onToggleSelect: () => void;
   playingMessageId: string | null;
@@ -18,6 +21,9 @@ const DailyEntry: React.FC<DailyEntryProps> = ({
     onReplayAudio, 
     isGeneratingThoughts, 
     onGenerateThoughts,
+    isGeneratingVocabulary,
+    onGenerateVocabulary,
+    onStartVocabulary,
     isSelected,
     onToggleSelect,
     playingMessageId
@@ -215,6 +221,36 @@ const DailyEntry: React.FC<DailyEntryProps> = ({
                 ))}
               </div>
             )}
+
+            {/* Vocabulary Learning Button */}
+            <button
+                onClick={(e) => {
+                    e.stopPropagation();
+                    if (!dailyChat.vocabularies || dailyChat.vocabularies.length === 0) {
+                        onGenerateVocabulary(dailyChat.id);
+                    } else {
+                        onStartVocabulary(dailyChat.id);
+                    }
+                }}
+                className="w-full px-4 py-2 mt-3 bg-purple-500 text-white rounded-lg hover:bg-purple-600 transition-colors disabled:bg-purple-300 disabled:cursor-wait"
+                disabled={isGeneratingVocabulary === dailyChat.id}
+            >
+                {isGeneratingVocabulary === dailyChat.id
+                    ? '⏳ Đang phân tích từ vựng...'
+                    : dailyChat.vocabularies && dailyChat.vocabularies.length > 0
+                        ? `📚 Học từ vựng (${dailyChat.vocabularies.length} từ)`
+                        : '📚 Học từ vựng'}
+            </button>
+
+            {isGeneratingVocabulary === dailyChat.id && (
+                 <div className="text-center p-4">
+                    <svg className="animate-spin h-6 w-6 text-purple-500 mx-auto" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                    </svg>
+                    <p className="text-sm text-gray-500 mt-2">Đang phân tích từ vựng... (Có thể mất 10-30 giây)</p>
+                </div>
+            )}
           </div>
         </>
       )}
@@ -228,6 +264,9 @@ interface JournalViewerProps {
   onBackToChat: () => void;
   isGeneratingThoughts: string | null;
   onGenerateThoughts: (id: string) => void;
+  isGeneratingVocabulary: string | null;
+  onGenerateVocabulary: (id: string) => void;
+  onStartVocabulary: (id: string) => void;
   relationshipSummary: string;
   onUpdateRelationshipSummary: (newSummary: string) => void;
 }
@@ -238,6 +277,9 @@ export const JournalViewer: React.FC<JournalViewerProps> = ({
     onBackToChat, 
     isGeneratingThoughts, 
     onGenerateThoughts,
+    isGeneratingVocabulary,
+    onGenerateVocabulary,
+    onStartVocabulary,
     relationshipSummary,
     onUpdateRelationshipSummary
 }) => {
@@ -524,6 +566,9 @@ export const JournalViewer: React.FC<JournalViewerProps> = ({
                             onReplayAudio={onReplayAudio}
                             isGeneratingThoughts={isGeneratingThoughts}
                             onGenerateThoughts={onGenerateThoughts}
+                            isGeneratingVocabulary={isGeneratingVocabulary}
+                            onGenerateVocabulary={onGenerateVocabulary}
+                            onStartVocabulary={onStartVocabulary}
                             isSelected={selectedEntryIds.has(dailyChat.id)}
                             onToggleSelect={() => toggleSelectEntry(dailyChat.id)}
                             playingMessageId={playingMessageId}
