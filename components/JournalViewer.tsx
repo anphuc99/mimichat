@@ -1,7 +1,8 @@
 
 import React, { useState } from 'react';
-import type { ChatJournal, DailyChat } from '../types';
+import type { ChatJournal, DailyChat, StreakData } from '../types';
 import { MessageBubble } from './MessageBubble';
+import { StreakDisplay } from './StreakDisplay';
 
 interface DailyEntryProps {
   dailyChat: DailyChat;
@@ -269,6 +270,9 @@ interface JournalViewerProps {
   onStartVocabulary: (id: string) => void;
   relationshipSummary: string;
   onUpdateRelationshipSummary: (newSummary: string) => void;
+  onStartReview: () => void;
+  reviewDueCount: number;
+  streak: StreakData;
 }
 
 export const JournalViewer: React.FC<JournalViewerProps> = ({ 
@@ -281,7 +285,10 @@ export const JournalViewer: React.FC<JournalViewerProps> = ({
     onGenerateVocabulary,
     onStartVocabulary,
     relationshipSummary,
-    onUpdateRelationshipSummary
+    onUpdateRelationshipSummary,
+    onStartReview,
+    reviewDueCount,
+    streak
 }) => {
     const [isViewingSummary, setIsViewingSummary] = useState(false);
     const [isEditingSummary, setIsEditingSummary] = useState(false);
@@ -405,12 +412,26 @@ export const JournalViewer: React.FC<JournalViewerProps> = ({
         <div className="flex-1 p-4 overflow-y-auto bg-gray-50">
             <div className="flex justify-between items-center mb-4">
                 <h2 className="text-xl font-bold text-gray-700">Nhật ký trò chuyện</h2>
-                <button 
-                    onClick={onBackToChat} 
-                    className="px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition-colors"
-                >
-                    Quay lại trò chuyện
-                </button>
+                <div className="flex items-center space-x-2">
+                    <button 
+                        onClick={onStartReview}
+                        className="relative px-4 py-2 bg-orange-500 text-white rounded-lg hover:bg-orange-600 transition-colors flex items-center space-x-2"
+                    >
+                        <span>🔄</span>
+                        <span>Tổng ôn</span>
+                        {reviewDueCount > 0 && (
+                            <span className="absolute -top-2 -right-2 bg-red-500 text-white text-xs font-bold rounded-full w-6 h-6 flex items-center justify-center">
+                                {reviewDueCount}
+                            </span>
+                        )}
+                    </button>
+                    <button 
+                        onClick={onBackToChat} 
+                        className="px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition-colors"
+                    >
+                        Quay lại trò chuyện
+                    </button>
+                </div>
             </div>
 
             {/* Player Controls */}
@@ -481,6 +502,11 @@ export const JournalViewer: React.FC<JournalViewerProps> = ({
                         </svg>
                     </button>
                 </div>
+            </div>
+
+            {/* Streak Display Section */}
+            <div className="mb-6">
+                <StreakDisplay streak={streak} />
             </div>
 
             {/* Relationship Summary Section */}

@@ -44,6 +44,22 @@ export interface VocabularyItem {
   usageMessageIds: string[];
 }
 
+export interface VocabularyReview {
+  vocabularyId: string;
+  dailyChatId: string;
+  currentIntervalDays: number; // 0 = chưa ôn lần nào, sau đó là 4, 8, 16... (có thể bị giảm nếu incorrect)
+  nextReviewDate: string; // ISO date
+  lastReviewDate: string | null; // null nếu chưa ôn lần nào
+  reviewHistory: {
+    date: string;
+    correctCount: number;
+    incorrectCount: number;
+    intervalBefore: number;
+    intervalAfter: number;
+  }[];
+  totalReviews: number;
+}
+
 export interface VocabularyProgress {
   vocabularyId: string;
   correctCount: number;
@@ -75,9 +91,20 @@ export interface DailyChat {
   characterThoughts?: CharacterThought[];
   vocabularies?: VocabularyItem[];
   vocabularyProgress?: VocabularyProgress[];
+  reviewSchedule?: VocabularyReview[];
 }
 
 export type ChatJournal = DailyChat[];
+
+export interface StreakData {
+  currentStreak: number;
+  longestStreak: number;
+  lastActivityDate: string | null; // ISO date string (YYYY-MM-DD)
+  streakHistory: {
+    date: string; // ISO date string
+    activityType: 'chat' | 'review' | 'learn'; // Type of activity completed
+  }[];
+}
 
 export interface SavedData {
   version: 5;
@@ -86,4 +113,5 @@ export interface SavedData {
   activeCharacterIds: string[];
   context: string;
   relationshipSummary?: string;
+  streak?: StreakData;
 }

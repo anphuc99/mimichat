@@ -7,9 +7,14 @@ import { JournalViewer } from './components/JournalViewer';
 import { CharacterManager } from './components/CharacterManager';
 import { VocabularyScene } from './components/VocabularyScene';
 import { ChatContextViewer } from './components/ChatContextViewer';
-import type { Message, ChatJournal, DailyChat, Character, SavedData, CharacterThought, QuizState, VocabularyItem } from './types';
+import { ReviewScene } from './components/ReviewScene';
+import { StreakDisplay } from './components/StreakDisplay';
+import { StreakCelebration } from './components/StreakCelebration';
+import type { Message, ChatJournal, DailyChat, Character, SavedData, CharacterThought, QuizState, VocabularyItem, VocabularyReview, StreakData } from './types';
 import { initializeGeminiService, initChat, sendMessage, textToSpeech, translateAndExplainText, summarizeConversation, generateCharacterThoughts, generateToneDescription, generateRelationshipSummary, generateContextSuggestion, generateMessageSuggestions, generateVocabulary } from './services/geminiService';
 import { calculateProgress } from './utils/vocabularyQuiz';
+import { getVocabulariesDueForReview, updateReviewAfterQuiz, initializeVocabularyReview, getReviewDueCount } from './utils/spacedRepetition';
+import { initializeStreak, updateStreak, checkStreakStatus } from './utils/streakManager';
 import http, { API_URL } from './services/HTTPService';
 
 const initialCharacters: Character[] = [
@@ -52,7 +57,7 @@ const App: React.FC = () => {
   const [journal, setJournal] = useState<ChatJournal>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [isSummarizing, setIsSummarizing] = useState(false);
-  const [view, setView] = useState<'chat' | 'journal' | 'vocabulary' | 'context'>('chat');
+  const [view, setView] = useState<'chat' | 'journal' | 'vocabulary' | 'context' | 'review'>('chat');
 
   const [characters, setCharacters] = useState<Character[]>(initialCharacters);
   const [activeCharacterIds, setActiveCharacterIds] = useState<string[]>(['mimi']);
@@ -72,8 +77,21 @@ const App: React.FC = () => {
     vocabulary: VocabularyItem;
     currentUsageIndex: number;
     messages: Message[];
+    returnToView?: 'vocabulary' | 'review';
   } | null>(null);
   const [isGeneratingVocabulary, setIsGeneratingVocabulary] = useState<string | null>(null);
+  
+  // Review mode state - store shuffled list to keep consistent order
+  const [currentReviewItems, setCurrentReviewItems] = useState<{
+    vocabulary: VocabularyItem;
+    review: VocabularyReview;
+    dailyChat: DailyChat;
+    messages: Message[];
+  }[] | null>(null);
+
+  // Streak state
+  const [streak, setStreak] = useState<StreakData>(initializeStreak());
+  const [showStreakCelebration, setShowStreakCelebration] = useState(false);
 
   const [isGeminiInitialized, setIsGeminiInitialized] = useState(false);
 
@@ -197,6 +215,35 @@ const App: React.FC = () => {
     setJournal(updater);
   }, []);
 
+  // Helper function to update streak and show celebration
+  const handleStreakUpdate = useCallback(async (activityType: 'chat' | 'review' | 'learn') => {
+    const { updatedStreak, isNewStreak, streakIncreased } = updateStreak(streak, activityType);
+    
+    setStreak(updatedStreak);
+    
+    // Show celebration if streak increased
+    if (streakIncreased) {
+      setShowStreakCelebration(true);
+      setTimeout(() => setShowStreakCelebration(false), 3000);
+    }
+    
+    // Save streak to server
+    try {
+      const dataToSave: SavedData = {
+        version: 5,
+        journal,
+        characters,
+        activeCharacterIds,
+        context,
+        relationshipSummary,
+        streak: updatedStreak,
+      };
+      await http.post(API_URL.API_SAVE_DATA, { data: dataToSave });
+    } catch (error) {
+      console.error("Failed to save streak:", error);
+    }
+  }, [streak, journal, characters, activeCharacterIds, context, relationshipSummary]);
+
   const updateCurrentChatMessages = useCallback((updater: (prevMessages: Message[]) => Message[]): void => {
     setJournal(prevJournal => {
       const updatedJournal = [...prevJournal];
@@ -280,6 +327,9 @@ const App: React.FC = () => {
       }
 
       await processBotResponsesSequentially(botResponses);
+      
+      // Update streak after successful chat
+      await handleStreakUpdate('chat');
 
     } catch (error) {
       console.error("Không thể gửi tin nhắn:", error);
@@ -287,7 +337,7 @@ const App: React.FC = () => {
       updateCurrentChatMessages(prev => [...prev, errorMessage]);
       setIsLoading(false);
     }
-  }, [isLoading, getActiveCharacters, context, updateCurrentChatMessages, processBotResponsesSequentially]);
+  }, [isLoading, getActiveCharacters, context, updateCurrentChatMessages, processBotResponsesSequentially, handleStreakUpdate]);
 
   const handleUpdateMessage = useCallback(async (messageId: string, newText: string) => {
     if (isLoading) return;
@@ -648,11 +698,17 @@ const App: React.FC = () => {
     try {
       const vocabularies = await generateVocabulary(dailyChat.messages, 'A0-A1');
       
+      // Initialize review schedule for each vocabulary
+      const reviewSchedule = vocabularies.map(vocab => 
+        initializeVocabularyReview(vocab, dailyChatId)
+      );
+      
       setJournal(prevJournal => {
         const newJournal = [...prevJournal];
         newJournal[chatIndex] = {
           ...newJournal[chatIndex],
           vocabularies,
+          reviewSchedule,
           vocabularyProgress: vocabularies.map(v => ({
             vocabularyId: v.id,
             correctCount: 0,
@@ -715,10 +771,28 @@ const App: React.FC = () => {
     setContextViewState({
       vocabulary,
       currentUsageIndex: usageIndex,
-      messages: dailyChat.messages
+      messages: dailyChat.messages,
+      returnToView: 'vocabulary'
     });
     setView('context');
   }, [journal, selectedDailyChatId]);
+
+  const handleViewContextFromReview = useCallback((vocabulary: VocabularyItem, usageIndex: number) => {
+    // Use stored review items instead of calling getVocabulariesDueForReview again
+    if (!currentReviewItems) return;
+    
+    const item = currentReviewItems.find(r => r.vocabulary.id === vocabulary.id);
+    
+    if (!item) return;
+
+    setContextViewState({
+      vocabulary,
+      currentUsageIndex: usageIndex,
+      messages: item.messages,
+      returnToView: 'review'
+    });
+    setView('context');
+  }, [currentReviewItems]);
 
   const handleContextNavigate = useCallback((direction: 'prev' | 'next') => {
     if (!contextViewState) return;
@@ -734,7 +808,13 @@ const App: React.FC = () => {
   }, [contextViewState]);
 
   const handleCloseContext = useCallback(() => {
-    setView('vocabulary');
+    // Return to the view that opened the context viewer
+    const returnView = contextViewState?.returnToView || 'vocabulary';
+    setView(returnView);
+  }, [contextViewState]);
+
+  const handleCloseContextToReview = useCallback(() => {
+    setView('review');
   }, []);
 
   const handleQuizComplete = useCallback(async () => {
@@ -777,22 +857,106 @@ const App: React.FC = () => {
         activeCharacterIds,
         context,
         relationshipSummary,
+        streak,
       };
       await http.post(API_URL.API_SAVE_DATA, { data: dataToSave });
     } catch (error) {
       console.error("Failed to save vocabulary progress:", error);
     }
 
+    // Update streak after completing vocabulary learning
+    await handleStreakUpdate('learn');
+
     // Return to journal
     setView('journal');
     setQuizState(null);
     setSelectedDailyChatId(null);
-  }, [quizState, selectedDailyChatId, journal, characters, activeCharacterIds, context, relationshipSummary]);
+  }, [quizState, selectedDailyChatId, journal, characters, activeCharacterIds, context, relationshipSummary, handleStreakUpdate]);
 
   const handleBackFromVocabulary = useCallback(() => {
     setView('journal');
     setQuizState(null);
     setSelectedDailyChatId(null);
+  }, []);
+
+  // Review mode handlers
+  const handleStartReview = useCallback(() => {
+    const reviewItems = getVocabulariesDueForReview(journal);
+    
+    if (reviewItems.length === 0) {
+      alert('Không có từ vựng nào cần ôn tập hôm nay!');
+      return;
+    }
+    
+    // Store shuffled list to keep consistent order
+    setCurrentReviewItems(reviewItems);
+    setView('review');
+  }, [journal]);
+
+  const handleCompleteReview = useCallback(async (
+    results: { vocabularyId: string; correctCount: number; incorrectCount: number }[]
+  ) => {
+    // Update review schedule for each vocabulary
+    const updatedJournal = [...journal];
+    
+    for (const result of results) {
+      // Find the daily chat and review for this vocabulary
+      for (let i = 0; i < updatedJournal.length; i++) {
+        const dailyChat = updatedJournal[i];
+        if (!dailyChat.reviewSchedule) continue;
+        
+        const reviewIndex = dailyChat.reviewSchedule.findIndex(r => r.vocabularyId === result.vocabularyId);
+        if (reviewIndex !== -1) {
+          const currentReview = dailyChat.reviewSchedule[reviewIndex];
+          const updatedReview = updateReviewAfterQuiz(
+            currentReview,
+            result.correctCount,
+            result.incorrectCount
+          );
+          
+          updatedJournal[i] = {
+            ...dailyChat,
+            reviewSchedule: [
+              ...dailyChat.reviewSchedule.slice(0, reviewIndex),
+              updatedReview,
+              ...dailyChat.reviewSchedule.slice(reviewIndex + 1)
+            ]
+          };
+          break;
+        }
+      }
+    }
+    
+    setJournal(updatedJournal);
+    
+    // Save to server
+    try {
+      const dataToSave: SavedData = {
+        version: 5,
+        journal: updatedJournal,
+        characters,
+        activeCharacterIds,
+        context,
+        relationshipSummary,
+        streak,
+      };
+      await http.post(API_URL.API_SAVE_DATA, { data: dataToSave });
+      alert(`Hoàn thành ôn tập! Đã ôn ${results.length} từ vựng.`);
+    } catch (error) {
+      console.error("Failed to save review progress:", error);
+    }
+    
+    // Update streak after completing review
+    await handleStreakUpdate('review');
+    
+    // Return to journal
+    setView('journal');
+    setCurrentReviewItems(null);
+  }, [journal, characters, activeCharacterIds, context, relationshipSummary, handleStreakUpdate]);
+
+  const handleBackFromReview = useCallback(() => {
+    setView('journal');
+    setCurrentReviewItems(null);
   }, []);
 
   const handleSaveJournal = async () => {
@@ -804,6 +968,7 @@ const App: React.FC = () => {
         activeCharacterIds,
         context,
         relationshipSummary,
+        streak,
       };
       const rs = await http.post(API_URL.API_SAVE_DATA, {data: dataToSave})
       if(rs.ok){
@@ -824,6 +989,7 @@ const App: React.FC = () => {
         activeCharacterIds,
         context,
         relationshipSummary,
+        streak,
       };
       const jsonString = JSON.stringify(dataToSave, null, 2);
       const blob = new Blob([jsonString], { type: 'application/json' });
@@ -851,6 +1017,7 @@ const App: React.FC = () => {
       let loadedActiveIds: string[] = ['mimi'];
       let loadedContext: string = "at Mimi's house";
       let loadedRelationshipSummary: string = '';
+      let loadedStreak: StreakData = initializeStreak();
 
       if (Array.isArray(loadedData)) { // v1 format support
         loadedJournal = loadedData.map((chat, index) => ({ 
@@ -881,6 +1048,7 @@ const App: React.FC = () => {
         loadedActiveIds = loadedData.activeCharacterIds;
         loadedContext = loadedData.context;
         loadedRelationshipSummary = loadedData.relationshipSummary || '';
+        loadedStreak = loadedData.streak ? checkStreakStatus(loadedData.streak) : initializeStreak();
       } else {
         throw new Error("Tệp nhật ký không hợp lệ hoặc phiên bản không được hỗ trợ.");
       }
@@ -892,6 +1060,7 @@ const App: React.FC = () => {
       setActiveCharacterIds(loadedActiveIds);
       setContext(loadedContext);
       setRelationshipSummary(loadedRelationshipSummary);
+      setStreak(loadedStreak);
 
       const lastChat = loadedJournal[loadedJournal.length - 1];
       const previousSummary = loadedJournal.length > 1 ? loadedJournal[loadedJournal.length - 2].summary : '';
@@ -928,6 +1097,7 @@ const App: React.FC = () => {
         let loadedActiveIds: string[] = ['mimi'];
         let loadedContext: string = "at Mimi's house";
         let loadedRelationshipSummary: string = '';
+        let loadedStreak: StreakData = initializeStreak();
 
         if (Array.isArray(loadedData)) { // v1 format support
           loadedJournal = loadedData.map((chat, index) => ({ 
@@ -958,6 +1128,7 @@ const App: React.FC = () => {
           loadedActiveIds = loadedData.activeCharacterIds;
           loadedContext = loadedData.context;
           loadedRelationshipSummary = loadedData.relationshipSummary || '';
+          loadedStreak = loadedData.streak ? checkStreakStatus(loadedData.streak) : initializeStreak();
         } else {
           throw new Error("Tệp nhật ký không hợp lệ hoặc phiên bản không được hỗ trợ.");
         }
@@ -969,6 +1140,7 @@ const App: React.FC = () => {
         setActiveCharacterIds(loadedActiveIds);
         setContext(loadedContext);
         setRelationshipSummary(loadedRelationshipSummary);
+        setStreak(loadedStreak);
 
         const lastChat = loadedJournal[loadedJournal.length - 1];
         const previousSummary = loadedJournal.length > 1 ? loadedJournal[loadedJournal.length - 2].summary : '';
@@ -996,6 +1168,13 @@ const App: React.FC = () => {
 
   return (
     <div className="flex flex-col h-screen max-w-2xl mx-auto bg-white shadow-2xl rounded-lg overflow-hidden">
+      {/* Streak Celebration Overlay */}
+      <StreakCelebration 
+        streakCount={streak.currentStreak}
+        show={showStreakCelebration}
+        onComplete={() => setShowStreakCelebration(false)}
+      />
+      
       <header className="bg-white p-4 border-b border-gray-200 shadow-sm sticky top-0 z-10 flex justify-between items-center">
         <div className="w-28 flex items-center space-x-2">
           <button onClick={() => setView(view === 'chat' ? 'journal' : 'chat')} title={view === 'chat' ? "Xem nhật ký" : "Quay lại trò chuyện"} className="text-gray-600 hover:text-blue-500 transition-colors">
@@ -1019,29 +1198,22 @@ const App: React.FC = () => {
           </button>
         </div>
         <h1 className="text-2xl font-bold text-center text-gray-800 flex-1">Mimi Messenger</h1>
-        <div className="flex items-center space-x-4 w-28 justify-end">
-          <button onClick={handleSaveJournal} title="Lưu nhật ký lên server" className="text-gray-600 hover:text-blue-500 transition-colors">
+        <div className="flex items-center space-x-3">
+          {/* Compact Streak Display */}
+          <StreakDisplay streak={streak} compact={true} />
+          
+          <div className="flex items-center space-x-2">
+            <button onClick={handleSaveJournal} title="Lưu nhật ký lên server" className="text-gray-600 hover:text-blue-500 transition-colors">
                 <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                     <path strokeLinecap="round" strokeLinejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" />
                 </svg>
             </button>
-          <button onClick={handleDownloadJournal} title="Tải xuống nhật ký về máy" className="text-gray-600 hover:text-green-500 transition-colors">
+            <button onClick={handleDownloadJournal} title="Tải xuống nhật ký về máy" className="text-gray-600 hover:text-green-500 transition-colors">
                 <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                     <path strokeLinecap="round" strokeLinejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
                 </svg>
             </button>
-            {/*<label htmlFor="load-journal-input" title="Tải nhật ký" className="cursor-pointer text-gray-600 hover:text-blue-500 transition-colors">
-                <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" />
-                </svg>
-            </label>
-            <input
-                id="load-journal-input"
-                type="file"
-                accept=".json,application/json"
-                className="hidden"
-                onChange={handleLoadJournal}
-            /> */}
+          </div>
         </div>
       </header>
 
@@ -1122,6 +1294,14 @@ const App: React.FC = () => {
           onClose={handleCloseContext}
           onReplayAudio={handleReplayAudio}
         />
+      ) : view === 'review' && currentReviewItems ? (
+        <ReviewScene
+          reviewItems={currentReviewItems}
+          onComplete={handleCompleteReview}
+          onBack={handleBackFromReview}
+          onReplayAudio={handleReplayAudio}
+          onViewContext={handleViewContextFromReview}
+        />
       ) : (
         <JournalViewer
           journal={journal}
@@ -1134,6 +1314,9 @@ const App: React.FC = () => {
           isGeneratingVocabulary={isGeneratingVocabulary}
           onGenerateVocabulary={handleGenerateVocabulary}
           onStartVocabulary={handleStartVocabulary}
+          onStartReview={handleStartReview}
+          reviewDueCount={getReviewDueCount(journal)}
+          streak={streak}
         />
       )}
     </div>
