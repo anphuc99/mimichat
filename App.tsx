@@ -701,9 +701,16 @@ const App: React.FC = () => {
       return; // Already has vocabularies
     }
 
+    // Collect all existing vocabularies from all daily chats
+    const existingVocabularies = journal
+      .flatMap(dc => dc.vocabularies || [])
+      .filter((v, index, self) => 
+        index === self.findIndex(t => t.korean === v.korean)
+      ); // Remove duplicates
+
     setIsGeneratingVocabulary(dailyChatId);
     try {
-      const vocabularies = await generateVocabulary(dailyChat.messages, currentLevel);
+      const vocabularies = await generateVocabulary(dailyChat.messages, currentLevel, existingVocabularies);
       
       // Initialize review schedule for each vocabulary
       const reviewSchedule = vocabularies.map(vocab => 

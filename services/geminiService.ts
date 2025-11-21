@@ -590,7 +590,8 @@ Gợi ý:`;
 
 export const generateVocabulary = async (
   messages: Message[],
-  level: string = 'A1'
+  level: string = 'A1',
+  existingVocabularies: VocabularyItem[] = []
 ): Promise<VocabularyItem[]> => {
   if (messages.length === 0) {
     return [];
@@ -600,14 +601,22 @@ export const generateVocabulary = async (
     .map((msg, index) => `[ID: ${msg.id}] ${msg.sender === 'user' ? 'User' : msg.characterName || 'Bot'}: ${msg.text}`)
     .join('\n');
 
+  // Create list of existing Korean words to avoid
+  const existingWords = existingVocabularies.map(v => v.korean).join(', ');
+
   const prompt = `Analyze the following conversation and identify 5-10 vocabulary words or phrases suitable for a beginner Korean learner (Level ${level}).
 
 CONVERSATION:
 ${conversationText}
 
-TASK:
+${existingWords ? `WORDS ALREADY LEARNED (DO NOT INCLUDE THESE):
+${existingWords}
+
+` : ''}TASK:
 - Pick words/phrases that appear *exactly* as they are in the text (conjugated form). For example, if "가요" (gayo) appears, select "가요", NOT "가다" (gada).
 - Focus on useful, common expressions.
+- DO NOT include any words that are already in the "WORDS ALREADY LEARNED" list above.
+- Only select NEW words that the user hasn't learned yet.
 - Provide the Vietnamese meaning.
 - Return JSON format.
 

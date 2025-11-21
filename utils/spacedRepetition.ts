@@ -102,6 +102,7 @@ export function updateReviewAfterQuiz(
 
 /**
  * Get all vocabularies that are due for review today or earlier
+ * Maximum 20 words to avoid overwhelming the user
  */
 export function getVocabulariesDueForReview(journal: DailyChat[]): {
   vocabulary: VocabularyItem;
@@ -142,8 +143,9 @@ export function getVocabulariesDueForReview(journal: DailyChat[]): {
     }
   }
   
-  // Shuffle the array to randomize the order
-  return shuffleArray(dueVocabularies);
+  // Shuffle the array to randomize the order and limit to 20 words
+  const shuffled = shuffleArray(dueVocabularies);
+  return shuffled.slice(0, 20);
 }
 
 /**
