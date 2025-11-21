@@ -24,11 +24,22 @@ export const initChat = async (
   context: string,
   history: Content[] = [],
   contextSummary: string = '',
-  relationshipSummary: string = ''
+  relationshipSummary: string = '',
+  level: string = 'A1'
 ): Promise<Chat> => {
   if (!ai) {
     throw new Error('Gemini service not initialized. Call initializeGeminiService first.');
   }
+
+  // Parse level info
+  const maxWords = level === 'A0' ? 3 : level === 'A1' ? 5 : level === 'A2' ? 7 : level === 'B1' ? 10 : level === 'B2' ? 12 : level === 'C1' ? 15 : 20;
+  const grammarGuideline = level === 'A0' ? 'Use only simple present tense sentences. Avoid complex grammar.' :
+                          level === 'A1' ? 'Use simple sentences with basic present and past tense. Can use -고 싶다, -아/어요.' :
+                          level === 'A2' ? 'Use simple compound sentences with -고, -지만. Use basic tenses.' :
+                          level === 'B1' ? 'Use complex sentences with intermediate grammar like -(으)ㄹ 수 있다, -아/어서, -기 때문에.' :
+                          level === 'B2' ? 'Use advanced grammar, compound sentences, express complex opinions.' :
+                          level === 'C1' ? 'Use advanced grammar, idioms, nuanced expressions.' :
+                          'Natural native-like speech with idioms, advanced grammar, varied styles.';
 
   const characterDescriptions = activeCharacters.map(c => {
     let desc = `- ${c.name} (${c.gender === 'female' ? 'girl' : 'boy'}): ${c.personality}`;
@@ -63,7 +74,10 @@ export const initChat = async (
 
   const systemInstruction =
     `You are a scriptwriter for a conversation between a Vietnamese user and several young Korean characters. I will speak to you in Vietnamese.
-      The Korean characters must only speak Korean. They must use very short and simple sentences, no more than 5 Korean words per sentence, suitable for a Korean learner (Comprehensible Input). They should never speak more than one sentence at a time. They often repeat important or familiar words.
+      The Korean characters must only speak Korean. They must use very short and simple sentences, no more than ${maxWords} Korean words per sentence, suitable for a Korean learner at level ${level} (Comprehensible Input). They should never speak more than one sentence at a time. They often repeat important or familiar words.
+
+      LANGUAGE LEVEL GUIDELINES (${level}):
+      ${grammarGuideline}
 
       CONVERSATION SETTING:
       ${context}
@@ -576,7 +590,7 @@ Gợi ý:`;
 
 export const generateVocabulary = async (
   messages: Message[],
-  level: string = 'A0-A1'
+  level: string = 'A1'
 ): Promise<VocabularyItem[]> => {
   if (messages.length === 0) {
     return [];

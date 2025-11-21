@@ -10,11 +10,13 @@ import { ChatContextViewer } from './components/ChatContextViewer';
 import { ReviewScene } from './components/ReviewScene';
 import { StreakDisplay } from './components/StreakDisplay';
 import { StreakCelebration } from './components/StreakCelebration';
-import type { Message, ChatJournal, DailyChat, Character, SavedData, CharacterThought, QuizState, VocabularyItem, VocabularyReview, StreakData } from './types';
+import { LevelSelector } from './components/LevelSelector';
+import type { Message, ChatJournal, DailyChat, Character, SavedData, CharacterThought, QuizState, VocabularyItem, VocabularyReview, StreakData, KoreanLevel } from './types';
 import { initializeGeminiService, initChat, sendMessage, textToSpeech, translateAndExplainText, summarizeConversation, generateCharacterThoughts, generateToneDescription, generateRelationshipSummary, generateContextSuggestion, generateMessageSuggestions, generateVocabulary } from './services/geminiService';
 import { calculateProgress } from './utils/vocabularyQuiz';
 import { getVocabulariesDueForReview, updateReviewAfterQuiz, initializeVocabularyReview, getReviewDueCount } from './utils/spacedRepetition';
 import { initializeStreak, updateStreak, checkStreakStatus } from './utils/streakManager';
+import { KOREAN_LEVELS } from './types';
 import http, { API_URL } from './services/HTTPService';
 
 const initialCharacters: Character[] = [
@@ -93,6 +95,10 @@ const App: React.FC = () => {
   const [streak, setStreak] = useState<StreakData>(initializeStreak());
   const [showStreakCelebration, setShowStreakCelebration] = useState(false);
 
+  // Level state
+  const [currentLevel, setCurrentLevel] = useState<KoreanLevel>('A1');
+  const [isLevelSelectorOpen, setIsLevelSelectorOpen] = useState(false);
+
   const [isGeminiInitialized, setIsGeminiInitialized] = useState(false);
 
   const userPromptRef = useRef<string>('');
@@ -126,7 +132,7 @@ const App: React.FC = () => {
     const initializeChatSession = async () => {
       const activeChars = getActiveCharacters();
       if (activeChars.length > 0) {
-        chatRef.current = await initChat(activeChars, context, [], '', relationshipSummary);
+        chatRef.current = await initChat(activeChars, context, [], '', relationshipSummary, currentLevel);
         console.log("Chat re-initialized with new context/characters.");
       }
     };
@@ -237,6 +243,7 @@ const App: React.FC = () => {
         context,
         relationshipSummary,
         streak: updatedStreak,
+        currentLevel,
       };
       await http.post(API_URL.API_SAVE_DATA, { data: dataToSave });
     } catch (error) {
@@ -313,7 +320,7 @@ const App: React.FC = () => {
     try {
       if (!chatRef.current) {
         const activeChars = getActiveCharacters();
-        chatRef.current = await initChat(activeChars, context, [], '', relationshipSummary);
+        chatRef.current = await initChat(activeChars, context, [], '', relationshipSummary, currentLevel);
       }
       const botResponseText = await sendMessage(chatRef.current, text);
 
@@ -369,7 +376,7 @@ const App: React.FC = () => {
       }));
 
       const activeChars = getActiveCharacters();
-      chatRef.current = await initChat(activeChars, context, historyForGemini, '', relationshipSummary);
+      chatRef.current = await initChat(activeChars, context, historyForGemini, '', relationshipSummary, currentLevel);
 
       const botResponseText = await sendMessage(chatRef.current, newText);
 
@@ -510,7 +517,7 @@ const App: React.FC = () => {
       })).slice(0, -1);
 
       const activeChars = getActiveCharacters();
-      chatRef.current = await initChat(activeChars, context, historyForGemini, '', relationshipSummary);
+      chatRef.current = await initChat(activeChars, context, historyForGemini, '', relationshipSummary, currentLevel);
 
       const botResponseText = await sendMessage(chatRef.current, lastUserMessage.text);
 
@@ -613,7 +620,7 @@ const App: React.FC = () => {
       }));
 
       const activeChars = getActiveCharacters();
-      chatRef.current = await initChat(activeChars, context, history, summary, newRelationshipSummary);
+      chatRef.current = await initChat(activeChars, context, history, summary, newRelationshipSummary, currentLevel);
       alert("Cuộc trò chuyện đã được tóm tắt và một ngày mới đã bắt đầu!");
 
     } catch (error) {
@@ -696,7 +703,7 @@ const App: React.FC = () => {
 
     setIsGeneratingVocabulary(dailyChatId);
     try {
-      const vocabularies = await generateVocabulary(dailyChat.messages, 'A0-A1');
+      const vocabularies = await generateVocabulary(dailyChat.messages, currentLevel);
       
       // Initialize review schedule for each vocabulary
       const reviewSchedule = vocabularies.map(vocab => 
@@ -858,6 +865,7 @@ const App: React.FC = () => {
         context,
         relationshipSummary,
         streak,
+        currentLevel,
       };
       await http.post(API_URL.API_SAVE_DATA, { data: dataToSave });
     } catch (error) {
@@ -939,6 +947,7 @@ const App: React.FC = () => {
         context,
         relationshipSummary,
         streak,
+        currentLevel,
       };
       await http.post(API_URL.API_SAVE_DATA, { data: dataToSave });
       alert(`Hoàn thành ôn tập! Đã ôn ${results.length} từ vựng.`);
@@ -959,6 +968,44 @@ const App: React.FC = () => {
     setCurrentReviewItems(null);
   }, []);
 
+  // Level change handler
+  const handleLevelChange = useCallback(async (newLevel: KoreanLevel) => {
+    setCurrentLevel(newLevel);
+    
+    // Reinitialize chat with new level
+    if (chatRef.current) {
+      const activeChars = getActiveCharacters();
+      const currentChat = getCurrentChat();
+      if (currentChat) {
+        const history: Content[] = currentChat.messages.map(msg => ({
+          role: msg.sender === 'user' ? 'user' : 'model',
+          parts: [{ text: msg.rawText || msg.text }],
+        }));
+        const previousSummary = journal.length > 1 ? journal[journal.length - 2]?.summary || '' : '';
+        chatRef.current = await initChat(activeChars, context, history, previousSummary, relationshipSummary, newLevel);
+      } else {
+        chatRef.current = await initChat(activeChars, context, [], '', relationshipSummary, newLevel);
+      }
+    }
+    
+    // Save new level
+    try {
+      const dataToSave: SavedData = {
+        version: 5,
+        journal,
+        characters,
+        activeCharacterIds,
+        context,
+        relationshipSummary,
+        streak,
+        currentLevel: newLevel,
+      };
+      await http.post(API_URL.API_SAVE_DATA, { data: dataToSave });
+    } catch (error) {
+      console.error("Failed to save level:", error);
+    }
+  }, [currentLevel, journal, characters, activeCharacterIds, context, relationshipSummary, streak, getActiveCharacters, getCurrentChat]);
+
   const handleSaveJournal = async () => {
     try {
       const dataToSave: SavedData = {
@@ -969,6 +1016,7 @@ const App: React.FC = () => {
         context,
         relationshipSummary,
         streak,
+        currentLevel,
       };
       const rs = await http.post(API_URL.API_SAVE_DATA, {data: dataToSave})
       if(rs.ok){
@@ -990,6 +1038,7 @@ const App: React.FC = () => {
         context,
         relationshipSummary,
         streak,
+        currentLevel,
       };
       const jsonString = JSON.stringify(dataToSave, null, 2);
       const blob = new Blob([jsonString], { type: 'application/json' });
@@ -1018,6 +1067,7 @@ const App: React.FC = () => {
       let loadedContext: string = "at Mimi's house";
       let loadedRelationshipSummary: string = '';
       let loadedStreak: StreakData = initializeStreak();
+      let loadedLevel: KoreanLevel = 'A1';
 
       if (Array.isArray(loadedData)) { // v1 format support
         loadedJournal = loadedData.map((chat, index) => ({ 
@@ -1049,6 +1099,7 @@ const App: React.FC = () => {
         loadedContext = loadedData.context;
         loadedRelationshipSummary = loadedData.relationshipSummary || '';
         loadedStreak = loadedData.streak ? checkStreakStatus(loadedData.streak) : initializeStreak();
+        loadedLevel = loadedData.currentLevel || 'A1';
       } else {
         throw new Error("Tệp nhật ký không hợp lệ hoặc phiên bản không được hỗ trợ.");
       }
@@ -1061,6 +1112,7 @@ const App: React.FC = () => {
       setContext(loadedContext);
       setRelationshipSummary(loadedRelationshipSummary);
       setStreak(loadedStreak);
+      setCurrentLevel(loadedLevel);
 
       const lastChat = loadedJournal[loadedJournal.length - 1];
       const previousSummary = loadedJournal.length > 1 ? loadedJournal[loadedJournal.length - 2].summary : '';
@@ -1071,7 +1123,7 @@ const App: React.FC = () => {
       }));
 
       const activeChars = loadedCharacters.filter(c => loadedActiveIds.includes(c.id));
-      chatRef.current = await initChat(activeChars, loadedContext, history, previousSummary, loadedRelationshipSummary);
+      chatRef.current = await initChat(activeChars, loadedContext, history, previousSummary, loadedRelationshipSummary, loadedLevel);
 
       setView('journal');
 
@@ -1098,6 +1150,7 @@ const App: React.FC = () => {
         let loadedContext: string = "at Mimi's house";
         let loadedRelationshipSummary: string = '';
         let loadedStreak: StreakData = initializeStreak();
+        let loadedLevel: KoreanLevel = 'A1';
 
         if (Array.isArray(loadedData)) { // v1 format support
           loadedJournal = loadedData.map((chat, index) => ({ 
@@ -1129,6 +1182,7 @@ const App: React.FC = () => {
           loadedContext = loadedData.context;
           loadedRelationshipSummary = loadedData.relationshipSummary || '';
           loadedStreak = loadedData.streak ? checkStreakStatus(loadedData.streak) : initializeStreak();
+          loadedLevel = loadedData.currentLevel || 'A1';
         } else {
           throw new Error("Tệp nhật ký không hợp lệ hoặc phiên bản không được hỗ trợ.");
         }
@@ -1141,6 +1195,7 @@ const App: React.FC = () => {
         setContext(loadedContext);
         setRelationshipSummary(loadedRelationshipSummary);
         setStreak(loadedStreak);
+        setCurrentLevel(loadedLevel);
 
         const lastChat = loadedJournal[loadedJournal.length - 1];
         const previousSummary = loadedJournal.length > 1 ? loadedJournal[loadedJournal.length - 2].summary : '';
@@ -1151,7 +1206,7 @@ const App: React.FC = () => {
         }));
 
         const activeChars = loadedCharacters.filter(c => loadedActiveIds.includes(c.id));
-        chatRef.current = await initChat(activeChars, loadedContext, history, previousSummary, loadedRelationshipSummary);
+        chatRef.current = await initChat(activeChars, loadedContext, history, previousSummary, loadedRelationshipSummary, loadedLevel);
 
         setView('journal');
 
@@ -1199,6 +1254,18 @@ const App: React.FC = () => {
         </div>
         <h1 className="text-2xl font-bold text-center text-gray-800 flex-1">Mimi Messenger</h1>
         <div className="flex items-center space-x-3">
+          {/* Level Badge */}
+          <button
+            onClick={() => setIsLevelSelectorOpen(true)}
+            className="px-3 py-1.5 bg-gradient-to-r from-indigo-500 to-purple-600 text-white font-bold rounded-lg hover:from-indigo-600 hover:to-purple-700 transition-all shadow-md flex items-center gap-2"
+            title="Chọn trình độ"
+          >
+            <span className="text-sm">{currentLevel}</span>
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+            </svg>
+          </button>
+          
           {/* Compact Streak Display */}
           <StreakDisplay streak={streak} compact={true} />
           
@@ -1226,6 +1293,13 @@ const App: React.FC = () => {
         setActiveCharacterIds={setActiveCharacterIds}
         textToSpeech={textToSpeech}
         playAudio={playAudio}
+      />
+
+      <LevelSelector
+        currentLevel={currentLevel}
+        onLevelChange={handleLevelChange}
+        isOpen={isLevelSelectorOpen}
+        onClose={() => setIsLevelSelectorOpen(false)}
       />
 
       {view === 'chat' ? (
