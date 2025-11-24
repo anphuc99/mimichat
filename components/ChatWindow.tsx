@@ -17,6 +17,7 @@ interface ChatWindowProps {
   onUpdateMessage: (messageId: string, newText: string) => Promise<void>;
   onUpdateBotMessage: (messageId: string, newText: string, newTone: string) => Promise<void>;
   onRegenerateTone: (text: string, characterName: string) => Promise<string>;
+  onCollectVocabulary?: (korean: string, messageId: string) => void;
 }
 
 export const ChatWindow: React.FC<ChatWindowProps> = ({ 
@@ -31,7 +32,8 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({
   setEditingMessageId,
   onUpdateMessage,
   onUpdateBotMessage,
-  onRegenerateTone
+  onRegenerateTone,
+  onCollectVocabulary,
 }) => {
   const chatEndRef = useRef<HTMLDivElement>(null);
 
@@ -43,10 +45,10 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({
     <div className="flex-1 p-4 overflow-y-auto bg-gray-50">
       <div className="space-y-4">
         {messages.map((message) => (
-          <MessageBubble 
-            key={message.id} 
-            message={message} 
-            onReplayAudio={onReplayAudio} 
+          <MessageBubble
+            key={message.id}
+            message={message}
+            onReplayAudio={onReplayAudio}
             onGenerateAudio={onGenerateAudio}
             onTranslate={onTranslate}
             onStoreTranslation={onStoreTranslation}
@@ -56,6 +58,7 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({
             onUpdateMessage={onUpdateMessage}
             onUpdateBotMessage={onUpdateBotMessage}
             onRegenerateTone={onRegenerateTone}
+            onCollectVocabulary={onCollectVocabulary}
           />
         ))}
         {isLoading && <TypingIndicator />}

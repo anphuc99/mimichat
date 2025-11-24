@@ -8,7 +8,8 @@
     "start": "node dist/index.js",
     "build:bundle": "esbuild src/index.ts --bundle --platform=node --format=cjs --minify --target=node18 --outfile=dist/app.js",
     "preview": "node dist/app.js",
-    "deploy": "node DeployServer.js"
+    "deploy": "node DeployServer.js",
+    "get": "node getData.js"
   },
   "dependencies": {
     "@ffmpeg-installer/ffmpeg": "^1.1.0",

@@ -15,6 +15,7 @@ interface MessageBubbleProps {
   onUpdateMessage?: (messageId: string, newText: string) => Promise<void>;
   onUpdateBotMessage?: (messageId: string, newText: string, newTone: string) => Promise<void>;
   onRegenerateTone?: (text: string, characterName: string) => Promise<string>;
+  onCollectVocabulary?: (korean: string, messageId: string) => void;
 }
 
 export const MessageBubble: React.FC<MessageBubbleProps> = ({ 
@@ -30,6 +31,7 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({
     onUpdateMessage,
     onUpdateBotMessage,
     onRegenerateTone,
+    onCollectVocabulary,
 }) => {
   const isUser = message.sender === 'user';
   const mimiAvatarUrl = avatar
@@ -38,6 +40,8 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({
   const [isTranslating, setIsTranslating] = useState(false);
   const [isCopied, setIsCopied] = useState(false);
   const [isGeneratingAudio, setIsGeneratingAudio] = useState(false);
+  const [selectedText, setSelectedText] = useState<string>('');
+  const [showCollectButton, setShowCollectButton] = useState(false);
   
   const [editedText, setEditedText] = useState(message.text);
   const [editedTone, setEditedTone] = useState('cheerfully');
@@ -147,6 +151,37 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({
     }
   };
 
+  const handleTextSelection = () => {
+    setTimeout(() => {
+      const selection = window.getSelection();
+      const text = selection?.toString().trim() || '';
+      console.log('Text selected:', text); // Debug
+      console.log('isUser:', isUser); // Debug
+      console.log('onCollectVocabulary exists:', !!onCollectVocabulary); // Debug
+      if (text && !isUser) {
+        setSelectedText(text);
+        setShowCollectButton(true);
+        console.log('Show collect button:', true); // Debug
+      } else {
+        setShowCollectButton(false);
+        console.log('Hiding button - text:', text, 'isUser:', isUser, 'hasCallback:', !!onCollectVocabulary); // Debug
+      }
+    }, 0);
+  };
+
+  const handleCollectVocab = () => {
+    if (selectedText) {
+      if (onCollectVocabulary) {
+        onCollectVocabulary(selectedText, message.id);
+      } else {
+        alert('Chức năng thu thập từ vựng chưa được kích hoạt. onCollectVocabulary is missing.');
+      }
+      setShowCollectButton(false);
+      setSelectedText('');
+      window.getSelection()?.removeAllRanges();
+    }
+  };
+
   const bubbleClasses = isUser
     ? 'bg-blue-500 text-white rounded-l-2xl rounded-tr-2xl'
     : message.isError 
@@ -251,7 +286,7 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({
           <p className="text-xs text-gray-500 ml-3 mb-0.5">{message.characterName}</p>
         )}
         <div className="group flex items-end w-full max-w-lg">
-            <div className={`max-w-xs md:max-w-md flex-shrink px-4 py-2 break-words transition-all duration-300 ease-in-out ${bubbleClasses}`}>
+            <div className={`max-w-xs md:max-w-md flex-shrink px-4 py-2 break-words transition-all duration-300 ease-in-out ${bubbleClasses}`} onMouseUp={handleTextSelection}>
               <p className="whitespace-pre-wrap">{message.text}</p>
               {isExpanded && !message.isError && (
                 <div className="mt-3 pt-3 border-t border-gray-500/20 text-left">
@@ -277,6 +312,20 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({
             </div>
             {editButton}
         </div>
+        
+        {/* Collect Vocabulary Button */}
+        {console.log('Render check - showCollectButton:', showCollectButton, 'isJournalView:', isJournalView, 'onCollectVocabulary:', !!onCollectVocabulary, 'selectedText:', selectedText)}
+        {showCollectButton && onCollectVocabulary && (
+          <button
+            onClick={handleCollectVocab}
+            className="mt-2 px-3 py-1 text-xs bg-green-500 text-white rounded-full hover:bg-green-600 transition-colors shadow-md flex items-center gap-1"
+          >
+            <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor">
+              <path fillRule="evenodd" d="M10 3a1 1 0 011 1v5h5a1 1 0 110 2h-5v5a1 1 0 11-2 0v-5H4a1 1 0 110-2h5V4a1 1 0 011-1z" clipRule="evenodd" />
+            </svg>
+            Thu thập: {selectedText}
+          </button>
+        )}
         
         {/* Action Buttons */}
         {isJournalView ? (

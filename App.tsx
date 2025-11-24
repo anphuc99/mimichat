@@ -12,7 +12,7 @@ import { StreakDisplay } from './components/StreakDisplay';
 import { StreakCelebration } from './components/StreakCelebration';
 import { LevelSelector } from './components/LevelSelector';
 import type { Message, ChatJournal, DailyChat, Character, SavedData, CharacterThought, QuizState, VocabularyItem, VocabularyReview, StreakData, KoreanLevel } from './types';
-import { initializeGeminiService, initChat, sendMessage, textToSpeech, translateAndExplainText, summarizeConversation, generateCharacterThoughts, generateToneDescription, generateRelationshipSummary, generateContextSuggestion, generateMessageSuggestions, generateVocabulary } from './services/geminiService';
+import { initializeGeminiService, initChat, sendMessage, textToSpeech, translateAndExplainText, translateWord, summarizeConversation, generateCharacterThoughts, generateToneDescription, generateRelationshipSummary, generateContextSuggestion, generateMessageSuggestions, generateVocabulary } from './services/geminiService';
 import { calculateProgress } from './utils/vocabularyQuiz';
 import { getVocabulariesDueForReview, updateReviewAfterQuiz, initializeVocabularyReview, getReviewDueCount } from './utils/spacedRepetition';
 import { initializeStreak, updateStreak, checkStreakStatus } from './utils/streakManager';
@@ -155,6 +155,11 @@ const App: React.FC = () => {
   const getCurrentChat = (): DailyChat | null => {
     if (journal.length === 0) return null;
     return journal[journal.length - 1];
+  };
+
+  const getCurrentDailyChatId = (): string => {
+    const currentChat = getCurrentChat();
+    return currentChat?.id || '';
   };
 
   const decode = (base64: string): Uint8Array => {
@@ -692,6 +697,71 @@ const App: React.FC = () => {
   }, [journal, getCharactersInChat, characters]);
 
   // Vocabulary handlers
+  const handleCollectVocabulary = useCallback(async (korean: string, messageId: string, dailyChatId: string) => {
+    if (!korean.trim()) return;
+
+    // Check if this word already exists
+    const chatIndex = journal.findIndex(dc => dc.id === dailyChatId);
+    if (chatIndex === -1) return;
+
+    const dailyChat = journal[chatIndex];
+    const existingVocab = dailyChat.vocabularies?.find(v => v.korean === korean);
+    if (existingVocab) {
+      alert('Từ này đã có trong danh sách từ vựng!');
+      return;
+    }
+
+    try {
+      // Translate the word
+      const vietnamese = await translateWord(korean);
+      if (!vietnamese) {
+        alert('Không thể dịch từ này.');
+        return;
+      }
+
+      // Create new vocabulary item
+      const newVocab: VocabularyItem = {
+        id: `vocab-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+        korean,
+        vietnamese,
+        usageMessageIds: [messageId]
+      };
+
+      // Initialize review schedule
+      const reviewSchedule = initializeVocabularyReview(newVocab, dailyChatId);
+
+      // Update journal
+      setJournal(prevJournal => {
+        const newJournal = [...prevJournal];
+        const chatIndex = newJournal.findIndex(dc => dc.id === dailyChatId);
+        if (chatIndex !== -1) {
+          newJournal[chatIndex] = {
+            ...newJournal[chatIndex],
+            vocabularies: [...(newJournal[chatIndex].vocabularies || []), newVocab],
+            reviewSchedule: [...(newJournal[chatIndex].reviewSchedule || []), reviewSchedule],
+            vocabularyProgress: [
+              ...(newJournal[chatIndex].vocabularyProgress || []),
+              {
+                vocabularyId: newVocab.id,
+                correctCount: 0,
+                incorrectCount: 0,
+                lastPracticed: '',
+                needsReview: false,
+                reviewAttempts: 0
+              }
+            ]
+          };
+        }
+        return newJournal;
+      });
+
+      alert(`Đã thêm từ "${korean}" (${vietnamese}) vào danh sách!`);
+    } catch (error) {
+      console.error('Error collecting vocabulary:', error);
+      alert('Có lỗi xảy ra khi thu thập từ vựng.');
+    }
+  }, [journal]);
+
   const handleGenerateVocabulary = useCallback(async (dailyChatId: string) => {
     const chatIndex = journal.findIndex(dc => dc.id === dailyChatId);
     if (chatIndex === -1) return;
@@ -1324,6 +1394,7 @@ const App: React.FC = () => {
             onUpdateMessage={handleUpdateMessage}
             onUpdateBotMessage={handleUpdateBotMessage}
             onRegenerateTone={handleRegenerateTone}
+            onCollectVocabulary={(korean, messageId) => handleCollectVocabulary(korean, messageId, getCurrentDailyChatId())}
           />
           <div className="p-2 bg-white border-t border-gray-200">
             <div className="flex items-center space-x-2">
@@ -1398,6 +1469,7 @@ const App: React.FC = () => {
           onStartReview={handleStartReview}
           reviewDueCount={getReviewDueCount(journal)}
           streak={streak}
+          onCollectVocabulary={handleCollectVocabulary}
         />
       )}
     </div>

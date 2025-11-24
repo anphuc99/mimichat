@@ -95,6 +95,7 @@ export const initChat = async (
       - Every time a character speaks, they must also include a short English action description showing their emotion or gesture, a Tone tag, and a single relevant emoji at the end of their Korean text that matches their tone.
       - The characters should naturally repeat or reuse words they have said recently or that the user said.
       - The characters always react emotionally to what the user says. The user might also use emojis.
+      - Characters have thoughts too. Whenever a character thinks, write it in parentheses "()"
 
       TONE DESCRIPTION:
       - Provide a short, easy-to-understand English description of the character's tone for text-to-speech, using 3-5 words (e.g., "cheerful and playful", "soft and shy", "thoughtful and calm").
@@ -290,6 +291,25 @@ export const translateAndExplainText = async (text: string): Promise<string> => 
   } catch (error) {
     console.error("Gemini translation error:", error);
     return "<p>Xin lỗi, đã xảy ra lỗi trong quá trình dịch.</p>";
+  }
+};
+
+export const translateWord = async (word: string): Promise<string> => {
+  if (!word.trim()) {
+    return "";
+  }
+  try {
+    const prompt = `Translate this Korean word or phrase into Vietnamese. Give ONLY the Vietnamese meaning, nothing else: "${word}"`;
+
+    const response = await ai.models.generateContent({
+      model: "gemini-2.5-flash",
+      contents: prompt,
+    });
+
+    return response.text.trim().replace(/["']/g, '');
+  } catch (error) {
+    console.error("Gemini word translation error:", error);
+    return "";
   }
 };
 

@@ -15,6 +15,7 @@ interface DailyEntryProps {
   isSelected: boolean;
   onToggleSelect: () => void;
   playingMessageId: string | null;
+  onCollectVocabulary?: (korean: string, messageId: string, dailyChatId: string) => void;
 }
 
 const DailyEntry: React.FC<DailyEntryProps> = ({ 
@@ -27,7 +28,8 @@ const DailyEntry: React.FC<DailyEntryProps> = ({
     onStartVocabulary,
     isSelected,
     onToggleSelect,
-    playingMessageId
+    playingMessageId,
+    onCollectVocabulary
 }) => {
   const [isExpanded, setIsExpanded] = useState(false);
   const [isAutoPlaying, setIsAutoPlaying] = useState(false);
@@ -167,6 +169,7 @@ const DailyEntry: React.FC<DailyEntryProps> = ({
                       onStoreTranslation={() => {}}
                       onRetry={() => {}}
                       isJournalView={true}
+                      onCollectVocabulary={onCollectVocabulary ? (korean, messageId) => onCollectVocabulary(korean, messageId, dailyChat.id) : undefined}
                   />
               </div>
             ))}
@@ -273,6 +276,7 @@ interface JournalViewerProps {
   onStartReview: () => void;
   reviewDueCount: number;
   streak: StreakData;
+  onCollectVocabulary?: (korean: string, messageId: string, dailyChatId: string) => void;
 }
 
 export const JournalViewer: React.FC<JournalViewerProps> = ({ 
@@ -288,7 +292,8 @@ export const JournalViewer: React.FC<JournalViewerProps> = ({
     onUpdateRelationshipSummary,
     onStartReview,
     reviewDueCount,
-    streak
+    streak,
+    onCollectVocabulary
 }) => {
     const [isViewingSummary, setIsViewingSummary] = useState(false);
     const [isEditingSummary, setIsEditingSummary] = useState(false);
@@ -598,6 +603,7 @@ export const JournalViewer: React.FC<JournalViewerProps> = ({
                             isSelected={selectedEntryIds.has(dailyChat.id)}
                             onToggleSelect={() => toggleSelectEntry(dailyChat.id)}
                             playingMessageId={playingMessageId}
+                            onCollectVocabulary={onCollectVocabulary}
                         />
                     ))}
                 </div>

@@ -150,25 +150,49 @@ app.get("/health", async (req: Request, res: Response) => {
 // ---------------------------
 // Load JSON data
 // ---------------------------
-app.get("/api/data", (req: Request, res: Response) => {
-  if(process.env.NODE_ENV === "dev"){
-    // neu là dev thì lấy từ server host
-    const dataUrl = `${SERVER_HOST}/api/get-data?key=${encodeURI(process.env.SERVER_API_KEY)}`;
-    fetch(dataUrl)
-      .then(response => response.json())
-      .then(data => res.json(data))
-      .catch(() => res.status(500).json({ error: "Failed to fetch data from server" }));
-  }
-  else{
-   getData(req, res); 
-  }
+app.get("/api/data", (req: Request, res: Response) => {  
+  getData(req, res); 
 });
 
 app.get("/api/get-data", (req: Request, res: Response) => {
   if (req.query.key !== process.env.SERVER_API_KEY) {
     return res.status(403).json({ error: "Invalid API key" });
   }
-  getData(req, res);
+
+  try {
+    const dataDir = path.join(__dirname, "data");
+    if (!fs.existsSync(dataDir)) {
+      return res.status(404).json({ error: "Data folder not found" });
+    }
+
+    // Create zip file on disk first
+    const tmpZipPath = path.join(__dirname, `data-${Date.now()}.zip`);
+    const zip = new AdmZip();
+    zip.addLocalFolder(dataDir, "data");
+    zip.writeZip(tmpZipPath);
+
+    const stat = fs.statSync(tmpZipPath);
+    
+    res.setHeader("Content-Type", "application/zip");
+    res.setHeader("Content-Disposition", 'attachment; filename="data.zip"');
+    res.setHeader("Content-Length", stat.size.toString());
+
+    // Stream the file
+    const readStream = fs.createReadStream(tmpZipPath);
+    readStream.pipe(res);
+    
+    // Clean up temp file after streaming
+    readStream.on("end", () => {
+      fs.unlink(tmpZipPath, () => {});
+    });
+    
+    readStream.on("error", (err) => {
+      fs.unlink(tmpZipPath, () => {});
+      res.status(500).end();
+    });
+  } catch (e: any) {
+    return res.status(500).json({ error: e.message || "Failed to create zip" });
+  }
 });
 
 const getData = (req: Request, res: Response) => {
@@ -190,33 +214,9 @@ const getData = (req: Request, res: Response) => {
 
 // ---------------------------
 // Serve audio files
-app.get("/api/audio/:filename",async (req: Request, res: Response) => {
-  if(process.env.NODE_ENV === "dev"){
-    // nếu là dev thì lấy từ server host
-    const audioUrl = `${SERVER_HOST}/api/get-audio/${req.params.filename}?key=${encodeURI(process.env.SERVER_API_KEY)}`;
-    const response = await fetch(audioUrl);
-    res.setHeader("Content-Type", response.headers.get("Content-Type") || "application/octet-stream");
-    res.setHeader("Content-Disposition", response.headers.get("Content-Disposition") || `inline; filename="${req.params.filename}"`);
-    if (response.body) {
-      // Node's fetch returns a WHATWG ReadableStream; convert to Node.js Readable and pipe to Express response
-      const nodeStream = Readable.fromWeb(response.body as any);
-      nodeStream.pipe(res);
-    } else {
-      res.status(500).end();
-    }
-    return;
-  }
-  else{
-    GetAudioMimeType(req, res);
-  }
-});
-
-app.get("/api/get-audio/:filename", (req: Request, res: Response) => {
-  if (req.query.key !== process.env.SERVER_API_KEY) {
-    return res.status(403).json({ error: "Invalid API key" });
-  }
+app.get("/api/audio/:filename",async (req: Request, res: Response) => {  
   GetAudioMimeType(req, res);
-})
+});
 
 const GetAudioMimeType = (req: Request, res: Response)  => {
   const requested = req.params.filename;
