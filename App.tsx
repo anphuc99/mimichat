@@ -101,12 +101,15 @@ const App: React.FC = () => {
   const [isLevelSelectorOpen, setIsLevelSelectorOpen] = useState(false);
 
   const [isGeminiInitialized, setIsGeminiInitialized] = useState(false);
+  const [isDataLoaded, setIsDataLoaded] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
 
   const userPromptRef = useRef<string>('');
 
 
   const chatRef = useRef<Chat | null>(null);
   const audioContextRef = useRef<AudioContext | null>(null);
+  const audioCacheRef = useRef<Map<string, AudioBuffer>>(new Map());
 
   const getActiveCharacters = useCallback(() => {
     return characters.filter(c => activeCharacterIds.includes(c.id));
@@ -194,10 +197,23 @@ const App: React.FC = () => {
 
   const playAudio = useCallback(async (audioData: string, speakingRate?: number, pitch?: number) => {
     try {
-      const context = new AudioContext();
-      const response = await http.downloadFile(API_URL.API_AUDIO + `/${audioData}`);
-      const arrayBuffer = await response.arrayBuffer();
-      const audioBuffer = await context.decodeAudioData(arrayBuffer);
+      if (!audioContextRef.current) {
+        audioContextRef.current = new AudioContext();
+      }
+      const context = audioContextRef.current;
+
+      if (context.state === 'suspended') {
+        await context.resume();
+      }
+
+      let audioBuffer = audioCacheRef.current.get(audioData);
+
+      if (!audioBuffer) {
+        const response = await http.downloadFile(API_URL.API_AUDIO + `/${audioData}`);
+        const arrayBuffer = await response.arrayBuffer();
+        audioBuffer = await context.decodeAudioData(arrayBuffer);
+        audioCacheRef.current.set(audioData, audioBuffer);
+      }
 
       const source = context.createBufferSource();
       source.buffer = audioBuffer;
@@ -1204,6 +1220,7 @@ const App: React.FC = () => {
       chatRef.current = await initChat(activeChars, loadedContext, history, previousSummary, loadedRelationshipSummary, loadedLevel);
 
       setView('journal');
+      setIsDataLoaded(true);
 
     } catch (error) {
       console.error("Không thể tải nhật ký:", error);
@@ -1297,6 +1314,36 @@ const App: React.FC = () => {
     event.target.value = '';
   };
 
+  // Auto-save effect
+  useEffect(() => {
+    if (!isDataLoaded) return;
+
+    const saveData = async () => {
+      setIsSaving(true);
+      try {
+        const dataToSave: SavedData = {
+          version: 5,
+          journal,
+          characters,
+          activeCharacterIds,
+          context,
+          relationshipSummary,
+          streak,
+          currentLevel,
+        };
+        await http.post(API_URL.API_SAVE_DATA, { data: dataToSave });
+      } catch (error) {
+        console.error("Auto-save failed:", error);
+      } finally {
+        setIsSaving(false);
+      }
+    };
+
+    const timeoutId = setTimeout(saveData, 3000); // Debounce 3s
+
+    return () => clearTimeout(timeoutId);
+  }, [journal, characters, activeCharacterIds, context, relationshipSummary, streak, currentLevel, isDataLoaded]);
+
   const currentMessages = getCurrentChat()?.messages || [];
 
   return (
@@ -1348,6 +1395,7 @@ const App: React.FC = () => {
           <StreakDisplay streak={streak} compact={true} />
           
           <div className="flex items-center space-x-2">
+            {isSaving && <span className="text-xs text-gray-500 animate-pulse">Đang lưu...</span>}
             <button onClick={handleSaveJournal} title="Lưu nhật ký lên server" className="text-gray-600 hover:text-blue-500 transition-colors">
                 <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                     <path strokeLinecap="round" strokeLinejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" />

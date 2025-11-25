@@ -96,7 +96,7 @@ const DailyEntry: React.FC<DailyEntryProps> = ({
       onReplayAudio(message.audioData, message.characterName);
 
       // Wait for audio duration (estimate ~3 seconds per message, adjust as needed)
-      await new Promise(resolve => setTimeout(resolve, 3500));
+      await new Promise(resolve => setTimeout(resolve, 5000));
     }
 
     autoPlayRef.current = false;
