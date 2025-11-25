@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import type { VocabularyItem, VocabularyReview, Message, DailyChat } from '../types';
 import { generateMeaningQuiz, generateFillBlankQuiz, type MeaningQuiz, type FillBlankQuiz } from '../utils/vocabularyQuiz';
+import { ChatContextViewer } from './ChatContextViewer';
 
 interface ReviewItem {
   vocabulary: VocabularyItem;
@@ -56,6 +57,13 @@ export const ReviewScene: React.FC<ReviewSceneProps> = ({
   
   // Track results for each vocabulary
   const [results, setResults] = useState<Map<string, { correct: number; incorrect: number }>>(new Map());
+
+  // Context view state
+  const [contextViewState, setContextViewState] = useState<{
+    vocabulary: VocabularyItem;
+    currentUsageIndex: number;
+    messages: Message[];
+  } | null>(null);
 
   const currentQuizItem = shuffledQuizzes[currentQuizIndex];
   const totalQuizzes = shuffledQuizzes.length;
@@ -116,7 +124,29 @@ export const ReviewScene: React.FC<ReviewSceneProps> = ({
 
   const handleViewContext = () => {
     if (!currentQuizItem) return;
-    onViewContext(currentQuizItem.reviewItem.vocabulary, 0);
+    // Show context locally instead of calling parent handler to preserve state
+    setContextViewState({
+      vocabulary: currentQuizItem.reviewItem.vocabulary,
+      currentUsageIndex: 0,
+      messages: currentQuizItem.reviewItem.messages
+    });
+  };
+
+  const handleCloseContext = () => {
+    setContextViewState(null);
+  };
+
+  const handleContextNavigate = (direction: 'prev' | 'next') => {
+    if (!contextViewState) return;
+
+    const newIndex = direction === 'prev' 
+      ? Math.max(0, contextViewState.currentUsageIndex - 1)
+      : Math.min(contextViewState.vocabulary.usageMessageIds.length - 1, contextViewState.currentUsageIndex + 1);
+
+    setContextViewState({
+      ...contextViewState,
+      currentUsageIndex: newIndex
+    });
   };
 
   const handleNext = () => {
@@ -141,6 +171,19 @@ export const ReviewScene: React.FC<ReviewSceneProps> = ({
 
     setCurrentQuizIndex(nextIndex);
   };
+
+  if (contextViewState) {
+    return (
+      <ChatContextViewer
+        messages={contextViewState.messages}
+        vocabulary={contextViewState.vocabulary}
+        currentUsageIndex={contextViewState.currentUsageIndex}
+        onNavigate={handleContextNavigate}
+        onClose={handleCloseContext}
+        onReplayAudio={onReplayAudio}
+      />
+    );
+  }
 
   if (!currentQuizItem || !currentQuiz) {
     return (
