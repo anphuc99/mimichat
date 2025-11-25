@@ -381,7 +381,7 @@ export const JournalViewer: React.FC<JournalViewerProps> = ({
 
         playerTimeoutRef.current = setTimeout(() => {
             playNext(nextMsg.id);
-        }, 3500);
+        }, 5000);
 
     }, [getPlaylist, playMode, onReplayAudio]);
 

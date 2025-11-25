@@ -141,7 +141,7 @@ export const ReviewScene: React.FC<ReviewSceneProps> = ({
 
     const newIndex = direction === 'prev' 
       ? Math.max(0, contextViewState.currentUsageIndex - 1)
-      : Math.min(contextViewState.vocabulary.usageMessageIds.length - 1, contextViewState.currentUsageIndex + 1);
+      : contextViewState.currentUsageIndex + 1;
 
     setContextViewState({
       ...contextViewState,

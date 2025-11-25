@@ -47,18 +47,23 @@ export function generateFillBlankQuiz(
   messages: Message[],
   allVocabs: VocabularyItem[]
 ): FillBlankQuiz {
-  // Safety check for usageMessageIds
-  if (!vocab.usageMessageIds || vocab.usageMessageIds.length === 0) {
-    throw new Error('No usage message IDs found for vocabulary');
-  }
-  
   // Get messages containing the vocabulary that have audio
   const usageMessages = messages.filter(m => 
-    vocab.usageMessageIds.includes(m.id) && m.audioData
+    (m.text.includes(vocab.korean) || (m.rawText && m.rawText.includes(vocab.korean))) && m.audioData
   );
   
   if (usageMessages.length === 0) {
-    throw new Error('No usage messages with audio found for vocabulary');
+    // Fallback: if no message with audio found, try finding any message
+    const anyUsageMessages = messages.filter(m => 
+      m.text.includes(vocab.korean) || (m.rawText && m.rawText.includes(vocab.korean))
+    );
+    
+    if (anyUsageMessages.length === 0) {
+      throw new Error('No usage messages found for vocabulary');
+    }
+    
+    // Use the first found message even without audio
+    usageMessages.push(anyUsageMessages[0]);
   }
 
   const selectedMessage = usageMessages[Math.floor(Math.random() * usageMessages.length)];

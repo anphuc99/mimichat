@@ -679,18 +679,12 @@ JSON Array of objects:
 
     const rawVocabularies = JSON.parse(response.text);
     
-    // Process each vocabulary to add id and find usageMessageIds
+    // Process each vocabulary to add id
     const vocabularies: VocabularyItem[] = rawVocabularies.map((vocab: { korean: string; vietnamese: string }) => {
-      // Find all messages that contain this Korean word
-      const usageMessageIds = messages
-        .filter(msg => msg.text.includes(vocab.korean))
-        .map(msg => msg.id);
-      
       const m = {
         id: `vocab-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
         korean: vocab.korean,
-        vietnamese: vocab.vietnamese,
-        usageMessageIds
+        vietnamese: vocab.vietnamese
       };
 
       console.log(m);

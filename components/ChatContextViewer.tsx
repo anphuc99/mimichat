@@ -1,4 +1,4 @@
-import React, { useEffect, useRef } from 'react';
+import React, { useEffect, useRef, useMemo } from 'react';
 import type { Message, VocabularyItem } from '../types';
 import { MessageBubble } from './MessageBubble';
 
@@ -21,8 +21,17 @@ export const ChatContextViewer: React.FC<ChatContextViewerProps> = ({
 }) => {
   const messageRefs = useRef<Map<string, HTMLDivElement>>(new Map());
   
+  // Find all messages that contain the vocabulary word
+  const matchingMessages = useMemo(() => {
+    if (!vocabulary || !messages) return [];
+    return messages.filter(m => 
+      m.text.includes(vocabulary.korean) || 
+      (m.rawText && m.rawText.includes(vocabulary.korean))
+    );
+  }, [messages, vocabulary]);
+
   // Safety check for vocabulary
-  if (!vocabulary || !vocabulary.usageMessageIds) {
+  if (!vocabulary) {
     return (
       <div className="flex items-center justify-center h-screen">
         <p className="text-gray-500">Không có dữ liệu từ vựng</p>
@@ -30,8 +39,8 @@ export const ChatContextViewer: React.FC<ChatContextViewerProps> = ({
     );
   }
   
-  const currentMessageId = vocabulary.usageMessageIds[currentUsageIndex];
-  const currentMessage = messages.find(m => m.id === currentMessageId);
+  const currentMessage = matchingMessages[currentUsageIndex];
+  const currentMessageId = currentMessage?.id;
 
   // Auto-scroll to highlighted message when it changes
   useEffect(() => {
@@ -42,12 +51,11 @@ export const ChatContextViewer: React.FC<ChatContextViewerProps> = ({
       }
       
       // Auto-play audio when message changes
-      const message = messages.find(m => m.id === currentMessageId);
-      if (message?.audioData) {
-        onReplayAudio(message.audioData, message.characterName);
+      if (currentMessage?.audioData) {
+        onReplayAudio(currentMessage.audioData, currentMessage.characterName);
       }
     }
-  }, [currentMessageId, messages, onReplayAudio]);
+  }, [currentMessageId, currentMessage, onReplayAudio]);
 
   // Highlight keyword in message text
   const highlightText = (text: string, keyword: string): React.ReactNode => {
@@ -71,7 +79,7 @@ export const ChatContextViewer: React.FC<ChatContextViewerProps> = ({
   };
 
   const canGoPrev = currentUsageIndex > 0;
-  const canGoNext = currentUsageIndex < vocabulary.usageMessageIds.length - 1;
+  const canGoNext = currentUsageIndex < matchingMessages.length - 1;
 
   return (
     <div className="flex flex-col h-full max-w-2xl mx-auto bg-white overflow-hidden">
@@ -96,9 +104,13 @@ export const ChatContextViewer: React.FC<ChatContextViewerProps> = ({
         </div>
 
         {/* Usage counter */}
-        {vocabulary.usageMessageIds.length > 1 && (
+        {matchingMessages.length > 0 ? (
           <div className="flex items-center justify-center space-x-2 text-sm">
-            <span>Câu {currentUsageIndex + 1}/{vocabulary.usageMessageIds.length}</span>
+            <span>Câu {currentUsageIndex + 1}/{matchingMessages.length}</span>
+          </div>
+        ) : (
+          <div className="flex items-center justify-center space-x-2 text-sm text-yellow-200">
+            <span>Không tìm thấy câu nào chứa từ này trong đoạn chat hiện tại.</span>
           </div>
         )}
       </header>
@@ -169,7 +181,7 @@ export const ChatContextViewer: React.FC<ChatContextViewerProps> = ({
         )}
 
         {/* Navigation */}
-        {vocabulary.usageMessageIds.length > 1 && (
+        {matchingMessages.length > 1 && (
           <div className="flex space-x-3">
             <button
               onClick={() => onNavigate('prev')}

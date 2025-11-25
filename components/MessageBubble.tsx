@@ -15,7 +15,7 @@ interface MessageBubbleProps {
   onUpdateMessage?: (messageId: string, newText: string) => Promise<void>;
   onUpdateBotMessage?: (messageId: string, newText: string, newTone: string) => Promise<void>;
   onRegenerateTone?: (text: string, characterName: string) => Promise<string>;
-  onCollectVocabulary?: (korean: string, messageId: string) => void;
+  onCollectVocabulary?: (korean: string, messageId: string) => void | Promise<void>;
 }
 
 export const MessageBubble: React.FC<MessageBubbleProps> = ({ 
@@ -42,6 +42,7 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({
   const [isGeneratingAudio, setIsGeneratingAudio] = useState(false);
   const [selectedText, setSelectedText] = useState<string>('');
   const [showCollectButton, setShowCollectButton] = useState(false);
+  const [isCollecting, setIsCollecting] = useState(false);
   
   const [editedText, setEditedText] = useState(message.text);
   const [editedTone, setEditedTone] = useState('cheerfully');
@@ -169,16 +170,21 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({
     }, 0);
   };
 
-  const handleCollectVocab = () => {
+  const handleCollectVocab = async () => {
     if (selectedText) {
-      if (onCollectVocabulary) {
-        onCollectVocabulary(selectedText, message.id);
-      } else {
-        alert('Chức năng thu thập từ vựng chưa được kích hoạt. onCollectVocabulary is missing.');
+      setIsCollecting(true);
+      try {
+        if (onCollectVocabulary) {
+          await onCollectVocabulary(selectedText, message.id);
+        } else {
+          alert('Chức năng thu thập từ vựng chưa được kích hoạt. onCollectVocabulary is missing.');
+        }
+      } finally {
+        setIsCollecting(false);
+        setShowCollectButton(false);
+        setSelectedText('');
+        window.getSelection()?.removeAllRanges();
       }
-      setShowCollectButton(false);
-      setSelectedText('');
-      window.getSelection()?.removeAllRanges();
     }
   };
 
@@ -318,12 +324,25 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({
         {showCollectButton && onCollectVocabulary && (
           <button
             onClick={handleCollectVocab}
-            className="mt-2 px-3 py-1 text-xs bg-green-500 text-white rounded-full hover:bg-green-600 transition-colors shadow-md flex items-center gap-1"
+            disabled={isCollecting}
+            className={`mt-2 px-3 py-1 text-xs text-white rounded-full transition-colors shadow-md flex items-center gap-1 ${isCollecting ? 'bg-gray-400 cursor-wait' : 'bg-green-500 hover:bg-green-600'}`}
           >
-            <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor">
-              <path fillRule="evenodd" d="M10 3a1 1 0 011 1v5h5a1 1 0 110 2h-5v5a1 1 0 11-2 0v-5H4a1 1 0 110-2h5V4a1 1 0 011-1z" clipRule="evenodd" />
-            </svg>
-            Thu thập: {selectedText}
+            {isCollecting ? (
+              <>
+                <svg className="animate-spin h-4 w-4 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                </svg>
+                Đang thu thập...
+              </>
+            ) : (
+              <>
+                <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor">
+                  <path fillRule="evenodd" d="M10 3a1 1 0 011 1v5h5a1 1 0 110 2h-5v5a1 1 0 11-2 0v-5H4a1 1 0 110-2h5V4a1 1 0 011-1z" clipRule="evenodd" />
+                </svg>
+                Thu thập: {selectedText}
+              </>
+            )}
           </button>
         )}
         

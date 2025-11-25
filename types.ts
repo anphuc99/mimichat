@@ -41,7 +41,6 @@ export interface VocabularyItem {
   id: string;
   korean: string;
   vietnamese: string;
-  usageMessageIds: string[];
 }
 
 export interface VocabularyReview {

@@ -740,8 +740,7 @@ const App: React.FC = () => {
       const newVocab: VocabularyItem = {
         id: `vocab-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
         korean,
-        vietnamese,
-        usageMessageIds: [messageId]
+        vietnamese
       };
 
       // Initialize review schedule
@@ -898,9 +897,12 @@ const App: React.FC = () => {
   const handleContextNavigate = useCallback((direction: 'prev' | 'next') => {
     if (!contextViewState) return;
 
+    // We don't know the total count here easily without recalculating, 
+    // but ChatContextViewer handles the bounds check based on what it finds.
+    // We just update the index.
     const newIndex = direction === 'prev' 
       ? Math.max(0, contextViewState.currentUsageIndex - 1)
-      : Math.min(contextViewState.vocabulary.usageMessageIds.length - 1, contextViewState.currentUsageIndex + 1);
+      : contextViewState.currentUsageIndex + 1;
 
     setContextViewState({
       ...contextViewState,
@@ -1176,7 +1178,11 @@ const App: React.FC = () => {
           ...chat,
           id: chat.id || `${new Date(chat.date).getTime()}-${index}`,
           // Add vocabulary fields for v4→v5 migration
-          vocabularies: chat.vocabularies || [],
+          vocabularies: (chat.vocabularies || []).map((v: any) => {
+            // Remove usageMessageIds if present (cleanup)
+            const { usageMessageIds, ...rest } = v;
+            return rest;
+          }),
           vocabularyProgress: chat.vocabularyProgress || []
         }));
         // Add default gender, voice, relations and userOpinion for backward compatibility
@@ -1260,7 +1266,11 @@ const App: React.FC = () => {
             ...chat,
             id: chat.id || `${new Date(chat.date).getTime()}-${index}`,
             // Add vocabulary fields for v4→v5 migration
-            vocabularies: chat.vocabularies || [],
+            vocabularies: (chat.vocabularies || []).map((v: any) => {
+              // Remove usageMessageIds if present (cleanup)
+              const { usageMessageIds, ...rest } = v;
+              return rest;
+            }),
             vocabularyProgress: chat.vocabularyProgress || []
           }));
           // Add default gender, voice, relations and userOpinion for backward compatibility
