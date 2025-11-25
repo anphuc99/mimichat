@@ -512,12 +512,12 @@ export const generateContextSuggestion = async (
   characters: Character[],
   relationshipSummary: string,
   currentContext: string
-): Promise<string> => {
+): Promise<string[]> => {
   const characterDescriptions = characters.map(c => 
     `- ${c.name}: ${c.personality}`
   ).join('\n');
 
-  const prompt = `Bạn là trợ lý gợi ý bối cảnh trò chuyện. Dựa trên thông tin về các nhân vật và tóm tắt bối cảnh hiện tại, hãy đề xuất MỘT bối cảnh mới thú vị cho cuộc hội thoại tiếp theo.
+  const prompt = `Bạn là trợ lý gợi ý bối cảnh trò chuyện. Dựa trên thông tin về các nhân vật và bối cảnh hiện tại, hãy đề xuất 5 bối cảnh khác nhau cho cuộc hội thoại tiếp theo.
 
 THÔNG TIN CÁC NHÂN VẬT:
 ${characterDescriptions}
@@ -528,31 +528,40 @@ ${relationshipSummary}
 ` : ''}${currentContext ? `Bối cảnh gần đây: ${currentContext}
 
 ` : ''}NHIỆM VỤ:
-Đề xuất MỘT bối cảnh mới (ngắn gọn, bằng TIẾNG VIỆT) cho cuộc hội thoại.
+Đề xuất 5 bối cảnh khác nhau, mỗi bối cảnh ngắn gọn (5-10 từ tiếng Việt).
 
-Bối cảnh có thể:
-- Thay đổi địa điểm (ở công viên, ở trường học, ở quán cà phê...)
-- Thêm hoạt động (chơi game, nấu ăn cùng nhau, học bài...)
-- Thêm nhân vật mới vào cuộc trò chuyện nếu phú hợp
-- Tạo tình huống mới (lên kế hoạch đi chơi, ăn mừng sinh nhật...)
+CẤU TRÚC:
+- 2-3 bối cảnh đầu: Liên quan/tiếp nối bối cảnh hiện tại
+  (Ví dụ: nếu đang ở nhà → đi ra công viên gần nhà, chuẩn bị bữa trưa cùng nhau, xem phim ở phòng khách)
+  
+- 2-3 bối cảnh sau: Hoàn toàn mới, khác biệt
+  (Ví dụ: đi mua sắm ở trung tâm thương mại, học làm bánh ở lớp học, tham quan bảo tàng nghệ thuật)
 
 YÊU CẦU:
-- CHỈ trả về bối cảnh bằng tiếng Việt, ngắn gọn
-- KHÔNG giải thích, KHÔNG thêm gì khác
-- Phù hợp với tính cách nhân vật
-- Tự nhiên, thú vị
+- Mỗi dòng một bối cảnh
+- Ngắn gọn, cụ thể (5-10 từ)
+- KHÔNG đánh số, KHÔNG giải thích
+- Phù hợp tính cách nhân vật
+- Đa dạng, thú vị
 
-Bối cảnh mới:`;
+Gợi ý:`;
 
   try {
     const response = await ai.models.generateContent({
       model: "gemini-2.5-flash",
       contents: prompt,
     });
-    return response.text.trim().replace(/['"]/g, '');
+    const suggestions = response.text
+      .trim()
+      .split('\n')
+      .map(line => line.replace(/^[-*•]\s*/, '').replace(/['"]/g, '').trim())
+      .filter(line => line.length > 0)
+      .slice(0, 5);
+    
+    return suggestions.length > 0 ? suggestions : ["ở nhà", "ở công viên", "ở quán cà phê", "ở trường học", "ở trung tâm thương mại"];
   } catch (error) {
     console.error("Gemini context suggestion error:", error);
-    return "at home"; // fallback
+    return ["ở nhà", "ở công viên", "ở quán cà phê", "ở trường học", "ở trung tâm thương mại"]; // fallback
   }
 };
 

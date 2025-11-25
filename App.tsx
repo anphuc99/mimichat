@@ -66,6 +66,7 @@ const App: React.FC = () => {
   const [context, setContext] = useState<string>("at Mimi's house");
   const [relationshipSummary, setRelationshipSummary] = useState<string>('');
   const [isGeneratingSuggestion, setIsGeneratingSuggestion] = useState(false);
+  const [contextSuggestions, setContextSuggestions] = useState<string[]>([]);
   const [messageSuggestions, setMessageSuggestions] = useState<string[]>([]);
   const [isGeneratingMessageSuggestions, setIsGeneratingMessageSuggestions] = useState(false);
   const [isCharacterManagerOpen, setCharacterManagerOpen] = useState(false);
@@ -469,8 +470,8 @@ const App: React.FC = () => {
     
     setIsGeneratingSuggestion(true);
     try {
-      const suggestion = await generateContextSuggestion(activeChars, relationshipSummary, context);
-      setContext(suggestion);
+      const suggestions = await generateContextSuggestion(activeChars, relationshipSummary, context);
+      setContextSuggestions(suggestions);
     } catch (error) {
       console.error('Failed to generate context suggestion:', error);
     } finally {
@@ -755,7 +756,7 @@ const App: React.FC = () => {
         return newJournal;
       });
 
-      alert(`Đã thêm từ "${korean}" (${vietnamese}) vào danh sách!`);
+      // alert(`Đã thêm từ "${korean}" (${vietnamese}) vào danh sách!`);
     } catch (error) {
       console.error('Error collecting vocabulary:', error);
       alert('Có lỗi xảy ra khi thu thập từ vựng.');
@@ -1396,17 +1397,50 @@ const App: React.FC = () => {
             onRegenerateTone={handleRegenerateTone}
             onCollectVocabulary={(korean, messageId) => handleCollectVocabulary(korean, messageId, getCurrentDailyChatId())}
           />
-          <div className="p-2 bg-white border-t border-gray-200">
-            <div className="flex items-center space-x-2">
+          <div className="p-2 bg-white border-t border-gray-200 relative">
+            <div className="flex items-center space-x-2 justify-center">
               <label htmlFor="context-input" className="text-sm font-medium text-gray-600 whitespace-nowrap">Bối cảnh:</label>
-              <input
-                id="context-input"
-                type="text"
-                value={context}
-                onChange={(e) => setContext(e.target.value)}
-                className="flex-1 w-full px-3 py-1 bg-gray-100 border border-transparent rounded-full focus:outline-none focus:ring-1 focus:ring-blue-400 text-sm"
-                disabled={isLoading || isSummarizing}
-              />
+              <div className="relative flex-1 max-w-md">
+                <input
+                  id="context-input"
+                  type="text"
+                  value={context}
+                  onChange={(e) => setContext(e.target.value)}
+                  className="w-full px-3 py-1 bg-gray-100 border border-transparent rounded-full focus:outline-none focus:ring-1 focus:ring-blue-400 text-sm"
+                  disabled={isLoading || isSummarizing}
+                />
+                
+                {/* Context Suggestions Dropdown */}
+                {contextSuggestions.length > 0 && (
+                  <div className="absolute bottom-full left-1/2 transform -translate-x-1/2 mb-2 w-80 bg-white border border-gray-200 rounded-lg shadow-xl z-50 max-h-60 overflow-y-auto">
+                    <div className="p-2">
+                      <div className="flex justify-between items-center mb-2 px-2">
+                        <span className="text-xs font-semibold text-gray-600">Gợi ý bối cảnh:</span>
+                        <button
+                          onClick={() => setContextSuggestions([])}
+                          className="text-gray-400 hover:text-gray-600"
+                        >
+                          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                          </svg>
+                        </button>
+                      </div>
+                      {contextSuggestions.map((suggestion, index) => (
+                        <button
+                          key={index}
+                          onClick={() => {
+                            setContext(suggestion);
+                            setContextSuggestions([]);
+                          }}
+                          className="w-full text-left px-3 py-2 hover:bg-blue-50 rounded-md transition-colors text-sm"
+                        >
+                          {suggestion}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
               <button
                 onClick={handleGenerateContextSuggestion}
                 disabled={isGeneratingSuggestion || isLoading || isSummarizing}
