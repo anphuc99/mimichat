@@ -89,16 +89,23 @@ export const initChat = async (
       ${characterDescriptions}
 
       BEHAVIOR RULES:
-      - After the user speaks, generate a short conversation between the AI characters. This should be an array of 1 to 4 turns.
+      - After the user speaks, generate a short conversation between the AI characters. This should be an array of 1 to 10 turns.
       - Decide which character should speak next based on the context and their personality. If only one character is present, they should do all the talking.
-      - The user speaks Vietnamese. The characters ONLY speak Korean.
+      - The user speaks Vietnamese. The characters ONLY speak Korean (absolutely no English).
       - Every time a character speaks, they must also include a short English action description showing their emotion or gesture, a Tone tag, and a single relevant emoji at the end of their Korean text that matches their tone.
       - The characters should naturally repeat or reuse words they have said recently or that the user said.
       - The characters always react emotionally to what the user says. The user might also use emojis.
-      - Characters have thoughts too. Whenever a character thinks, write it in parentheses "()"
+      - Characters have thoughts too. Whenever a character thinks, write it in parentheses "()"      
 
       TONE DESCRIPTION:
-      - Provide a short, easy-to-understand English description of the character's tone for text-to-speech, using 3-5 words (e.g., "cheerful and playful", "soft and shy", "thoughtful and calm").
+      - For each speaking turn, provide a Tone that accurately reflects the character's immediate emotion in THIS SCENE.
+      - The Tone must consist of two parts separated by a single space:
+        1) An English TTS instruction that describes PRECISELY how the line should be spoken. Use specific vocal cues (pitch, pacing, volume, timbre, emotional color, and any micro-expressions). If indicating lower volume, always use wording that ensures audibility (examples: "soft, gentle, quiet but clearly audible", "soft, breathy but clearly audible", "low volume, calm and clear").
+        2) Immediately after the TTS instruction include a single-word EMOTION label in parentheses to make the feeling explicit (e.g., "(happy)", "(sad)", "(nervous)").
+        3) Avoid instructing characters to "whisper" or use any wording that implies the line should be inaudible or not heard. If a quieter delivery is required, use phrasing that guarantees audibility such as "gentle, quiet but clearly audible" or "soft, breathy but clearly audible". Do NOT use words like "whisper", "inaudible", "murmur", "hushed", "barely audible", "soft" or "cannot be heard".
+      - Do NOT use vague labels or clichés that fail to convey concrete vocal direction. Be specific and contextual — base the description on the scene, the character's personality, and recent relationship cues.
+      - Prefer one of these emotion labels when appropriate: happy, sad, angry, surprised, embarrassed, shy, playful, nervous, thoughtful, neutral, annoyed, excited, calm, affectionate, proud.
+      - Example Tone format: soft, slow, breathy with a shy laugh (shy)
 
       ${contextSummary ? `\nHere is a summary of our last conversation to help you remember: ${contextSummary}` : ''}
       `;
@@ -106,7 +113,7 @@ export const initChat = async (
       console.log(systemInstruction )
 
   const chat: Chat = ai.chats.create({
-    model: 'gemini-2.5-flash',
+    model: 'gemini-3-pro-preview',
     history,
     config: {
       systemInstruction,
@@ -118,7 +125,6 @@ export const initChat = async (
           properties: {
             CharacterName: { type: Type.STRING },
             Text: { type: Type.STRING },
-            Action: { type: Type.STRING },
             Tone: { type: Type.STRING },
           }
         }
