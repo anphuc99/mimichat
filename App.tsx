@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import type { Chat, Content } from '@google/genai';
 import { ChatWindow } from './components/ChatWindow';
@@ -227,6 +226,26 @@ const App: React.FC = () => {
       source.start();
     } catch (error) {
       console.error("Failed to play audio:", error);
+    }
+  }, []);
+
+  const preloadAudio = useCallback(async (audioData: string) => {
+    try {
+      if (!audioContextRef.current) {
+        audioContextRef.current = new AudioContext();
+      }
+      const context = audioContextRef.current;
+
+      if (audioCacheRef.current.has(audioData)) {
+        return;
+      }
+
+      const response = await http.downloadFile(API_URL.API_AUDIO + `/${audioData}`);
+      const arrayBuffer = await response.arrayBuffer();
+      const audioBuffer = await context.decodeAudioData(arrayBuffer);
+      audioCacheRef.current.set(audioData, audioBuffer);
+    } catch (error) {
+      console.error("Failed to preload audio:", error);
     }
   }, []);
 
@@ -1550,6 +1569,7 @@ const App: React.FC = () => {
         <JournalViewer
           journal={journal}
           onReplayAudio={handleReplayAudio}
+          onPreloadAudio={preloadAudio}
           onBackToChat={() => setView('chat')}
           isGeneratingThoughts={isGeneratingThoughts}
           onGenerateThoughts={handleGenerateAndShowThoughts}

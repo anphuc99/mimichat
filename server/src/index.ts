@@ -72,7 +72,7 @@ app.use(express.json({ limit: "500mb" }));
 app.use(express.urlencoded({ limit: "500mb", extended: true }));
 
 // Serve static files from public directory with correct MIME types
-app.use(express.static(path.join(__dirname, "/public/dist"), {
+app.use(express.static(path.join(__dirname, "/public"), {
   setHeaders: (res, filePath) => {
     if (filePath.endsWith('.js')) {
       res.setHeader('Content-Type', 'application/javascript; charset=utf-8');

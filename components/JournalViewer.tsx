@@ -7,6 +7,7 @@ import { StreakDisplay } from './StreakDisplay';
 interface DailyEntryProps {
   dailyChat: DailyChat;
   onReplayAudio: (audioData: string, characterName?: string) => void;
+  onPreloadAudio?: (audioData: string) => Promise<void>;
   isGeneratingThoughts: string | null;
   onGenerateThoughts: (id: string) => void;
   isGeneratingVocabulary: string | null;
@@ -21,6 +22,7 @@ interface DailyEntryProps {
 const DailyEntry: React.FC<DailyEntryProps> = ({ 
     dailyChat, 
     onReplayAudio, 
+    onPreloadAudio,
     isGeneratingThoughts, 
     onGenerateThoughts,
     isGeneratingVocabulary,
@@ -33,6 +35,7 @@ const DailyEntry: React.FC<DailyEntryProps> = ({
 }) => {
   const [isExpanded, setIsExpanded] = useState(false);
   const [isAutoPlaying, setIsAutoPlaying] = useState(false);
+  const [isPreloading, setIsPreloading] = useState(false);
   const [currentPlayingIndex, setCurrentPlayingIndex] = useState<number>(-1);
   const messageRefs = React.useRef<Map<number, HTMLDivElement>>(new Map());
   const autoPlayRef = React.useRef<boolean>(false);
@@ -60,6 +63,32 @@ const DailyEntry: React.FC<DailyEntryProps> = ({
       }
     }
   }, [playingMessageId, dailyChat.messages]);
+
+  const handlePreloadAudio = async () => {
+    if (!onPreloadAudio || isPreloading) return;
+    
+    const messagesWithAudio = dailyChat.messages.filter(msg => msg.audioData);
+    if (messagesWithAudio.length === 0) {
+      alert('Không có tin nhắn nào có audio để tải');
+      return;
+    }
+
+    setIsPreloading(true);
+    try {
+      // Process in chunks to avoid overwhelming the network/browser
+      const chunkSize = 3;
+      for (let i = 0; i < messagesWithAudio.length; i += chunkSize) {
+        const chunk = messagesWithAudio.slice(i, i + chunkSize);
+        await Promise.all(chunk.map(msg => onPreloadAudio(msg.audioData!)));
+      }
+      // alert('Đã tải xong audio cho cuộc trò chuyện này!');
+    } catch (error) {
+      console.error("Failed to preload audio:", error);
+      alert("Có lỗi xảy ra khi tải audio.");
+    } finally {
+      setIsPreloading(false);
+    }
+  };
 
   const handleAutoPlay = async () => {
     if (isAutoPlaying) {
@@ -125,7 +154,36 @@ const DailyEntry: React.FC<DailyEntryProps> = ({
       </div>
       {isExpanded && (
         <>
-          <div className="mt-4 mb-2 flex justify-end">
+          <div className="mt-4 mb-2 flex justify-end space-x-2">
+            {onPreloadAudio && (
+              <button
+                onClick={handlePreloadAudio}
+                disabled={isPreloading}
+                className={`px-4 py-2 rounded-lg transition-colors flex items-center space-x-2 ${
+                  isPreloading 
+                    ? 'bg-gray-400 cursor-not-allowed text-white' 
+                    : 'bg-teal-500 hover:bg-teal-600 text-white'
+                }`}
+                title="Tải trước audio để nghe mượt mà hơn"
+              >
+                {isPreloading ? (
+                  <>
+                    <svg className="animate-spin h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                    </svg>
+                    <span>Đang tải...</span>
+                  </>
+                ) : (
+                  <>
+                    <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+                      <path fillRule="evenodd" d="M3 17a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zm3.293-7.707a1 1 0 011.414 0L9 10.586V3a1 1 0 112 0v7.586l1.293-1.293a1 1 0 111.414 1.414l-3 3a1 1 0 01-1.414 0l-3-3a1 1 0 010-1.414z" clipRule="evenodd" />
+                    </svg>
+                    <span>Tải audio</span>
+                  </>
+                )}
+              </button>
+            )}
             <button
               onClick={handleAutoPlay}
               className={`px-4 py-2 rounded-lg transition-colors flex items-center space-x-2 ${
@@ -277,11 +335,13 @@ interface JournalViewerProps {
   reviewDueCount: number;
   streak: StreakData;
   onCollectVocabulary?: (korean: string, messageId: string, dailyChatId: string) => void;
+  onPreloadAudio?: (audioData: string) => Promise<void>;
 }
 
 export const JournalViewer: React.FC<JournalViewerProps> = ({ 
     journal, 
     onReplayAudio, 
+    onPreloadAudio,
     onBackToChat, 
     isGeneratingThoughts, 
     onGenerateThoughts,
@@ -595,6 +655,7 @@ export const JournalViewer: React.FC<JournalViewerProps> = ({
                             key={dailyChat.id} 
                             dailyChat={dailyChat}
                             onReplayAudio={onReplayAudio}
+                            onPreloadAudio={onPreloadAudio}
                             isGeneratingThoughts={isGeneratingThoughts}
                             onGenerateThoughts={onGenerateThoughts}
                             isGeneratingVocabulary={isGeneratingVocabulary}
