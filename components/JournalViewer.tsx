@@ -45,6 +45,7 @@ const DailyEntry: React.FC<DailyEntryProps> = ({
     year: 'numeric',
     month: 'long',
     day: 'numeric',
+    timeZone: 'UTC'
   });
 
   // Effect to handle global playback scrolling/expanding

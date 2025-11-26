@@ -1,11 +1,10 @@
 import { StreakData } from '../types';
 
 /**
- * Get today's date as YYYY-MM-DD string (local timezone)
+ * Get today's date as YYYY-MM-DD string (Vietnam timezone)
  */
 function getTodayDateString(): string {
-  const today = new Date();
-  return today.toISOString().split('T')[0];
+  return new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Ho_Chi_Minh' });
 }
 
 /**

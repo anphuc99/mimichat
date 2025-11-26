@@ -147,7 +147,7 @@ const App: React.FC = () => {
     if (!isGeminiInitialized) return;
     
     const loadData = async () => {
-      const today = new Date().toISOString().split('T')[0];
+      const today = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Ho_Chi_Minh' });
       const initialChat: DailyChat = { id: Date.now().toString(), date: today, summary: '', messages: [] };
       setJournal([initialChat]);
       LoadData();
@@ -646,7 +646,7 @@ const App: React.FC = () => {
       );
       setRelationshipSummary(newRelationshipSummary);
 
-      const today = new Date().toISOString().split('T')[0];
+      const today = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Ho_Chi_Minh' });
       const newChat: DailyChat = { id: Date.now().toString(), date: today, summary: '', messages: [] };
 
       setJournal(prevJournal => {
@@ -1160,7 +1160,7 @@ const App: React.FC = () => {
       const url = URL.createObjectURL(blob);
       const link = document.createElement('a');
       link.href = url;
-      link.download = `mimi-chat-journal-${new Date().toISOString().split('T')[0]}.json`;
+      link.download = `mimi-chat-journal-${new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Ho_Chi_Minh' })}.json`;
       document.body.appendChild(link);
       link.click();
       document.body.removeChild(link);

@@ -101,6 +101,13 @@ export function updateReviewAfterQuiz(
 }
 
 /**
+ * Helper to get Vietnam date string (YYYY-MM-DD)
+ */
+function getVietnamDateString(date: Date): string {
+  return date.toLocaleDateString('en-CA', { timeZone: 'Asia/Ho_Chi_Minh' });
+}
+
+/**
  * Get all vocabularies that are due for review today or earlier
  * Maximum 20 words to avoid overwhelming the user
  */
@@ -110,8 +117,7 @@ export function getVocabulariesDueForReview(journal: DailyChat[]): {
   dailyChat: DailyChat;
   messages: Message[];
 }[] {
-  const today = new Date();
-  today.setHours(0, 0, 0, 0); // Start of today
+  const todayStr = getVietnamDateString(new Date());
   
   const dueVocabularies: {
     vocabulary: VocabularyItem;
@@ -125,10 +131,10 @@ export function getVocabulariesDueForReview(journal: DailyChat[]): {
     
     for (const review of dailyChat.reviewSchedule) {
       const nextReviewDate = new Date(review.nextReviewDate);
-      nextReviewDate.setHours(0, 0, 0, 0);
+      const nextReviewDateStr = getVietnamDateString(nextReviewDate);
       
       // Check if due (today or earlier)
-      if (nextReviewDate <= today) {
+      if (nextReviewDateStr <= todayStr) {
         const vocabulary = dailyChat.vocabularies.find(v => v.id === review.vocabularyId);
         
         if (vocabulary) {
@@ -185,13 +191,11 @@ export function getAllReviewStatistics(journal: DailyChat[]): {
   }
   
   const dueToday = getReviewDueCount(journal);
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
+  const todayStr = getVietnamDateString(new Date());
   
   const upcoming = allReviews.filter(review => {
-    const nextDate = new Date(review.nextReviewDate);
-    nextDate.setHours(0, 0, 0, 0);
-    return nextDate > today;
+    const nextDateStr = getVietnamDateString(new Date(review.nextReviewDate));
+    return nextDateStr > todayStr;
   }).length;
   
   const totalInterval = allReviews.reduce((sum, review) => sum + review.currentIntervalDays, 0);
