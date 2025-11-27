@@ -14,17 +14,26 @@ interface CharacterManagerProps {
 }
 
 const AVAILABLE_VOICES = [
-    { value: "alloy", label: "Alloy – Nữ trẻ, tự nhiên" },
-    { value: "ballad", label: "Ballad – Nữ dịu dàng, mềm, tình cảm" },
-    { value: "coral", label: "Coral – Nữ tươi sáng, rõ ràng" },
+    { value: "Annie", label: "Annie – Nữ" },
+    { value: "AnaKim", label: "AnaKim – Nữ" },
+    { value: "Sola", label: "Sola – Nữ" },
 
-    { value: "cedar", label: "Cedar – Nam trưởng thành, trầm ấm" },
+    { value: "RosaOh", label: "RosaOh – Nữ" },
 
-    { value: "echo", label: "Echo – Trung tính, nhẹ, có chiều sâu" },
-    { value: "fable", label: "Fable – Kể chuyện, truyền cảm" },
-    { value: "marin", label: "Marin – Nhẹ nhàng, mang hơi thở biển" },
-    { value: "nova", label: "Nova – Trẻ trung, năng lượng" },
-    { value: "onyx", label: "Onyx – Giọng trầm, huyền bí" },
+    { value: "Beomjiun", label: "Beomjiun – Nam" },
+    { value: "AgongKigong", label: "AgongKigong – Nam" },
+    { value: "Seojin", label: "Seojin – Nam" },
+    { value: "Taehyung", label: "Taehyung – Nam" },
+    { value: "Jiso", label: "Jiso – Nữ" },
+    { value: "Alice", label: "Alice – Nữ" },
+    { value: "HaAnim", label: "HaAnim – Nữ" },
+    { value: "Latima", label: "Latima – Nữ" },
+    { value: "Hope", label: "Hope – Nữ" },
+    { value: "Sakuya", label: "Sakuya – Nữ" },
+    { value: "Yui", label: "Yui – Nữ" },
+    { value: "Romaco", label: "Romaco – Nữ" },
+    { value: "Sameno", label: "Sameno – Nữ" },
+    { value: "Aerisita", label: "Aerisita – Nữ" },
 ];
 
 export const CharacterManager: React.FC<CharacterManagerProps> = ({ 

@@ -14,6 +14,7 @@ import os from "os";
 import { Readable } from "stream";
 import { textToSpeech } from "./modules/openai.js";
 import AdmZip from "adm-zip";
+import { ElevenLabsService } from "./modules/ElevenLabsService.js";
 
 // ---------------------------
 // FIX __dirname trong ESM
@@ -144,6 +145,25 @@ app.get("/api/get-api-key", (req: Request, res: Response) => {
 });
 
 app.get("/health", async (req: Request, res: Response) => {
+  const elevenLabsService = new ElevenLabsService();
+    await elevenLabsService.generateAudio(
+      "안녕하세요!!",
+      "Annie" as any,
+      "Happy" as any,
+      path.join(__dirname, "data/audio", "Annie" + ".mp3")
+    );
+    await elevenLabsService.generateAudio(
+      "안녕하세요!!",
+      "RosaOh" as any,
+      "Happy" as any,
+      path.join(__dirname, "data/audio", "RosaOh" + ".mp3")
+    );
+    await elevenLabsService.generateAudio(
+      "안녕하세요!!",
+      "RosaOh" as any,
+      "Beomjiun" as any,
+      path.join(__dirname, "data/audio", "Beomjiun" + ".mp3")
+    );
   res.json({ status: "ok" });
 });
 
@@ -338,6 +358,49 @@ app.get("/api/text-to-speech", async (req: Request, res: Response) => {
     res.status(500).json({ error: e.message || "TTS failed" });
   }
 });
+
+app.get("/api/tts-elevenlabs", async (req: Request, res: Response) => {
+  const text = req.query.text as string;
+  const character = (req.query.character as string) || "Seojin";
+  const emotion = (req.query.emotion as string) || "Neutral";
+  const textForCache = normalizeText(text);
+  const output = crypto.createHash("md5").update(textForCache + character + emotion).digest("hex");
+  if (fs.existsSync(path.join(__dirname, "data/audio", output + ".mp3"))) {
+    return res.json({ success: true, output });
+  }
+  try {    
+    const elevenLabsService = new ElevenLabsService();
+    await elevenLabsService.generateAudio(
+      text,
+      character as any,
+      emotion as any,
+      path.join(__dirname, "data/audio", output + ".mp3")
+    );
+    res.json({ success: true, output });
+  } catch (e: any) {
+    res.status(500).json({ error: e.message || "TTS failed" });
+  }
+})
+
+const normalizeText = (text: string): string => {
+  if (!text) return "";
+  
+  // 1. Xóa các chỉ dẫn trong ngoặc đơn nếu có, ví dụ: (shy), (whisper)
+  let clean = text.replace(/\(.*\)/g, "");
+
+  // 2. Xóa các từ đệm tiếng Anh thường gặp ở đầu câu (theo rule bài trước)
+  // Nếu bạn muốn cache chặt chẽ hơn, có thể bỏ bước này, nhưng khuyên nên giữ để tối ưu
+  clean = clean.replace(/^(Ugh|Ah|Wow|Hmm|Huh)\.\.\./i, "");
+
+  // 3. QUAN TRỌNG NHẤT: Xóa tất cả ký tự KHÔNG PHẢI là chữ cái (Hàn/Anh) hoặc số
+  // Regex này giữ lại: Chữ Hàn (\u3131-\uD79D), Chữ Anh (a-zA-Z), Số (0-9)
+  // Loại bỏ: ! ? . , ~ @ # $ % ^ & * và Khoảng trắng
+  clean = clean.replace(/[^a-zA-Z0-9\u3131-\uD79D]/g, "");
+
+  // 4. Chuyển về chữ thường (để "Oppa" và "oppa" là 1)
+  return clean.toLowerCase();
+};
+
 // ---------------------------
 // Deployment endpoints
 // ---------------------------

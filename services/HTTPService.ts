@@ -15,6 +15,7 @@ export const API_URL = {
 	API_UPLOAD_AUDIO: '/api/upload-audio',
 	API_SAVE_DATA: '/api/save-data',
 	API_TTS: '/api/text-to-speech',
+	API_TTS_ELEVEN: '/api/tts-elevenlabs',
 };
 
 export interface HttpResponse<T = any> {
