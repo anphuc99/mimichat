@@ -17,6 +17,7 @@ interface DailyEntryProps {
   onToggleSelect: () => void;
   playingMessageId: string | null;
   onCollectVocabulary?: (korean: string, messageId: string, dailyChatId: string) => void;
+  onDownloadTxt?: (dailyChatId: string) => void;
 }
 
 const DailyEntry: React.FC<DailyEntryProps> = ({ 
@@ -31,7 +32,8 @@ const DailyEntry: React.FC<DailyEntryProps> = ({
     isSelected,
     onToggleSelect,
     playingMessageId,
-    onCollectVocabulary
+    onCollectVocabulary,
+    onDownloadTxt
 }) => {
   const [isExpanded, setIsExpanded] = useState(false);
   const [isAutoPlaying, setIsAutoPlaying] = useState(false);
@@ -156,6 +158,21 @@ const DailyEntry: React.FC<DailyEntryProps> = ({
       {isExpanded && (
         <>
           <div className="mt-4 mb-2 flex justify-end space-x-2">
+            {onDownloadTxt && (
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onDownloadTxt(dailyChat.id);
+                }}
+                className="px-4 py-2 bg-gray-500 hover:bg-gray-600 text-white rounded-lg transition-colors flex items-center space-x-2"
+                title="Tải xuống hội thoại dạng văn bản"
+              >
+                <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+                  <path fillRule="evenodd" d="M4 4a2 2 0 012-2h4.586A2 2 0 0112 2.586L15.414 6A2 2 0 0116 7.414V16a2 2 0 01-2 2H6a2 2 0 01-2-2V4z" clipRule="evenodd" />
+                </svg>
+                <span>TXT</span>
+              </button>
+            )}
             {onPreloadAudio && (
               <button
                 onClick={handlePreloadAudio}
@@ -337,6 +354,7 @@ interface JournalViewerProps {
   streak: StreakData;
   onCollectVocabulary?: (korean: string, messageId: string, dailyChatId: string) => void;
   onPreloadAudio?: (audioData: string) => Promise<void>;
+  onDownloadTxt?: (dailyChatId: string) => void;
 }
 
 export const JournalViewer: React.FC<JournalViewerProps> = ({ 
@@ -354,7 +372,8 @@ export const JournalViewer: React.FC<JournalViewerProps> = ({
     onStartReview,
     reviewDueCount,
     streak,
-    onCollectVocabulary
+    onCollectVocabulary,
+    onDownloadTxt
 }) => {
     const [isViewingSummary, setIsViewingSummary] = useState(false);
     const [isEditingSummary, setIsEditingSummary] = useState(false);
@@ -666,6 +685,7 @@ export const JournalViewer: React.FC<JournalViewerProps> = ({
                             onToggleSelect={() => toggleSelectEntry(dailyChat.id)}
                             playingMessageId={playingMessageId}
                             onCollectVocabulary={onCollectVocabulary}
+                            onDownloadTxt={onDownloadTxt}
                         />
                     ))}
                 </div>

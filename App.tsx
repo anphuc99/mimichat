@@ -1171,6 +1171,40 @@ const App: React.FC = () => {
     }
   };
 
+  const handleDownloadTxt = (dailyChatId: string) => {
+    const dailyChat = journal.find(c => c.id === dailyChatId);
+    if (!dailyChat) return;
+
+    let content = `Date: ${dailyChat.date}\n`;
+    content += `Summary: ${dailyChat.summary || 'N/A'}\n\n`;
+
+    if (dailyChat.characterThoughts && dailyChat.characterThoughts.length > 0) {
+      content += `--- Character Thoughts ---\n`;
+      dailyChat.characterThoughts.forEach(thought => {
+        content += `${thought.characterName} (${thought.tone}): ${thought.text}\n`;
+      });
+      content += `\n`;
+    }
+
+    content += `--- Conversation ---\n`;
+    const lines = dailyChat.messages.map(msg => {
+      const sender = msg.sender === 'user' ? 'User' : (msg.characterName || 'Bot');
+      return `${sender}: ${msg.text}`;
+    });
+
+    content += lines.join('\n');
+
+    const blob = new Blob([content], { type: 'text/plain' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `conversation-${dailyChat.date}.txt`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+  };
+
   const LoadData = async () => {
     try {
       const response = await http.get(API_URL.API_DATA);
@@ -1582,6 +1616,7 @@ const App: React.FC = () => {
           reviewDueCount={getReviewDueCount(journal)}
           streak={streak}
           onCollectVocabulary={handleCollectVocabulary}
+          onDownloadTxt={handleDownloadTxt}
         />
       )}
     </div>
