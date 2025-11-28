@@ -116,30 +116,25 @@ For each turn, you must provide a JSON object with the following fields:
 3. ttsText: The Korean text MODIFIED for the TTS engine to express emotion (see Formatting Rules below).
 4. action: Short English action description showing emotion or gesture.
 5. tone: The specific Tone description string (see Tone Description below).
-6. emotion: One single keyword from the list: Neutral, Happy, Sad, Angry, Scared, Shy, Disgusted, Surprised, Whisper, Shouting, Excited, Serious, Affectionate.
+6. emotion: One single keyword from the list: Neutral, Happy, Sad, Angry, Scared, Shy, Disgusted, Surprised, Shouting, Excited, Serious, Affectionate, Fierce.
 
 TTS TEXT FORMATTING RULES (Strictly apply this to the 'ttsText' field):
 - **Angry**: Add "!!!" at the end. (e.g., "하지 마!!!")
 - **Shouting**: Add "!!!!!" at the end. (e.g., "오빠!!!!!")
-- **Disgusted**: Start with "Ugh... " and end with "...". (e.g., "Ugh... 싫어...")
+- **Disgusted**: Start with "응... " and end with "...". (e.g., "응... 싫어...")
 - **Sad**: Start with "..." and end with "...". (e.g., "...오빠...")
-- **Scared**: Start with "Ah... " and end with "...". (e.g., "Ah... 무서워...")
-- **Surprised**: Start with "Huh?! " and end with "?!". (e.g., "Huh?! 진짜?!")
-- **Whisper**: Start with "(whisper) ". (e.g., "(whisper) 조용히 해.")
-- **Shy**: End with "... (shy)". (e.g., "고마워... (shy)")
-- **Affectionate**: Start with "Hmm~ " and end with " <3". (e.g., "Hmm~ 오빠 <3")
+- **Scared**: Start with "아... " and end with "...". (e.g., "아... 무서워...")
+- **Surprised**: Start with "흥?! " and end with "?!". (e.g., "흥?! 진짜?!")
+- **Shy**: End with "...". (e.g., "고마워...")
+- **Affectionate**: Start with "흥~ " and end with " <3". (e.g., "흥~ 오빠 <3")
 - **Happy**: End with "! ^^". (e.g., "좋아! ^^")
-- **Excited**: Start with "Wow! " and end with "!!!". (e.g., "Wow! 신난다!!!")
+- **Excited**: Start with "와! " and end with "!!!". (e.g., "와! 신난다!!!")
 - **Serious**: End with ".". (e.g., "안 돼.")
 - **Neutral**: Keep text as is.
 
 TONE DESCRIPTION:
-- For each speaking turn, provide a Tone that accurately reflects the character's immediate emotion in THIS SCENE.
-- The Tone must consist of two parts separated by a single space:
-  1) An English TTS instruction that describes PRECISELY how the line should be spoken (pitch, pacing, volume, emotional color). If indicating lower volume, use wording like "gentle, quiet but clearly audible".
-  2) Immediately after the TTS instruction include the single-word EMOTION label in parentheses (e.g., "(happy)", "(sad)", "(nervous)").
-- Example Tone format: "soft, slow, breathy with a shy laugh (shy)"
-
+- Choose one of the above emotions
+- Select low, medium, high pitch
 ${contextSummary ? `\nHere is a summary of our last conversation to help you remember: ${contextSummary}` : ''}
 `;
 

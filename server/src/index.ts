@@ -328,7 +328,7 @@ app.get("/api/text-to-speech", async (req: Request, res: Response) => {
   console.log(voice)
   const format = "wav";
   const instructions = (req.query.instructions as string) || undefined;
-  const output = crypto.createHash("md5").update(normalizeText(text) + voice + instructions).digest("hex");
+  const output = crypto.createHash("md5").update(normalizeText(text) + voice + normalizeText(instructions)).digest("hex");
   if(fs.existsSync(path.join(__dirname, "data/audio", output + "." + format))) {
     return res.json({ success: true, output });
   }
@@ -344,18 +344,11 @@ app.get("/api/text-to-speech", async (req: Request, res: Response) => {
 
 const normalizeText = (text: string): string => {
   if (!text) return "";
-  
-  // 1. Xóa các chỉ dẫn trong ngoặc đơn nếu có, ví dụ: (shy), (whisper)
-  let clean = text.replace(/\(.*\)/g, "");
-
-  // 2. Xóa các từ đệm tiếng Anh thường gặp ở đầu câu (theo rule bài trước)
-  // Nếu bạn muốn cache chặt chẽ hơn, có thể bỏ bước này, nhưng khuyên nên giữ để tối ưu
-  clean = clean.replace(/^(Ugh|Ah|Wow|Hmm|Huh)\.\.\./i, "");
 
   // 3. QUAN TRỌNG NHẤT: Xóa tất cả ký tự KHÔNG PHẢI là chữ cái (Hàn/Anh) hoặc số
   // Regex này giữ lại: Chữ Hàn (\u3131-\uD79D), Chữ Anh (a-zA-Z), Số (0-9)
   // Loại bỏ: ! ? . , ~ @ # $ % ^ & * và Khoảng trắng
-  clean = clean.replace(/[^a-zA-Z0-9\u3131-\uD79D]/g, "");
+  let clean = text.replace(/[^a-zA-Z0-9\u3131-\uD79D]/g, "");
 
   // 4. Chuyển về chữ thường (để "Oppa" và "oppa" là 1)
   return clean.toLowerCase();
