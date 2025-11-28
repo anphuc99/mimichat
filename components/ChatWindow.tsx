@@ -8,7 +8,7 @@ interface ChatWindowProps {
   messages: Message[];
   isLoading: boolean;
   onReplayAudio: (audioData: string, characterName?: string) => void;
-  onGenerateAudio: (messageId: string) => Promise<void>;
+  onGenerateAudio: (messageId: string, force?: boolean) => Promise<void>;
   onTranslate: (text: string) => Promise<string>;
   onStoreTranslation: (messageId: string, translation: string) => void;
   onRetry: () => void;

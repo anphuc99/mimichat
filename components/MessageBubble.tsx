@@ -5,7 +5,7 @@ import { avatar } from './avatar';
 interface MessageBubbleProps {
   message: Message;
   onReplayAudio: (audioData: string, characterName?: string) => void;
-  onGenerateAudio: (messageId: string) => Promise<void>;
+  onGenerateAudio: (messageId: string, force?: boolean) => Promise<void>;
   onTranslate: (text: string) => Promise<string>;
   onStoreTranslation: (messageId: string, translation: string) => void;
   onRetry: () => void;
@@ -63,6 +63,16 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({
       } finally {
         setIsGeneratingAudio(false);
       }
+    }
+  };
+
+  const handleRegenerateAudioClick = async () => {
+    if (isGeneratingAudio) return;
+    setIsGeneratingAudio(true);
+    try {
+      await onGenerateAudio(message.id, true);
+    } finally {
+      setIsGeneratingAudio(false);
     }
   };
 
@@ -380,6 +390,19 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({
                     <path fillRule="evenodd" d="M9.383 3.076A1 1 0 0110 4v12a1 1 0 01-1.707.707L4.586 13H2a1 1 0 01-1-1V8a1 1 0 011-1h2.586l3.707-3.707a1 1 0 011.09-.217zM14.657 2.929a1 1 0 011.414 0A9.972 9.972 0 0119 10a9.972 9.972 0 01-2.929 7.071 1 1 0 01-1.414-1.414A7.971 7.971 0 0017 10c0-2.21-.894-4.208-2.343-5.657a1 1 0 010-1.414zm-2.829 2.828a1 1 0 011.415 0A5.983 5.983 0 0115 10a5.984 5.984 0 01-1.757 4.243 1 1 0 01-1.415-1.415A3.984 3.984 0 0013 10a3.983 3.983 0 00-1.172-2.828 1 1 0 010-1.414z" clipRule="evenodd" />
                   </svg>
                 )}
+              </button>
+            )}
+            {!isUser && !message.isError && message.audioData && (
+              <button
+                onClick={handleRegenerateAudioClick}
+                className="text-gray-400 hover:text-blue-500 transition-colors p-1 rounded-full focus:outline-none focus:ring-2 focus:ring-blue-300"
+                aria-label="Tạo lại âm thanh"
+                title="Tạo lại âm thanh"
+                disabled={isGeneratingAudio}
+              >
+                 <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                  </svg>
               </button>
             )}
             {!message.isError && (

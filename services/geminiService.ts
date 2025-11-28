@@ -141,7 +141,7 @@ ${contextSummary ? `\nHere is a summary of our last conversation to help you rem
       console.log(systemInstruction )
 
   const chat: Chat = ai.chats.create({
-    model: 'gemini-2.5-flash',
+    model: 'gemini-2.5-pro',
     history,
     config: {
       systemInstruction,
@@ -176,7 +176,8 @@ export const sendMessage = async (chat: Chat, message: string): Promise<string> 
 export const textToSpeech = async (
   text: string,
   tone: string = 'cheerfully',
-  voiceName: string = 'echo'
+  voiceName: string = 'echo',
+  force: boolean = false
 ): Promise<string | null> => {
   // Regex to remove a wide range of emojis.
   const emojiRegex = /(\u00a9|\u00ae|[\u2000-\u3300]|\ud83c[\ud000-\udfff]|\ud83d[\ud000-\udfff]|\ud83e[\ud000-\udfff])/g;
@@ -186,7 +187,11 @@ export const textToSpeech = async (
     return null;
   }
   try {
-    const rs = await http.get(API_URL.API_TTS + `?text=${encodeURIComponent(textWithoutEmoji)}&voice=${encodeURIComponent(voiceName)}&instructions=${encodeURIComponent(`Say ${tone}`)}`)
+    let url = API_URL.API_TTS + `?text=${encodeURIComponent(textWithoutEmoji)}&voice=${encodeURIComponent(voiceName)}&instructions=${encodeURIComponent(`Say ${tone}`)}`;
+    if (force) {
+      url += `&force=true`;
+    }
+    const rs = await http.get(url)
     if (rs.ok && rs.data?.output){
       return rs.data.output;
     }

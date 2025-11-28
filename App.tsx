@@ -580,7 +580,7 @@ const App: React.FC = () => {
     }
   }, [journal, isLoading, updateCurrentChatMessages, getActiveCharacters, context, processBotResponsesSequentially]);
 
-  const handleGenerateAudio = useCallback(async (messageId: string) => {
+  const handleGenerateAudio = useCallback(async (messageId: string, force: boolean = false) => {
     const currentChat = getCurrentChat();
     if (!currentChat) return;
 
@@ -595,7 +595,7 @@ const App: React.FC = () => {
       const voiceName = character?.voiceName || 'echo';
       const pitch = character?.pitch;
       const speakingRate = character?.speakingRate;
-      const audioData = await textToSpeech(messageToUpdate.text, tone, voiceName);
+      const audioData = await textToSpeech(messageToUpdate.text, tone, voiceName, force);
 
       if (audioData) {
         updateCurrentChatMessages(prevMessages =>

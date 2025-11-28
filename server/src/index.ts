@@ -328,8 +328,9 @@ app.get("/api/text-to-speech", async (req: Request, res: Response) => {
   console.log(voice)
   const format = "wav";
   const instructions = (req.query.instructions as string) || undefined;
+  const force = req.query.force === 'true';
   const output = crypto.createHash("md5").update(normalizeText(text) + voice + normalizeText(instructions)).digest("hex");
-  if(fs.existsSync(path.join(__dirname, "data/audio", output + "." + format))) {
+  if(!force && fs.existsSync(path.join(__dirname, "data/audio", output + "." + format))) {
     return res.json({ success: true, output });
   }
   try {    
