@@ -18,6 +18,7 @@ interface ChatWindowProps {
   onUpdateBotMessage: (messageId: string, newText: string, newTone: string) => Promise<void>;
   onRegenerateTone: (text: string, characterName: string) => Promise<string>;
   onCollectVocabulary?: (korean: string, messageId: string) => void;
+  onRegenerateImage?: (messageId: string) => Promise<void>;
   characters: Character[];
 }
 
@@ -35,6 +36,7 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({
   onUpdateBotMessage,
   onRegenerateTone,
   onCollectVocabulary,
+  onRegenerateImage,
   characters,
 }) => {
   const chatEndRef = useRef<HTMLDivElement>(null);
@@ -63,6 +65,7 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({
               onUpdateBotMessage={onUpdateBotMessage}
               onRegenerateTone={onRegenerateTone}
               onCollectVocabulary={onCollectVocabulary}
+              onRegenerateImage={onRegenerateImage}
               avatarUrl={character?.avatar}
             />
           );

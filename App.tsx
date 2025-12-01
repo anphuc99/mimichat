@@ -11,7 +11,7 @@ import { StreakDisplay } from './components/StreakDisplay';
 import { StreakCelebration } from './components/StreakCelebration';
 import { LevelSelector } from './components/LevelSelector';
 import type { Message, ChatJournal, DailyChat, Character, SavedData, CharacterThought, QuizState, VocabularyItem, VocabularyReview, StreakData, KoreanLevel } from './types';
-import { initializeGeminiService, initChat, sendMessage, textToSpeech, translateAndExplainText, translateWord, summarizeConversation, generateCharacterThoughts, generateToneDescription, generateRelationshipSummary, generateContextSuggestion, generateMessageSuggestions, generateVocabulary } from './services/geminiService';
+import { initializeGeminiService, initChat, sendMessage, textToSpeech, translateAndExplainText, translateWord, summarizeConversation, generateCharacterThoughts, generateToneDescription, generateRelationshipSummary, generateContextSuggestion, generateMessageSuggestions, generateVocabulary, generateSceneImage } from './services/geminiService';
 import { calculateProgress } from './utils/vocabularyQuiz';
 import { getVocabulariesDueForReview, updateReviewAfterQuiz, initializeVocabularyReview, getReviewDueCount } from './utils/spacedRepetition';
 import { initializeStreak, updateStreak, checkStreakStatus } from './utils/streakManager';
@@ -71,6 +71,7 @@ const App: React.FC = () => {
   const [isCharacterManagerOpen, setCharacterManagerOpen] = useState(false);
   const [editingMessageId, setEditingMessageId] = useState<string | null>(null);
   const [isGeneratingThoughts, setIsGeneratingThoughts] = useState<string | null>(null);
+  const [isGeneratingImage, setIsGeneratingImage] = useState(false);
 
   // Vocabulary learning states
   const [selectedDailyChatId, setSelectedDailyChatId] = useState<string | null>(null);
@@ -1171,6 +1172,71 @@ const App: React.FC = () => {
     }
   };
 
+  const handleGenerateSceneImage = async () => {
+    const currentChat = getCurrentChat();
+    if (!currentChat || currentChat.messages.length === 0) return;
+    
+    const activeChars = getActiveCharacters();
+    if (activeChars.length === 0) return;
+
+    setIsGeneratingImage(true);
+    try {
+      const imageUrl = await generateSceneImage(currentChat.messages, activeChars);
+      
+      if (imageUrl) {
+        // Add a special system message with the image
+        const imageMessage: Message = {
+          id: Date.now().toString(),
+          text: "📸 Ảnh chụp khoảnh khắc này",
+          sender: 'bot',
+          characterName: 'System',
+          imageUrl: imageUrl,
+          isError: false
+        };
+        updateCurrentChatMessages(prev => [...prev, imageMessage]);
+      } else {
+        alert("Không thể tạo hình ảnh. Vui lòng thử lại.");
+      }
+    } catch (error) {
+      console.error("Failed to generate scene image:", error);
+      alert("Đã xảy ra lỗi khi tạo hình ảnh.");
+    } finally {
+      setIsGeneratingImage(false);
+    }
+  };
+
+  const handleRegenerateImage = async (messageId: string) => {
+    const currentChat = getCurrentChat();
+    if (!currentChat) return;
+
+    const messageIndex = currentChat.messages.findIndex(m => m.id === messageId);
+    if (messageIndex === -1) return;
+
+    // Use messages up to the image message as context
+    const contextMessages = currentChat.messages.slice(0, messageIndex);
+    const activeChars = getActiveCharacters();
+    
+    if (activeChars.length === 0) return;
+
+    // Note: We don't set global isGeneratingImage here to avoid blocking the main UI,
+    // but the MessageBubble will show its own loading state.
+    
+    try {
+      const imageUrl = await generateSceneImage(contextMessages, activeChars);
+      
+      if (imageUrl) {
+        updateCurrentChatMessages(prev => prev.map(m => 
+          m.id === messageId ? { ...m, imageUrl } : m
+        ));
+      } else {
+        alert("Không thể tạo lại hình ảnh. Vui lòng thử lại.");
+      }
+    } catch (error) {
+      console.error("Failed to regenerate scene image:", error);
+      alert("Đã xảy ra lỗi khi tạo lại hình ảnh.");
+    }
+  };
+
   const handleDownloadTxt = (dailyChatId: string) => {
     const dailyChat = journal.find(c => c.id === dailyChatId);
     if (!dailyChat) return;
@@ -1507,6 +1573,7 @@ const App: React.FC = () => {
             onUpdateBotMessage={handleUpdateBotMessage}
             onRegenerateTone={handleRegenerateTone}
             onCollectVocabulary={(korean, messageId) => handleCollectVocabulary(korean, messageId, getCurrentDailyChatId())}
+            onRegenerateImage={handleRegenerateImage}
             characters={characters}
           />
           <div className="p-2 bg-white border-t border-gray-200 relative">
@@ -1560,6 +1627,23 @@ const App: React.FC = () => {
                 title="Gợi ý bối cảnh"
               >
                 {isGeneratingSuggestion ? '🤔' : '💡'}
+              </button>
+              <button
+                onClick={handleGenerateSceneImage}
+                disabled={isGeneratingImage || isLoading || isSummarizing}
+                className="p-2 hover:bg-gray-100 rounded-full disabled:opacity-50 transition-colors text-blue-500"
+                title="Tạo ảnh minh họa cho cảnh này"
+              >
+                {isGeneratingImage ? (
+                  <svg className="animate-spin h-5 w-5" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                  </svg>
+                ) : (
+                  <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                  </svg>
+                )}
               </button>
             </div>
           </div>

@@ -255,6 +255,7 @@ const GetAudioMimeType = (req: Request, res: Response)  => {
 // Serve avatar files
 // ---------------------------
 app.use('/avatars', express.static(path.join(__dirname, 'public/avatars')));
+app.use('/imgMessage', express.static(path.join(__dirname, 'public/imgMessage')));
 
 app.post("/api/upload-avatar", (req: Request, res: Response) => {
   try {
@@ -306,6 +307,43 @@ app.post("/api/upload-avatar", (req: Request, res: Response) => {
   } catch (error: any) {
     console.error("Avatar upload failed:", error);
     res.status(500).json({ error: "Failed to upload avatar" });
+  }
+});
+
+app.post("/api/upload-image-message", (req: Request, res: Response) => {
+  try {
+    const { image } = req.body;
+    if (!image) return res.status(400).json({ error: "No image data provided" });
+
+    // Ensure imgMessage directory exists
+    const imgDir = path.join(__dirname, "public/imgMessage");
+    if (!fs.existsSync(imgDir)) {
+      fs.mkdirSync(imgDir, { recursive: true });
+    }
+
+    const matches = image.match(/^data:([A-Za-z-+\/]+);base64,(.+)$/);
+    if (!matches || matches.length !== 3) {
+      return res.status(400).json({ error: "Invalid base64 string" });
+    }
+
+    const type = matches[1];
+    const buffer = Buffer.from(matches[2], 'base64');
+    
+    let ext = "png";
+    if (type === "image/jpeg") ext = "jpg";
+    else if (type === "image/gif") ext = "gif";
+    else if (type === "image/webp") ext = "webp";
+
+    const filename = `msg-${Date.now()}-${Math.random().toString(36).substr(2, 9)}.${ext}`;
+    const finalPath = path.join(imgDir, filename);
+
+    fs.writeFileSync(finalPath, buffer);
+
+    const imageUrl = `/imgMessage/${filename}`;
+    res.json({ success: true, url: imageUrl, filename: filename });
+  } catch (error: any) {
+    console.error("Image message upload failed:", error);
+    res.status(500).json({ error: "Failed to upload image message" });
   }
 });
 

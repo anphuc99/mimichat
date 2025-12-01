@@ -15,6 +15,7 @@ export const API_URL = {
     API_AVATAR: '/api/avatar',
 	API_UPLOAD_AUDIO: '/api/upload-audio',
     API_UPLOAD_AVATAR: '/api/upload-avatar',
+    API_UPLOAD_IMAGE_MESSAGE: '/api/upload-image-message',
 	API_SAVE_DATA: '/api/save-data',
 	API_TTS: '/api/text-to-speech',
 };

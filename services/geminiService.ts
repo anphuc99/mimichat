@@ -737,3 +737,109 @@ JSON Array of objects:
     throw new Error("Failed to generate vocabulary.");
   }
 };
+
+export const generateSceneImage = async (
+  messages: Message[],
+  characters: Character[]
+): Promise<string | null> => {
+  if (!ai) throw new Error("Gemini not initialized");
+
+  try {
+    // 1. Prepare Character Images
+    const characterParts: any[] = [];
+    for (const char of characters) {
+      if (char.avatar) {
+        const base64 = await urlToBase64(char.avatar);
+        if (base64) {
+          characterParts.push({
+            inlineData: {
+              data: base64,
+              mimeType: "image/png" 
+            }
+          });
+          characterParts.push({
+            text: `Character Name: ${char.name}. Appearance Reference.`
+          });
+        }
+      }
+    }
+
+    // 2. Prepare Conversation Context
+    const conversationText = messages.map(m => `${m.rawText ? m.rawText: ""}`).join('\n');
+    
+    const characterDescriptions = characters.map(c => 
+      `- ${c.name} (${c.gender}): ${c.personality}${c.appearance ? `\n  Appearance: ${c.appearance}` : ''}`
+    ).join('\n');
+
+    const prompt = `
+      Create a high-quality illustration of the scene described below.
+      
+      Character Descriptions:
+      ${characterDescriptions}
+
+      Conversation Context:
+      ${conversationText}
+      
+      The image should depict the characters in the current situation, reflecting their mood and actions.
+      Ensure the characters match their descriptions and the provided reference images.
+    `;
+
+    // Generate Image using Imagen directly
+    const imagenResponse = await ai.models.generateContent({
+      model: "gemini-3-pro-image-preview",
+      contents: [
+        {
+          role: "user",
+          parts: [
+            { text: prompt },
+            ...characterParts
+          ]
+        }
+      ]
+    });
+    
+    const candidates = imagenResponse.candidates;
+    if (candidates && candidates[0] && candidates[0].content && candidates[0].content.parts) {
+        const part = candidates[0].content.parts[0];
+        if (part.inlineData && part.inlineData.data) {
+            const base64Image = `data:${part.inlineData.mimeType || 'image/png'};base64,${part.inlineData.data}`;
+            
+            // Upload to server
+            try {
+              const uploadRes = await http.post<{ url: string }>(API_URL.API_UPLOAD_IMAGE_MESSAGE, { image: base64Image });
+              if (uploadRes.ok && uploadRes.data?.url) {
+                 const baseUrl = http.getBaseUrl();
+                 return `${baseUrl}${uploadRes.data.url}`;
+              }
+            } catch (e) {
+              console.error("Failed to upload generated image to server", e);
+            }
+            
+            return base64Image; // Fallback to base64 if upload fails
+        }
+    }
+    
+    return null;
+  } catch (error) {
+    console.error("Image generation failed", error);
+    return null;
+  }
+};
+
+const urlToBase64 = async (url: string): Promise<string | null> => {
+  try {
+    const blob = await http.downloadFile(url);
+    if (!blob) return null;
+    return new Promise((resolve) => {
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        const base64 = reader.result as string;
+        resolve(base64.split(',')[1]);
+      };
+      reader.readAsDataURL(blob);
+    });
+  } catch (e) {
+    console.error("Failed to load image", url, e);
+    return null;
+  }
+};

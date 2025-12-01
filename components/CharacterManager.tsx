@@ -45,6 +45,7 @@ export const CharacterManager: React.FC<CharacterManagerProps> = ({
   const [newCharPitch, setNewCharPitch] = useState(0);
   const [newCharSpeakingRate, setNewCharSpeakingRate] = useState(1.0);
   const [newCharAvatar, setNewCharAvatar] = useState<string | undefined>(undefined);
+  const [newCharAppearance, setNewCharAppearance] = useState('');
 
   const [editingCharId, setEditingCharId] = useState<string | null>(null);
   const [editedName, setEditedName] = useState('');
@@ -54,6 +55,7 @@ export const CharacterManager: React.FC<CharacterManagerProps> = ({
   const [editedPitch, setEditedPitch] = useState(0);
   const [editedSpeakingRate, setEditedSpeakingRate] = useState(1.0);
   const [editedAvatar, setEditedAvatar] = useState<string | undefined>(undefined);
+  const [editedAppearance, setEditedAppearance] = useState('');
   const [editedRelations, setEditedRelations] = useState<{ [targetCharacterId: string]: RelationInfo }>({});
   const [editedUserOpinion, setEditedUserOpinion] = useState<RelationInfo>({ opinion: '', sentiment: 'neutral', closeness: 0 });
   const [showOpinionsSection, setShowOpinionsSection] = useState(false);
@@ -135,6 +137,7 @@ export const CharacterManager: React.FC<CharacterManagerProps> = ({
       pitch: newCharPitch,
       speakingRate: newCharSpeakingRate,
       avatar: newCharAvatar,
+      appearance: newCharAppearance,
       relations: {},
       userOpinion: { opinion: '', sentiment: 'neutral', closeness: 0 },
     };
@@ -146,6 +149,7 @@ export const CharacterManager: React.FC<CharacterManagerProps> = ({
     setNewCharPitch(0);
     setNewCharSpeakingRate(1.0);
     setNewCharAvatar(undefined);
+    setNewCharAppearance('');
   };
   
   const startEditing = (char: Character) => {
@@ -157,6 +161,7 @@ export const CharacterManager: React.FC<CharacterManagerProps> = ({
     setEditedPitch(char.pitch ?? 0);
     setEditedSpeakingRate(char.speakingRate ?? 1.0);
     setEditedAvatar(char.avatar);
+    setEditedAppearance(char.appearance || '');
     setEditedRelations(char.relations || {});
     setEditedUserOpinion(char.userOpinion || { opinion: '', sentiment: 'neutral', closeness: 0 });
     setShowOpinionsSection(false);
@@ -181,6 +186,7 @@ export const CharacterManager: React.FC<CharacterManagerProps> = ({
               pitch: editedPitch, 
               speakingRate: editedSpeakingRate,
               avatar: editedAvatar,
+              appearance: editedAppearance,
               relations: editedRelations,
               userOpinion: editedUserOpinion,
             }
@@ -254,7 +260,8 @@ export const CharacterManager: React.FC<CharacterManagerProps> = ({
                     <div className="bg-blue-50 p-3 rounded-lg">
                       <div className="space-y-3">
                         <input type="text" value={editedName} onChange={(e) => setEditedName(e.target.value)} className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-400" />
-                        <textarea value={editedPersonality} onChange={(e) => setEditedPersonality(e.target.value)} className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-400" rows={3}/>
+                        <textarea value={editedPersonality} onChange={(e) => setEditedPersonality(e.target.value)} className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-400" rows={3} placeholder="Tính cách"/>
+                        <textarea value={editedAppearance} onChange={(e) => setEditedAppearance(e.target.value)} className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-400" rows={2} placeholder="Mô tả ngoại hình (để tạo ảnh)"/>
                         <div className="flex items-center space-x-2">
                           <select value={editedGender} onChange={(e) => setEditedGender(e.target.value as 'male' | 'female')} className="w-1/2 px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-400">
                             <option value="female">Nữ</option>
@@ -428,6 +435,7 @@ export const CharacterManager: React.FC<CharacterManagerProps> = ({
               <form onSubmit={handleAddCharacter} className="space-y-3">
                 <input type="text" placeholder="Tên nhân vật" value={newCharName} onChange={(e) => setNewCharName(e.target.value)} className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-400"/>
                 <textarea placeholder="Mô tả tính cách (ngắn gọn, bằng tiếng Anh)" value={newCharPersonality} onChange={(e) => setNewCharPersonality(e.target.value)} className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-400" rows={3}/>
+                <textarea placeholder="Mô tả ngoại hình (để tạo ảnh)" value={newCharAppearance} onChange={(e) => setNewCharAppearance(e.target.value)} className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-400" rows={2}/>
                  <div className="flex items-center space-x-2">
                   <select value={newCharGender} onChange={(e) => setNewCharGender(e.target.value as 'male' | 'female')} className="w-1/2 px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-400">
                     <option value="female">Nữ</option>

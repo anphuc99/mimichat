@@ -11,6 +11,7 @@ export interface Character {
   id: string;
   name: string;
   personality: string;
+  appearance?: string;
   gender: 'male' | 'female';
   voiceName?: string;
   pitch?: number;
@@ -29,6 +30,7 @@ export interface Message {
   translation?: string;
   isError?: boolean;
   rawText?: string;
+  imageUrl?: string;
 }
 
 export interface CharacterThought {

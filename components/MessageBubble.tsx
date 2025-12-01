@@ -16,6 +16,7 @@ interface MessageBubbleProps {
   onUpdateBotMessage?: (messageId: string, newText: string, newTone: string) => Promise<void>;
   onRegenerateTone?: (text: string, characterName: string) => Promise<string>;
   onCollectVocabulary?: (korean: string, messageId: string) => void | Promise<void>;
+  onRegenerateImage?: (messageId: string) => Promise<void>;
   avatarUrl?: string;
 }
 
@@ -33,6 +34,7 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({
     onUpdateBotMessage,
     onRegenerateTone,
     onCollectVocabulary,
+    onRegenerateImage,
     avatarUrl,
 }) => {
   const isUser = message.sender === 'user';
@@ -50,6 +52,7 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({
   const [editedTone, setEditedTone] = useState('cheerfully');
   const [isSaving, setIsSaving] = useState(false);
   const [isRegeneratingTone, setIsRegeneratingTone] = useState(false);
+  const [isRegeneratingImage, setIsRegeneratingImage] = useState(false);
 
   const isEditing = editingMessageId === message.id;
   
@@ -161,6 +164,16 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({
         setEditedTone(newTone);
     } finally {
         setIsRegeneratingTone(false);
+    }
+  };
+
+  const handleRegenerateImageClick = async () => {
+    if (!onRegenerateImage || isRegeneratingImage) return;
+    setIsRegeneratingImage(true);
+    try {
+        await onRegenerateImage(message.id);
+    } finally {
+        setIsRegeneratingImage(false);
     }
   };
 
@@ -305,6 +318,30 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({
         )}
         <div className="group flex items-end w-full max-w-lg">
             <div className={`max-w-xs md:max-w-md flex-shrink px-4 py-2 break-words transition-all duration-300 ease-in-out ${bubbleClasses}`} onMouseUp={handleTextSelection}>
+              {message.imageUrl && (
+                <div className="mb-2 relative group/image">
+                  <img src={message.imageUrl} alt="Generated Scene" className="w-full h-auto rounded-lg shadow-sm" />
+                  {onRegenerateImage && (
+                    <button
+                        onClick={handleRegenerateImageClick}
+                        disabled={isRegeneratingImage}
+                        className="absolute top-2 right-2 bg-white/80 hover:bg-white text-gray-700 p-1.5 rounded-full shadow-sm opacity-0 group-hover/image:opacity-100 transition-opacity disabled:opacity-100 disabled:cursor-wait"
+                        title="Tạo lại ảnh"
+                    >
+                        {isRegeneratingImage ? (
+                            <svg className="animate-spin h-4 w-4 text-blue-500" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                            </svg>
+                        ) : (
+                            <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                                <path strokeLinecap="round" strokeLinejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                            </svg>
+                        )}
+                    </button>
+                  )}
+                </div>
+              )}
               <p className="whitespace-pre-wrap">{message.text}</p>
               {isExpanded && !message.isError && (
                 <div className="mt-3 pt-3 border-t border-gray-500/20 text-left">
