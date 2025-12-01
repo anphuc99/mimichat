@@ -130,7 +130,7 @@ const DailyEntry: React.FC<DailyEntryProps> = ({
       onReplayAudio(message.audioData, message.characterName);
 
       // Wait for audio duration (estimate ~3 seconds per message, adjust as needed)
-      await new Promise(resolve => setTimeout(resolve, 5000));
+      await new Promise(resolve => setTimeout(resolve, 3000));
     }
 
     autoPlayRef.current = false;
@@ -468,7 +468,7 @@ export const JournalViewer: React.FC<JournalViewerProps> = ({
 
         playerTimeoutRef.current = setTimeout(() => {
             playNext(nextMsg.id);
-        }, 5000);
+        }, 3000);
 
     }, [getPlaylist, playMode, onReplayAudio]);
 

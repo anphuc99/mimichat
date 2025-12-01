@@ -324,9 +324,9 @@ const App: React.FC = () => {
       const speakingRate = character?.speakingRate;
 
       let audioData: string | null = null;
-      // if (speechText) {
-      //   audioData = await textToSpeech(speechText, tone, voiceName);
-      // }
+      if (speechText) {
+        audioData = await textToSpeech(speechText, tone, voiceName);
+      }
 
       const rawTextForCopy = `User Said: ${userPromptRef.current}\n${characterName} Said: ${speechText}\nAction: ${Action}\nTone: ${tone}`;
 
@@ -341,9 +341,9 @@ const App: React.FC = () => {
 
       updateCurrentChatMessages(prev => [...prev, botMessage]);
 
-      // if (audioData) {
-      //   await playAudio(audioData, speakingRate, pitch);
-      // }
+      if (audioData) {
+        await playAudio(audioData, speakingRate, pitch);
+      }
 
       await new Promise(resolve => setTimeout(resolve, 1200));
     }

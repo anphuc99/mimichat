@@ -6,7 +6,7 @@ import express, { Request, Response, NextFunction } from "express";
 import cors from "cors";
 import jwt from "jsonwebtoken";
 import crypto from "crypto";
-import fs, { unlink } from "fs";
+import fs, { unlink, unlinkSync } from "fs";
 import path from "path";
 // import ffmpeg from "fluent-ffmpeg";
 // import ffmpegInstaller from "@ffmpeg-installer/ffmpeg";
@@ -428,6 +428,9 @@ app.get("/api/text-to-speech", async (req: Request, res: Response) => {
   const output = crypto.createHash("md5").update(normalizeText(text) + voice + normalizeText(instructions)).digest("hex");
   if(!force && fs.existsSync(path.join(__dirname, "data/audio", output + "." + format))) {
     return res.json({ success: true, output });
+  }
+  else if (fs.existsSync(path.join(__dirname, "data/audio", output + "." + format))){
+    await unlinkSync(path.join(__dirname, "data/audio", output + ".wav"));
   }
   try {    
     const result = await textToSpeech(text, voice, format, output, instructions);
