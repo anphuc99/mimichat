@@ -134,7 +134,8 @@ TTS TEXT FORMATTING RULES (Strictly apply this to the 'ttsText' field):
 
 TONE DESCRIPTION:
 - Choose one of the above emotions
-- Select low, medium, high pitch
+- Select low, medium, high pitch (This is a mandatory requirement. You must absolutely comply.)
+- Example: "Happy, high pitch", "Sad, low pitch"
 ${contextSummary ? `\nHere is a summary of our last conversation to help you remember: ${contextSummary}` : ''}
 `;
 

@@ -12,7 +12,9 @@ export const API_URL = {
 	API_GET_API_KEY: '/api/get-api-key',
 	API_DATA: '/api/data',
 	API_AUDIO: '/api/audio',
+    API_AVATAR: '/api/avatar',
 	API_UPLOAD_AUDIO: '/api/upload-audio',
+    API_UPLOAD_AVATAR: '/api/upload-avatar',
 	API_SAVE_DATA: '/api/save-data',
 	API_TTS: '/api/text-to-speech',
 };
@@ -44,6 +46,10 @@ class HTTPService {
 
 	setBaseUrl(url: string) {
 		this.baseUrl = url.replace(/\/$/, '');
+	}
+
+	getBaseUrl(): string {
+		return this.baseUrl;
 	}
 
 	getToken(): string | null {

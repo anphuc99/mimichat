@@ -1507,6 +1507,7 @@ const App: React.FC = () => {
             onUpdateBotMessage={handleUpdateBotMessage}
             onRegenerateTone={handleRegenerateTone}
             onCollectVocabulary={(korean, messageId) => handleCollectVocabulary(korean, messageId, getCurrentDailyChatId())}
+            characters={characters}
           />
           <div className="p-2 bg-white border-t border-gray-200 relative">
             <div className="flex items-center space-x-2 justify-center">
@@ -1590,6 +1591,7 @@ const App: React.FC = () => {
           onNavigate={handleContextNavigate}
           onClose={handleCloseContext}
           onReplayAudio={handleReplayAudio}
+          characters={characters}
         />
       ) : view === 'review' && currentReviewItems ? (
         <ReviewScene
@@ -1598,6 +1600,7 @@ const App: React.FC = () => {
           onBack={handleBackFromReview}
           onReplayAudio={handleReplayAudio}
           onViewContext={handleViewContextFromReview}
+          characters={characters}
         />
       ) : (
         <JournalViewer
@@ -1617,6 +1620,7 @@ const App: React.FC = () => {
           streak={streak}
           onCollectVocabulary={handleCollectVocabulary}
           onDownloadTxt={handleDownloadTxt}
+          characters={characters}
         />
       )}
     </div>

@@ -15,6 +15,7 @@ export interface Character {
   voiceName?: string;
   pitch?: number;
   speakingRate?: number;
+  avatar?: string;
   relations?: { [targetCharacterId: string]: RelationInfo };
   userOpinion?: RelationInfo;
 }

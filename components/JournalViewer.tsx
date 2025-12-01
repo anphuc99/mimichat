@@ -1,6 +1,6 @@
 
 import React, { useState } from 'react';
-import type { ChatJournal, DailyChat, StreakData } from '../types';
+import type { ChatJournal, DailyChat, StreakData, Character } from '../types';
 import { MessageBubble } from './MessageBubble';
 import { StreakDisplay } from './StreakDisplay';
 
@@ -18,6 +18,7 @@ interface DailyEntryProps {
   playingMessageId: string | null;
   onCollectVocabulary?: (korean: string, messageId: string, dailyChatId: string) => void;
   onDownloadTxt?: (dailyChatId: string) => void;
+  characters: Character[];
 }
 
 const DailyEntry: React.FC<DailyEntryProps> = ({ 
@@ -33,7 +34,8 @@ const DailyEntry: React.FC<DailyEntryProps> = ({
     onToggleSelect,
     playingMessageId,
     onCollectVocabulary,
-    onDownloadTxt
+    onDownloadTxt,
+    characters,
 }) => {
   const [isExpanded, setIsExpanded] = useState(false);
   const [isAutoPlaying, setIsAutoPlaying] = useState(false);
@@ -228,7 +230,9 @@ const DailyEntry: React.FC<DailyEntryProps> = ({
             </button>
           </div>
           <div className="mt-4 pt-4 border-t border-gray-200 space-y-4 max-h-96 overflow-y-auto pr-2">
-            {dailyChat.messages.map((message, index) => (
+            {dailyChat.messages.map((message, index) => {
+              const character = characters.find(c => c.name === message.characterName);
+              return (
               <div 
                 key={message.id}
                 ref={(el) => {
@@ -246,9 +250,10 @@ const DailyEntry: React.FC<DailyEntryProps> = ({
                       onRetry={() => {}}
                       isJournalView={true}
                       onCollectVocabulary={onCollectVocabulary ? (korean, messageId) => onCollectVocabulary(korean, messageId, dailyChat.id) : undefined}
+                      avatarUrl={character?.avatar}
                   />
               </div>
-            ))}
+            )})}
           </div>
           <div className="mt-4 pt-4 border-t border-gray-200">
             <button
@@ -355,6 +360,7 @@ interface JournalViewerProps {
   onCollectVocabulary?: (korean: string, messageId: string, dailyChatId: string) => void;
   onPreloadAudio?: (audioData: string) => Promise<void>;
   onDownloadTxt?: (dailyChatId: string) => void;
+  characters: Character[];
 }
 
 export const JournalViewer: React.FC<JournalViewerProps> = ({ 
@@ -373,7 +379,8 @@ export const JournalViewer: React.FC<JournalViewerProps> = ({
     reviewDueCount,
     streak,
     onCollectVocabulary,
-    onDownloadTxt
+    onDownloadTxt,
+    characters,
 }) => {
     const [isViewingSummary, setIsViewingSummary] = useState(false);
     const [isEditingSummary, setIsEditingSummary] = useState(false);
@@ -686,6 +693,7 @@ export const JournalViewer: React.FC<JournalViewerProps> = ({
                             playingMessageId={playingMessageId}
                             onCollectVocabulary={onCollectVocabulary}
                             onDownloadTxt={onDownloadTxt}
+                            characters={characters}
                         />
                     ))}
                 </div>

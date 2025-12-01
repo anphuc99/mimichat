@@ -1,6 +1,7 @@
 
 import React, { useState } from 'react';
 import type { Character, RelationInfo } from '../types';
+import http, { API_URL } from '../services/HTTPService';
 
 interface CharacterManagerProps {
   isOpen: boolean;
@@ -43,7 +44,7 @@ export const CharacterManager: React.FC<CharacterManagerProps> = ({
   const [newCharVoiceName, setNewCharVoiceName] = useState('Kore');
   const [newCharPitch, setNewCharPitch] = useState(0);
   const [newCharSpeakingRate, setNewCharSpeakingRate] = useState(1.0);
-
+  const [newCharAvatar, setNewCharAvatar] = useState<string | undefined>(undefined);
 
   const [editingCharId, setEditingCharId] = useState<string | null>(null);
   const [editedName, setEditedName] = useState('');
@@ -52,6 +53,7 @@ export const CharacterManager: React.FC<CharacterManagerProps> = ({
   const [editedVoiceName, setEditedVoiceName] = useState('Kore');
   const [editedPitch, setEditedPitch] = useState(0);
   const [editedSpeakingRate, setEditedSpeakingRate] = useState(1.0);
+  const [editedAvatar, setEditedAvatar] = useState<string | undefined>(undefined);
   const [editedRelations, setEditedRelations] = useState<{ [targetCharacterId: string]: RelationInfo }>({});
   const [editedUserOpinion, setEditedUserOpinion] = useState<RelationInfo>({ opinion: '', sentiment: 'neutral', closeness: 0 });
   const [showOpinionsSection, setShowOpinionsSection] = useState(false);
@@ -60,6 +62,51 @@ export const CharacterManager: React.FC<CharacterManagerProps> = ({
 
 
   if (!isOpen) return null;
+
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>, isNew: boolean) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      const reader = new FileReader();
+      reader.onloadend = async () => {
+        const base64Data = reader.result as string;
+        try {
+            // Upload to server
+            const charName = isNew ? newCharName : editedName;
+            const response = await http.post(API_URL.API_UPLOAD_AVATAR, { 
+                image: base64Data, 
+                filename: file.name,
+                characterName: charName
+            });
+
+            if (response.ok && response.data?.url) {
+                // Use server URL
+                const fullUrl = `${http.getBaseUrl()}${response.data.url}`;
+                if (isNew) {
+                    setNewCharAvatar(fullUrl);
+                } else {
+                    setEditedAvatar(fullUrl);
+                }
+            } else {
+                // Fallback to base64 if upload fails
+                console.warn("Avatar upload failed, using local base64");
+                if (isNew) {
+                    setNewCharAvatar(base64Data);
+                } else {
+                    setEditedAvatar(base64Data);
+                }
+            }
+        } catch (error) {
+            console.error("Error uploading avatar:", error);
+             if (isNew) {
+                setNewCharAvatar(base64Data);
+            } else {
+                setEditedAvatar(base64Data);
+            }
+        }
+      };
+      reader.readAsDataURL(file);
+    }
+  };
 
   const handleToggleActive = (charId: string) => {
     setActiveCharacterIds(prev => {
@@ -87,6 +134,7 @@ export const CharacterManager: React.FC<CharacterManagerProps> = ({
       voiceName: newCharVoiceName,
       pitch: newCharPitch,
       speakingRate: newCharSpeakingRate,
+      avatar: newCharAvatar,
       relations: {},
       userOpinion: { opinion: '', sentiment: 'neutral', closeness: 0 },
     };
@@ -97,6 +145,7 @@ export const CharacterManager: React.FC<CharacterManagerProps> = ({
     setNewCharVoiceName('Kore');
     setNewCharPitch(0);
     setNewCharSpeakingRate(1.0);
+    setNewCharAvatar(undefined);
   };
   
   const startEditing = (char: Character) => {
@@ -107,6 +156,7 @@ export const CharacterManager: React.FC<CharacterManagerProps> = ({
     setEditedVoiceName(char.voiceName || 'Kore');
     setEditedPitch(char.pitch ?? 0);
     setEditedSpeakingRate(char.speakingRate ?? 1.0);
+    setEditedAvatar(char.avatar);
     setEditedRelations(char.relations || {});
     setEditedUserOpinion(char.userOpinion || { opinion: '', sentiment: 'neutral', closeness: 0 });
     setShowOpinionsSection(false);
@@ -130,6 +180,7 @@ export const CharacterManager: React.FC<CharacterManagerProps> = ({
               voiceName: editedVoiceName, 
               pitch: editedPitch, 
               speakingRate: editedSpeakingRate,
+              avatar: editedAvatar,
               relations: editedRelations,
               userOpinion: editedUserOpinion,
             }
@@ -220,6 +271,13 @@ export const CharacterManager: React.FC<CharacterManagerProps> = ({
                         <div>
                           <label htmlFor="edit-rate" className="text-sm font-medium text-gray-700">Tốc độ nói: {editedSpeakingRate.toFixed(2)}x</label>
                           <input id="edit-rate" type="range" min="0.25" max="4.0" step="0.05" value={editedSpeakingRate} onChange={(e) => setEditedSpeakingRate(parseFloat(e.target.value))} className="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer" />
+                        </div>
+                        <div>
+                          <label className="text-sm font-medium text-gray-700">Avatar:</label>
+                          <div className="flex items-center space-x-2 mt-1">
+                            {editedAvatar && <img src={editedAvatar} alt="Avatar Preview" className="w-10 h-10 rounded-full object-cover" />}
+                            <input type="file" accept="image/*" onChange={(e) => handleFileChange(e, false)} className="text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100" />
+                          </div>
                         </div>
 
                         {/* Opinions Section */}
@@ -386,6 +444,13 @@ export const CharacterManager: React.FC<CharacterManagerProps> = ({
                 <div>
                   <label htmlFor="new-rate" className="text-sm font-medium text-gray-700">Tốc độ nói: {newCharSpeakingRate.toFixed(2)}x</label>
                   <input id="new-rate" type="range" min="0.25" max="4.0" step="0.05" value={newCharSpeakingRate} onChange={(e) => setNewCharSpeakingRate(parseFloat(e.target.value))} className="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer" />
+                </div>
+                <div>
+                  <label className="text-sm font-medium text-gray-700">Avatar:</label>
+                  <div className="flex items-center space-x-2 mt-1">
+                    {newCharAvatar && <img src={newCharAvatar} alt="Avatar Preview" className="w-10 h-10 rounded-full object-cover" />}
+                    <input type="file" accept="image/*" onChange={(e) => handleFileChange(e, true)} className="text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100" />
+                  </div>
                 </div>
                 <div className="flex justify-between items-center">
                     <button type="button" onClick={() => handlePreviewAudio('new', newCharVoiceName, newCharPitch, newCharSpeakingRate)} disabled={isPreviewing !== null} className="px-4 py-2 text-sm bg-gray-200 text-gray-700 rounded-md hover:bg-gray-300 disabled:opacity-50">Nghe thử</button>

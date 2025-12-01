@@ -252,6 +252,64 @@ const GetAudioMimeType = (req: Request, res: Response)  => {
 }
 
 // ---------------------------
+// Serve avatar files
+// ---------------------------
+app.use('/avatars', express.static(path.join(__dirname, 'public/avatars')));
+
+app.post("/api/upload-avatar", (req: Request, res: Response) => {
+  try {
+    const { image, filename, characterName } = req.body;
+    if (!image) return res.status(400).json({ error: "No image data provided" });
+
+    // Ensure avatar directory exists
+    const avatarDir = path.join(__dirname, "public/avatars");
+    if (!fs.existsSync(avatarDir)) {
+      fs.mkdirSync(avatarDir, { recursive: true });
+    }
+
+    const matches = image.match(/^data:([A-Za-z-+\/]+);base64,(.+)$/);
+    if (!matches || matches.length !== 3) {
+      return res.status(400).json({ error: "Invalid base64 string" });
+    }
+
+    const type = matches[1];
+    const buffer = Buffer.from(matches[2], 'base64');
+    
+    let ext = "png";
+    if (type === "image/jpeg") ext = "jpg";
+    else if (type === "image/gif") ext = "gif";
+    else if (type === "image/webp") ext = "webp";
+    else if (type === "image/svg+xml") ext = "svg";
+
+    let safeFilename;
+    if (characterName && typeof characterName === 'string' && characterName.trim()) {
+        // Sanitize character name to create a safe filename
+        // Replace non-alphanumeric characters (except - and _) with _
+        // Also handle Vietnamese characters if needed, but for safety let's stick to basic sanitization or allow unicode
+        // Simple approach: Replace anything that isn't a word char, whitespace or hyphen with nothing, then replace spaces with _
+        const sanitized = characterName
+            .trim()
+            .replace(/[^\w\s\-\u00C0-\u1EFF]/g, '') // Keep letters (incl. Vietnamese), numbers, spaces, -
+            .replace(/\s+/g, '_'); // Replace spaces with _
+            
+        safeFilename = `${sanitized}.${ext}`;
+    } else {
+        safeFilename = filename ? path.basename(filename) : `avatar-${Date.now()}.${ext}`;
+    }
+
+    const finalPath = path.join(avatarDir, safeFilename);
+
+    fs.writeFileSync(finalPath, buffer);
+
+    const avatarUrl = `/avatars/${safeFilename}`;
+    res.json({ success: true, url: avatarUrl, filename: safeFilename });
+  } catch (error: any) {
+    console.error("Avatar upload failed:", error);
+    res.status(500).json({ error: "Failed to upload avatar" });
+  }
+});
+
+// ---------------------------
 // Convert WAV → MP3
 // ---------------------------
 // async function convertBase64WavToMp3(base64String: string, outputName: string) {

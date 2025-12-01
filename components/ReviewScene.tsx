@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import type { VocabularyItem, VocabularyReview, Message, DailyChat } from '../types';
+import type { VocabularyItem, VocabularyReview, Message, DailyChat, Character } from '../types';
 import { generateMeaningQuiz, generateFillBlankQuiz, type MeaningQuiz, type FillBlankQuiz } from '../utils/vocabularyQuiz';
 import { ChatContextViewer } from './ChatContextViewer';
 
@@ -21,6 +21,7 @@ interface ReviewSceneProps {
   onBack: () => void;
   onReplayAudio: (audioData: string, characterName?: string) => void;
   onViewContext: (vocabulary: VocabularyItem, usageIndex: number) => void;
+  characters: Character[];
 }
 
 export const ReviewScene: React.FC<ReviewSceneProps> = ({
@@ -28,7 +29,8 @@ export const ReviewScene: React.FC<ReviewSceneProps> = ({
   onComplete,
   onBack,
   onReplayAudio,
-  onViewContext
+  onViewContext,
+  characters,
 }) => {
   // Create shuffled quiz list once when component mounts
   const shuffledQuizzes = useMemo(() => {
@@ -181,6 +183,7 @@ export const ReviewScene: React.FC<ReviewSceneProps> = ({
         onNavigate={handleContextNavigate}
         onClose={handleCloseContext}
         onReplayAudio={onReplayAudio}
+        characters={characters}
       />
     );
   }

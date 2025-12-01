@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useMemo } from 'react';
-import type { Message, VocabularyItem } from '../types';
+import type { Message, VocabularyItem, Character } from '../types';
 import { MessageBubble } from './MessageBubble';
+import { avatar } from './avatar';
 
 interface ChatContextViewerProps {
   messages: Message[];
@@ -9,6 +10,7 @@ interface ChatContextViewerProps {
   onNavigate: (direction: 'prev' | 'next') => void;
   onClose: () => void;
   onReplayAudio: (audioData: string, characterName?: string) => void;
+  characters: Character[];
 }
 
 export const ChatContextViewer: React.FC<ChatContextViewerProps> = ({
@@ -17,7 +19,8 @@ export const ChatContextViewer: React.FC<ChatContextViewerProps> = ({
   currentUsageIndex,
   onNavigate,
   onClose,
-  onReplayAudio
+  onReplayAudio,
+  characters,
 }) => {
   const messageRefs = useRef<Map<string, HTMLDivElement>>(new Map());
   
@@ -120,6 +123,7 @@ export const ChatContextViewer: React.FC<ChatContextViewerProps> = ({
         <div className="space-y-4">
           {messages.map((message) => {
             const isHighlighted = message.id === currentMessageId;
+            const character = characters.find(c => c.name === message.characterName);
             
             // Create modified message with highlighted text
             const displayMessage = isHighlighted 
@@ -136,7 +140,14 @@ export const ChatContextViewer: React.FC<ChatContextViewerProps> = ({
                 className={`transition-all ${isHighlighted ? 'ring-4 ring-yellow-400 rounded-lg' : ''}`}
               >
                 {isHighlighted ? (
-                  <div className={`flex ${displayMessage.sender === 'user' ? 'justify-end' : 'justify-start'}`}>
+                  <div className={`flex ${displayMessage.sender === 'user' ? 'justify-end' : 'justify-start items-start gap-2'}`}>
+                    {displayMessage.sender !== 'user' && (
+                       <img 
+                        src={character?.avatar || avatar} 
+                        alt={`${displayMessage.characterName || 'Mimi'} Avatar`} 
+                        className="w-8 h-8 rounded-full object-cover" 
+                      />
+                    )}
                     <div className={`max-w-[80%] ${displayMessage.sender === 'user' ? 'bg-blue-500 text-white' : 'bg-white border border-gray-200'} rounded-2xl px-4 py-3 shadow-sm`}>
                       {displayMessage.sender === 'bot' && displayMessage.characterName && (
                         <p className="text-xs font-semibold text-purple-600 mb-1">
@@ -157,6 +168,7 @@ export const ChatContextViewer: React.FC<ChatContextViewerProps> = ({
                     onStoreTranslation={() => {}}
                     onRetry={() => {}}
                     isJournalView={true}
+                    avatarUrl={character?.avatar}
                   />
                 )}
               </div>

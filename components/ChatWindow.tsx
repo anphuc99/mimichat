@@ -1,6 +1,6 @@
 
 import React, { useEffect, useRef } from 'react';
-import type { Message } from '../types';
+import type { Message, Character } from '../types';
 import { MessageBubble } from './MessageBubble';
 import { TypingIndicator } from './TypingIndicator';
 
@@ -18,6 +18,7 @@ interface ChatWindowProps {
   onUpdateBotMessage: (messageId: string, newText: string, newTone: string) => Promise<void>;
   onRegenerateTone: (text: string, characterName: string) => Promise<string>;
   onCollectVocabulary?: (korean: string, messageId: string) => void;
+  characters: Character[];
 }
 
 export const ChatWindow: React.FC<ChatWindowProps> = ({ 
@@ -34,6 +35,7 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({
   onUpdateBotMessage,
   onRegenerateTone,
   onCollectVocabulary,
+  characters,
 }) => {
   const chatEndRef = useRef<HTMLDivElement>(null);
 
@@ -44,23 +46,27 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({
   return (
     <div className="flex-1 p-4 overflow-y-auto bg-gray-50">
       <div className="space-y-4">
-        {messages.map((message) => (
-          <MessageBubble
-            key={message.id}
-            message={message}
-            onReplayAudio={onReplayAudio}
-            onGenerateAudio={onGenerateAudio}
-            onTranslate={onTranslate}
-            onStoreTranslation={onStoreTranslation}
-            onRetry={onRetry}
-            editingMessageId={editingMessageId}
-            setEditingMessageId={setEditingMessageId}
-            onUpdateMessage={onUpdateMessage}
-            onUpdateBotMessage={onUpdateBotMessage}
-            onRegenerateTone={onRegenerateTone}
-            onCollectVocabulary={onCollectVocabulary}
-          />
-        ))}
+        {messages.map((message) => {
+          const character = characters.find(c => c.name === message.characterName);
+          return (
+            <MessageBubble
+              key={message.id}
+              message={message}
+              onReplayAudio={onReplayAudio}
+              onGenerateAudio={onGenerateAudio}
+              onTranslate={onTranslate}
+              onStoreTranslation={onStoreTranslation}
+              onRetry={onRetry}
+              editingMessageId={editingMessageId}
+              setEditingMessageId={setEditingMessageId}
+              onUpdateMessage={onUpdateMessage}
+              onUpdateBotMessage={onUpdateBotMessage}
+              onRegenerateTone={onRegenerateTone}
+              onCollectVocabulary={onCollectVocabulary}
+              avatarUrl={character?.avatar}
+            />
+          );
+        })}
         {isLoading && <TypingIndicator />}
         <div ref={chatEndRef} />
       </div>
