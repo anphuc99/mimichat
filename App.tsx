@@ -224,7 +224,11 @@ const App: React.FC = () => {
       }
 
       source.connect(context.destination);
-      source.start();
+      
+      return new Promise<void>((resolve) => {
+        source.onended = () => resolve();
+        source.start();
+      });
     } catch (error) {
       console.error("Failed to play audio:", error);
     }
@@ -250,13 +254,13 @@ const App: React.FC = () => {
     }
   }, []);
 
-  const handleReplayAudio = useCallback((audioData: string, characterName?: string) => {
+  const handleReplayAudio = useCallback(async (audioData: string, characterName?: string) => {
     if (!characterName) {
-      playAudio(audioData, 1.0, 0); // Play with default if no character
+      await playAudio(audioData, 1.0, 0); // Play with default if no character
       return;
     }
     const character = characters.find(c => c.name === characterName);
-    playAudio(audioData, character?.speakingRate, character?.pitch);
+    await playAudio(audioData, character?.speakingRate, character?.pitch);
   }, [characters, playAudio]);
 
   const updateJournal = useCallback((updater: (prevJournal: ChatJournal) => ChatJournal) => {
@@ -364,14 +368,42 @@ const App: React.FC = () => {
         const activeChars = getActiveCharacters();
         chatRef.current = await initChat(activeChars, context, [], '', relationshipSummary, currentLevel);
       }
-      const botResponseText = await sendMessage(chatRef.current, text);
+      
+      let botResponseText = await sendMessage(chatRef.current, text);
 
-      let botResponses;
-      try {
-        botResponses = JSON.parse(botResponseText);
-        if (!Array.isArray(botResponses)) botResponses = [botResponses];
-      } catch (e) {
-        console.error("Failed to parse AI response.", e);
+      const parseAndValidate = (jsonString: string) => {
+        try {
+          let parsed = JSON.parse(jsonString);
+          if (!Array.isArray(parsed)) parsed = [parsed];
+          
+          // Validate required fields
+          const isValid = parsed.every((item: any) => 
+            item && 
+            typeof item.CharacterName === 'string' && 
+            typeof item.Text === 'string' && 
+            typeof item.Tone === 'string'
+          );
+          
+          return isValid ? parsed : null;
+        } catch (e) {
+          return null;
+        }
+      };
+
+      let botResponses = parseAndValidate(botResponseText);
+      let retryCount = 0;
+      const maxRetries = 2;
+
+      while (!botResponses && retryCount < maxRetries) {
+        console.warn(`Invalid response format. Retrying (${retryCount + 1}/${maxRetries})...`);
+        const retryPrompt = "SYSTEM: The last response was not in the correct JSON format. Please strictly output a JSON array where each object has 'CharacterName', 'Text', and 'Tone' fields.";
+        botResponseText = await sendMessage(chatRef.current, retryPrompt);
+        botResponses = parseAndValidate(botResponseText);
+        retryCount++;
+      }
+
+      if (!botResponses) {
+        console.error("Failed to parse AI response after retries.");
         throw new Error("Failed to parse AI response.");
       }
 
@@ -420,13 +452,40 @@ const App: React.FC = () => {
       const activeChars = getActiveCharacters();
       chatRef.current = await initChat(activeChars, context, historyForGemini, '', relationshipSummary, currentLevel);
 
-      const botResponseText = await sendMessage(chatRef.current, newText);
+      let botResponseText = await sendMessage(chatRef.current, newText);
 
-      let botResponses;
-      try {
-        botResponses = JSON.parse(botResponseText);
-        if (!Array.isArray(botResponses)) botResponses = [botResponses];
-      } catch (e) {
+      const parseAndValidate = (jsonString: string) => {
+        try {
+          let parsed = JSON.parse(jsonString);
+          if (!Array.isArray(parsed)) parsed = [parsed];
+          
+          // Validate required fields
+          const isValid = parsed.every((item: any) => 
+            item && 
+            typeof item.CharacterName === 'string' && 
+            typeof item.Text === 'string' && 
+            typeof item.Tone === 'string'
+          );
+          
+          return isValid ? parsed : null;
+        } catch (e) {
+          return null;
+        }
+      };
+
+      let botResponses = parseAndValidate(botResponseText);
+      let retryCount = 0;
+      const maxRetries = 2;
+
+      while (!botResponses && retryCount < maxRetries) {
+        console.warn(`Invalid response format on update. Retrying (${retryCount + 1}/${maxRetries})...`);
+        const retryPrompt = "SYSTEM: The last response was not in the correct JSON format. Please strictly output a JSON array where each object has 'CharacterName', 'Text', and 'Tone' fields.";
+        botResponseText = await sendMessage(chatRef.current, retryPrompt);
+        botResponses = parseAndValidate(botResponseText);
+        retryCount++;
+      }
+
+      if (!botResponses) {
         throw new Error("Failed to parse AI response on update.");
       }
 
@@ -561,13 +620,40 @@ const App: React.FC = () => {
       const activeChars = getActiveCharacters();
       chatRef.current = await initChat(activeChars, context, historyForGemini, '', relationshipSummary, currentLevel);
 
-      const botResponseText = await sendMessage(chatRef.current, lastUserMessage.text);
+      let botResponseText = await sendMessage(chatRef.current, lastUserMessage.text);
 
-      let botResponses;
-      try {
-        botResponses = JSON.parse(botResponseText);
-        if (!Array.isArray(botResponses)) botResponses = [botResponses];
-      } catch (e) {
+      const parseAndValidate = (jsonString: string) => {
+        try {
+          let parsed = JSON.parse(jsonString);
+          if (!Array.isArray(parsed)) parsed = [parsed];
+          
+          // Validate required fields
+          const isValid = parsed.every((item: any) => 
+            item && 
+            typeof item.CharacterName === 'string' && 
+            typeof item.Text === 'string' && 
+            typeof item.Tone === 'string'
+          );
+          
+          return isValid ? parsed : null;
+        } catch (e) {
+          return null;
+        }
+      };
+
+      let botResponses = parseAndValidate(botResponseText);
+      let retryCount = 0;
+      const maxRetries = 2;
+
+      while (!botResponses && retryCount < maxRetries) {
+        console.warn(`Invalid response format on retry. Retrying (${retryCount + 1}/${maxRetries})...`);
+        const retryPrompt = "SYSTEM: The last response was not in the correct JSON format. Please strictly output a JSON array where each object has 'CharacterName', 'Text', and 'Tone' fields.";
+        botResponseText = await sendMessage(chatRef.current, retryPrompt);
+        botResponses = parseAndValidate(botResponseText);
+        retryCount++;
+      }
+
+      if (!botResponses) {
         throw new Error("Failed to parse AI response on retry.");
       }
 

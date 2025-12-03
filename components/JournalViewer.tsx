@@ -6,7 +6,7 @@ import { StreakDisplay } from './StreakDisplay';
 
 interface DailyEntryProps {
   dailyChat: DailyChat;
-  onReplayAudio: (audioData: string, characterName?: string) => void;
+  onReplayAudio: (audioData: string, characterName?: string) => Promise<void>;
   onPreloadAudio?: (audioData: string) => Promise<void>;
   isGeneratingThoughts: string | null;
   onGenerateThoughts: (id: string) => void;
@@ -127,10 +127,10 @@ const DailyEntry: React.FC<DailyEntryProps> = ({
       }
 
       // Play audio
-      onReplayAudio(message.audioData, message.characterName);
+      await onReplayAudio(message.audioData, message.characterName);
 
-      // Wait for audio duration (estimate ~3 seconds per message, adjust as needed)
-      await new Promise(resolve => setTimeout(resolve, 3000));
+      // Small pause between messages
+      await new Promise(resolve => setTimeout(resolve, 500));
     }
 
     autoPlayRef.current = false;
@@ -345,7 +345,7 @@ const DailyEntry: React.FC<DailyEntryProps> = ({
 
 interface JournalViewerProps {
   journal: ChatJournal;
-  onReplayAudio: (audioData: string, characterName?: string) => void;
+  onReplayAudio: (audioData: string, characterName?: string) => Promise<void>;
   onBackToChat: () => void;
   isGeneratingThoughts: string | null;
   onGenerateThoughts: (id: string) => void;
@@ -428,7 +428,7 @@ export const JournalViewer: React.FC<JournalViewerProps> = ({
         return entries.flatMap(e => e.messages.filter(m => m.audioData));
     }, [summarizedEntries, selectedEntryIds]);
 
-    const playNext = React.useCallback((currentId: string | null) => {
+    const playNext = React.useCallback(async (currentId: string | null) => {
         if (!isPlayingRef.current) return;
 
         const playlist = getPlaylist();
@@ -464,11 +464,15 @@ export const JournalViewer: React.FC<JournalViewerProps> = ({
 
         const nextMsg = playlist[nextIndex];
         setPlayingMessageId(nextMsg.id);
-        onReplayAudio(nextMsg.audioData!, nextMsg.characterName);
+        
+        await onReplayAudio(nextMsg.audioData!, nextMsg.characterName);
 
-        playerTimeoutRef.current = setTimeout(() => {
-            playNext(nextMsg.id);
-        }, 3000);
+        if (isPlayingRef.current) {
+            await new Promise(resolve => setTimeout(resolve, 500));
+            if (isPlayingRef.current) {
+                playNext(nextMsg.id);
+            }
+        }
 
     }, [getPlaylist, playMode, onReplayAudio]);
 

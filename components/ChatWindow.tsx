@@ -7,7 +7,7 @@ import { TypingIndicator } from './TypingIndicator';
 interface ChatWindowProps {
   messages: Message[];
   isLoading: boolean;
-  onReplayAudio: (audioData: string, characterName?: string) => void;
+  onReplayAudio: (audioData: string, characterName?: string) => Promise<void> | void;
   onGenerateAudio: (messageId: string, force?: boolean) => Promise<void>;
   onTranslate: (text: string) => Promise<string>;
   onStoreTranslation: (messageId: string, translation: string) => void;

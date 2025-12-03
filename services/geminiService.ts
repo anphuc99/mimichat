@@ -142,7 +142,7 @@ ${contextSummary ? `\nHere is a summary of our last conversation to help you rem
       console.log(systemInstruction )
 
   const chat: Chat = ai.chats.create({
-    model: 'gemini-2.5-pro',
+    model: 'gemini-3-pro-preview',
     history,
     config: {
       systemInstruction,
@@ -221,7 +221,7 @@ export const textToSpeech = async (
 //     const ttsPrompt = `Say ${tone}: ${textWithoutEmoji}`;
 
 //     const response = await ai.models.generateContent({
-//       model: "gemini-2.5-flash-preview-tts",
+//       model: "gemini-2.5-pro-preview-tts",
 //       contents: [{ parts: [{ text: ttsPrompt }] }],
 //       config: {
 //         responseModalities: [Modality.AUDIO],
@@ -316,7 +316,7 @@ export const translateAndExplainText = async (text: string): Promise<string> => 
     const prompt = `Translate the following Korean sentence into Vietnamese. Just translate it roughly without adding any notes: "${text}"`;
 
     const response = await ai.models.generateContent({
-      model: "gemini-2.5-flash",
+      model: "gemini-2.5-pro",
       contents: prompt,
     });
 
@@ -342,7 +342,7 @@ export const translateWord = async (word: string): Promise<string> => {
     const prompt = `Translate this Korean word or phrase into Vietnamese. Give ONLY the Vietnamese meaning, nothing else: "${word}"`;
 
     const response = await ai.models.generateContent({
-      model: "gemini-2.5-flash",
+      model: "gemini-2.5-pro",
       contents: prompt,
     });
 
@@ -375,7 +375,7 @@ export const summarizeConversation = async (messages: Message[]): Promise<string
 
   try {
     const response = await ai.models.generateContent({
-      model: "gemini-2.5-flash",
+      model: "gemini-2.5-pro",
       contents: prompt,
     });
     return response.text.trim();
@@ -415,7 +415,7 @@ export const generateCharacterThoughts = async (messages: Message[], characters:
 
   try {
     const response = await ai.models.generateContent({
-      model: "gemini-2.5-flash",
+      model: "gemini-2.5-pro",
       contents: systemInstruction,
       config: {
         responseMimeType: "application/json",
@@ -448,7 +448,7 @@ export const generateToneDescription = async (text: string, character: Character
       Tone:`;
 
     const response = await ai.models.generateContent({
-      model: "gemini-2.5-flash",
+      model: "gemini-2.5-pro",
       contents: prompt,
     });
 
@@ -538,7 +538,7 @@ Tóm tắt bối cảnh chung:`;
 
   try {
     const response = await ai.models.generateContent({
-      model: "gemini-2.5-flash",
+      model: "gemini-2.5-pro",
       contents: prompt,
     });
     return response.text.trim();
@@ -588,7 +588,7 @@ Gợi ý:`;
 
   try {
     const response = await ai.models.generateContent({
-      model: "gemini-2.5-flash",
+      model: "gemini-2.5-pro",
       contents: prompt,
     });
     const suggestions = response.text
@@ -642,7 +642,7 @@ Gợi ý:`;
 
   try {
     const response = await ai.models.generateContent({
-      model: "gemini-2.5-flash",
+      model: "gemini-2.5-pro",
       contents: prompt,
     });
     const suggestions = response.text
@@ -697,7 +697,7 @@ JSON Array of objects:
   console.log(prompt);
   try {
     const response = await ai.models.generateContent({
-      model: "gemini-2.5-flash",
+      model: "gemini-3-pro-preview",
       contents: prompt,
       config: {
         responseMimeType: "application/json",
