@@ -18,6 +18,11 @@ export const API_URL = {
     API_UPLOAD_IMAGE_MESSAGE: '/api/upload-image-message',
 	API_SAVE_DATA: '/api/save-data',
 	API_TTS: '/api/text-to-speech',
+    // Story APIs
+    API_STORIES: '/api/stories',
+    API_STORY: '/api/story',
+    // Streak API (separate from stories)
+    API_STREAK: '/api/streak',
 };
 
 export interface HttpResponse<T = any> {
@@ -125,6 +130,14 @@ class HTTPService {
 
 	async post<T = any>(path: string, body: any): Promise<HttpResponse<T>> {
 		return this.request<T>('POST', path, body);
+	}
+
+	async put<T = any>(path: string, body: any): Promise<HttpResponse<T>> {
+		return this.request<T>('PUT', path, body);
+	}
+
+	async delete<T = any>(path: string): Promise<HttpResponse<T>> {
+		return this.request<T>('DELETE', path);
 	}
 }
 

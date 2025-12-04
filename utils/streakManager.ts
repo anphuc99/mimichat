@@ -24,8 +24,7 @@ export function initializeStreak(): StreakData {
   return {
     currentStreak: 0,
     longestStreak: 0,
-    lastActivityDate: null,
-    streakHistory: []
+    lastActivityDate: null
   };
 }
 
@@ -48,16 +47,10 @@ export function updateStreak(
 ): { updatedStreak: StreakData; isNewStreak: boolean; streakIncreased: boolean } {
   const today = getTodayDateString();
   
-  // If already completed activity today, just add to history but don't increment
+  // If already completed activity today, don't change anything
   if (hasActivityToday(streak)) {
     return {
-      updatedStreak: {
-        ...streak,
-        streakHistory: [
-          ...streak.streakHistory,
-          { date: today, activityType }
-        ]
-      },
+      updatedStreak: streak,
       isNewStreak: false,
       streakIncreased: false
     };
@@ -95,11 +88,7 @@ export function updateStreak(
     updatedStreak: {
       currentStreak: newCurrentStreak,
       longestStreak: newLongestStreak,
-      lastActivityDate: today,
-      streakHistory: [
-        ...streak.streakHistory,
-        { date: today, activityType }
-      ]
+      lastActivityDate: today
     },
     isNewStreak,
     streakIncreased

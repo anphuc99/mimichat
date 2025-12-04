@@ -102,10 +102,6 @@ export interface StreakData {
   currentStreak: number;
   longestStreak: number;
   lastActivityDate: string | null; // ISO date string (YYYY-MM-DD)
-  streakHistory: {
-    date: string; // ISO date string
-    activityType: 'chat' | 'review' | 'learn'; // Type of activity completed
-  }[];
 }
 
 export type KoreanLevel = 'A0' | 'A1' | 'A2' | 'B1' | 'B2' | 'C1' | 'C2';
@@ -177,6 +173,20 @@ export interface SavedData {
   activeCharacterIds: string[];
   context: string;
   relationshipSummary?: string;
-  streak?: StreakData;
   currentLevel?: KoreanLevel;
+}
+
+// Story types for multi-story support
+export interface StoryMeta {
+  id: string;
+  name: string;
+  createdAt: string;
+  updatedAt: string;
+  charactersPreview: string[]; // First 3 character names for preview
+  messageCount: number;
+}
+
+export interface StoriesIndex {
+  stories: StoryMeta[];
+  lastOpenedStoryId?: string;
 }

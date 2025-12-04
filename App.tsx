@@ -10,7 +10,7 @@ import { ReviewScene } from './components/ReviewScene';
 import { StreakDisplay } from './components/StreakDisplay';
 import { StreakCelebration } from './components/StreakCelebration';
 import { LevelSelector } from './components/LevelSelector';
-import type { Message, ChatJournal, DailyChat, Character, SavedData, CharacterThought, QuizState, VocabularyItem, VocabularyReview, StreakData, KoreanLevel } from './types';
+import type { Message, ChatJournal, DailyChat, Character, SavedData, CharacterThought, QuizState, VocabularyItem, VocabularyReview, StreakData, KoreanLevel, StoryMeta, StoriesIndex } from './types';
 import { initializeGeminiService, initChat, sendMessage, textToSpeech, translateAndExplainText, translateWord, summarizeConversation, generateCharacterThoughts, generateToneDescription, generateRelationshipSummary, generateContextSuggestion, generateMessageSuggestions, generateVocabulary, generateSceneImage } from './services/geminiService';
 import { calculateProgress } from './utils/vocabularyQuiz';
 import { getVocabulariesDueForReview, updateReviewAfterQuiz, initializeVocabularyReview, getReviewDueCount } from './utils/spacedRepetition';
@@ -99,6 +99,13 @@ const App: React.FC = () => {
   // Level state
   const [currentLevel, setCurrentLevel] = useState<KoreanLevel>('A1');
   const [isLevelSelectorOpen, setIsLevelSelectorOpen] = useState(false);
+
+  // Story management state
+  const [storiesIndex, setStoriesIndex] = useState<StoriesIndex>({ stories: [] });
+  const [currentStoryId, setCurrentStoryId] = useState<string | null>(null);
+  const [isStoryListOpen, setIsStoryListOpen] = useState(false);
+  const [isCreatingStory, setIsCreatingStory] = useState(false);
+  const [newStoryName, setNewStoryName] = useState('');
 
   const [isGeminiInitialized, setIsGeminiInitialized] = useState(false);
   const [isDataLoaded, setIsDataLoaded] = useState(false);
@@ -279,23 +286,13 @@ const App: React.FC = () => {
       setTimeout(() => setShowStreakCelebration(false), 3000);
     }
     
-    // Save streak to server
+    // Save streak to separate file on server
     try {
-      const dataToSave: SavedData = {
-        version: 5,
-        journal,
-        characters,
-        activeCharacterIds,
-        context,
-        relationshipSummary,
-        streak: updatedStreak,
-        currentLevel,
-      };
-      await http.post(API_URL.API_SAVE_DATA, { data: dataToSave });
+      await http.put(API_URL.API_STREAK, updatedStreak);
     } catch (error) {
       console.error("Failed to save streak:", error);
     }
-  }, [streak, journal, characters, activeCharacterIds, context, relationshipSummary]);
+  }, [streak]);
 
   const updateCurrentChatMessages = useCallback((updater: (prevMessages: Message[]) => Message[]): void => {
     setJournal(prevJournal => {
@@ -1066,10 +1063,13 @@ const App: React.FC = () => {
         activeCharacterIds,
         context,
         relationshipSummary,
-        streak,
         currentLevel,
       };
-      await http.post(API_URL.API_SAVE_DATA, { data: dataToSave });
+      if (currentStoryId) {
+        await http.put(`${API_URL.API_STORY}/${currentStoryId}`, { data: dataToSave });
+      } else {
+        await http.post(API_URL.API_SAVE_DATA, { data: dataToSave });
+      }
     } catch (error) {
       console.error("Failed to save vocabulary progress:", error);
     }
@@ -1081,7 +1081,7 @@ const App: React.FC = () => {
     setView('journal');
     setQuizState(null);
     setSelectedDailyChatId(null);
-  }, [quizState, selectedDailyChatId, journal, characters, activeCharacterIds, context, relationshipSummary, handleStreakUpdate]);
+  }, [quizState, selectedDailyChatId, journal, characters, activeCharacterIds, context, relationshipSummary, handleStreakUpdate, currentStoryId]);
 
   const handleBackFromVocabulary = useCallback(() => {
     setView('journal');
@@ -1148,10 +1148,13 @@ const App: React.FC = () => {
         activeCharacterIds,
         context,
         relationshipSummary,
-        streak,
         currentLevel,
       };
-      await http.post(API_URL.API_SAVE_DATA, { data: dataToSave });
+      if (currentStoryId) {
+        await http.put(`${API_URL.API_STORY}/${currentStoryId}`, { data: dataToSave });
+      } else {
+        await http.post(API_URL.API_SAVE_DATA, { data: dataToSave });
+      }
       alert(`Hoàn thành ôn tập! Đã ôn ${results.length} từ vựng.`);
     } catch (error) {
       console.error("Failed to save review progress:", error);
@@ -1163,7 +1166,7 @@ const App: React.FC = () => {
     // Return to journal
     setView('journal');
     setCurrentReviewItems(null);
-  }, [journal, characters, activeCharacterIds, context, relationshipSummary, handleStreakUpdate]);
+  }, [journal, characters, activeCharacterIds, context, relationshipSummary, handleStreakUpdate, currentStoryId]);
 
   const handleBackFromReview = useCallback(() => {
     setView('journal');
@@ -1199,14 +1202,17 @@ const App: React.FC = () => {
         activeCharacterIds,
         context,
         relationshipSummary,
-        streak,
         currentLevel: newLevel,
       };
-      await http.post(API_URL.API_SAVE_DATA, { data: dataToSave });
+      if (currentStoryId) {
+        await http.put(`${API_URL.API_STORY}/${currentStoryId}`, { data: dataToSave });
+      } else {
+        await http.post(API_URL.API_SAVE_DATA, { data: dataToSave });
+      }
     } catch (error) {
       console.error("Failed to save level:", error);
     }
-  }, [currentLevel, journal, characters, activeCharacterIds, context, relationshipSummary, streak, getActiveCharacters, getCurrentChat]);
+  }, [currentLevel, journal, characters, activeCharacterIds, context, relationshipSummary, getActiveCharacters, getCurrentChat, currentStoryId]);
 
   const handleSaveJournal = async () => {
     try {
@@ -1217,10 +1223,16 @@ const App: React.FC = () => {
         activeCharacterIds,
         context,
         relationshipSummary,
-        streak,
         currentLevel,
       };
-      const rs = await http.post(API_URL.API_SAVE_DATA, {data: dataToSave})
+      
+      let rs;
+      if (currentStoryId) {
+        rs = await http.put(`${API_URL.API_STORY}/${currentStoryId}`, { data: dataToSave });
+      } else {
+        rs = await http.post(API_URL.API_SAVE_DATA, { data: dataToSave });
+      }
+      
       if(rs.ok){
         alert("Đã lưu dữ liệu thành công")
       }
@@ -1239,7 +1251,6 @@ const App: React.FC = () => {
         activeCharacterIds,
         context,
         relationshipSummary,
-        streak,
         currentLevel,
       };
       const jsonString = JSON.stringify(dataToSave, null, 2);
@@ -1359,83 +1370,245 @@ const App: React.FC = () => {
 
   const LoadData = async () => {
     try {
-      const response = await http.get(API_URL.API_DATA);
-      const loadedData = (response as any).data ?? response;
-
-      let loadedJournal: ChatJournal;
-      let loadedCharacters: Character[];
-      let loadedActiveIds: string[] = ['mimi'];
-      let loadedContext: string = "at Mimi's house";
-      let loadedRelationshipSummary: string = '';
-      let loadedStreak: StreakData = initializeStreak();
-      let loadedLevel: KoreanLevel = 'A1';
-
-      if (Array.isArray(loadedData)) { // v1 format support
-        loadedJournal = loadedData.map((chat, index) => ({ 
-          ...chat, 
-          id: chat.id || `${new Date(chat.date).getTime()}-${index}`,
-          vocabularies: [],
-          vocabularyProgress: []
-        }));
-        loadedCharacters = initialCharacters;
-      } else if (typeof loadedData === 'object' && (loadedData.version === 2 || loadedData.version === 3 || loadedData.version === 4 || loadedData.version === 5)) { // v2, v3, v4 & v5 format
-        loadedJournal = loadedData.journal.map((chat: any, index: number) => ({
-          ...chat,
-          id: chat.id || `${new Date(chat.date).getTime()}-${index}`,
-          // Add vocabulary fields for v4→v5 migration
-          vocabularies: (chat.vocabularies || []).map((v: any) => {
-            // Remove usageMessageIds if present (cleanup)
-            const { usageMessageIds, ...rest } = v;
-            return rest;
-          }),
-          vocabularyProgress: chat.vocabularyProgress || []
-        }));
-        // Add default gender, voice, relations and userOpinion for backward compatibility
-        loadedCharacters = loadedData.characters.map((c: any) => ({ 
-          ...c, 
-          gender: c.gender || 'female', 
-          voiceName: c.voiceName || 'Kore', 
-          pitch: c.pitch ?? 0, 
-          speakingRate: c.speakingRate ?? 1.0,
-          relations: c.relations || {},
-          userOpinion: c.userOpinion || { opinion: '', sentiment: 'neutral', closeness: 0 }
-        }));
-        loadedActiveIds = loadedData.activeCharacterIds;
-        loadedContext = loadedData.context;
-        loadedRelationshipSummary = loadedData.relationshipSummary || '';
-        loadedStreak = loadedData.streak ? checkStreakStatus(loadedData.streak) : initializeStreak();
-        loadedLevel = loadedData.currentLevel || 'A1';
-      } else {
-        throw new Error("Tệp nhật ký không hợp lệ hoặc phiên bản không được hỗ trợ.");
+      // Load streak from separate file first
+      const streakResponse = await http.get(API_URL.API_STREAK);
+      if (streakResponse.ok && streakResponse.data) {
+        const loadedStreak = checkStreakStatus(streakResponse.data as StreakData);
+        setStreak(loadedStreak);
       }
 
-      if (!Array.isArray(loadedJournal) || loadedJournal.length === 0) throw new Error("Dữ liệu nhật ký không hợp lệ.");
-
-      setJournal(loadedJournal);
-      setCharacters(loadedCharacters);
-      setActiveCharacterIds(loadedActiveIds);
-      setContext(loadedContext);
-      setRelationshipSummary(loadedRelationshipSummary);
-      setStreak(loadedStreak);
-      setCurrentLevel(loadedLevel);
-
-      const lastChat = loadedJournal[loadedJournal.length - 1];
-      const previousSummary = loadedJournal.length > 1 ? loadedJournal[loadedJournal.length - 2].summary : '';
-
-      const history: Content[] = lastChat.messages.map(msg => ({
-        role: msg.sender === 'user' ? 'user' : 'model',
-        parts: [{ text: msg.rawText || msg.text }],
-      }));
-
-      const activeChars = loadedCharacters.filter(c => loadedActiveIds.includes(c.id));
-      chatRef.current = await initChat(activeChars, loadedContext, history, previousSummary, loadedRelationshipSummary, loadedLevel);
-
-      setView('journal');
-      setIsDataLoaded(true);
+      // Then load stories index
+      const storiesResponse = await http.get(API_URL.API_STORIES);
+      if (!storiesResponse.ok) {
+        throw new Error("Không thể tải danh sách truyện");
+      }
+      
+      const storiesData = storiesResponse.data as StoriesIndex;
+      setStoriesIndex(storiesData);
+      
+      // If no stories exist, show story list to create one
+      if (!storiesData.stories || storiesData.stories.length === 0) {
+        setIsStoryListOpen(true);
+        setIsDataLoaded(true);
+        return;
+      }
+      
+      // Load the last opened story or first story
+      const storyToLoad = storiesData.lastOpenedStoryId || storiesData.stories[0].id;
+      await loadStory(storyToLoad);
 
     } catch (error) {
-      console.error("Không thể tải nhật ký:", error);
-      alert("Đã xảy ra lỗi khi tải tệp. Vui lòng kiểm tra xem tệp có đúng định dạng không.");
+      console.error("Không thể tải dữ liệu:", error);
+      // Fallback to old data loading method for backward compatibility
+      await loadLegacyData();
+    }
+  };
+
+  const loadStory = async (storyId: string) => {
+    try {
+      const response = await http.get(`${API_URL.API_STORY}/${storyId}`);
+      if (!response.ok) {
+        throw new Error("Không thể tải truyện");
+      }
+      
+      const loadedData = response.data;
+      await processLoadedData(loadedData, storyId);
+
+    } catch (error) {
+      console.error("Không thể tải truyện:", error);
+      alert("Đã xảy ra lỗi khi tải truyện.");
+    }
+  };
+
+  const loadLegacyData = async () => {
+    try {
+      const response = await http.get(API_URL.API_DATA);
+      const loadedData = (response as any).data ?? response;
+      await processLoadedData(loadedData, null);
+    } catch (error) {
+      console.error("Không thể tải dữ liệu legacy:", error);
+    }
+  };
+
+  const processLoadedData = async (loadedData: any, storyId: string | null) => {
+    let loadedJournal: ChatJournal;
+    let loadedCharacters: Character[];
+    let loadedActiveIds: string[] = ['mimi'];
+    let loadedContext: string = "at Mimi's house";
+    let loadedRelationshipSummary: string = '';
+    let loadedLevel: KoreanLevel = 'A1';
+
+    if (Array.isArray(loadedData)) { // v1 format support
+      loadedJournal = loadedData.map((chat, index) => ({ 
+        ...chat, 
+        id: chat.id || `${new Date(chat.date).getTime()}-${index}`,
+        vocabularies: [],
+        vocabularyProgress: []
+      }));
+      loadedCharacters = initialCharacters;
+    } else if (typeof loadedData === 'object' && (loadedData.version === 2 || loadedData.version === 3 || loadedData.version === 4 || loadedData.version === 5)) { // v2, v3, v4 & v5 format
+      loadedJournal = loadedData.journal.map((chat: any, index: number) => ({
+        ...chat,
+        id: chat.id || `${new Date(chat.date).getTime()}-${index}`,
+        // Add vocabulary fields for v4→v5 migration
+        vocabularies: (chat.vocabularies || []).map((v: any) => {
+          // Remove usageMessageIds if present (cleanup)
+          const { usageMessageIds, ...rest } = v;
+          return rest;
+        }),
+        vocabularyProgress: chat.vocabularyProgress || []
+      }));
+      // Add default gender, voice, relations and userOpinion for backward compatibility
+      loadedCharacters = loadedData.characters.map((c: any) => ({ 
+        ...c, 
+        gender: c.gender || 'female', 
+        voiceName: c.voiceName || 'Kore', 
+        pitch: c.pitch ?? 0, 
+        speakingRate: c.speakingRate ?? 1.0,
+        relations: c.relations || {},
+        userOpinion: c.userOpinion || { opinion: '', sentiment: 'neutral', closeness: 0 }
+      }));
+      loadedActiveIds = loadedData.activeCharacterIds;
+      loadedContext = loadedData.context;
+      loadedRelationshipSummary = loadedData.relationshipSummary || '';
+      loadedLevel = loadedData.currentLevel || 'A1';
+    } else {
+      throw new Error("Tệp nhật ký không hợp lệ hoặc phiên bản không được hỗ trợ.");
+    }
+
+    if (!Array.isArray(loadedJournal) || loadedJournal.length === 0) throw new Error("Dữ liệu nhật ký không hợp lệ.");
+
+    setJournal(loadedJournal);
+    setCharacters(loadedCharacters);
+    setActiveCharacterIds(loadedActiveIds);
+    setContext(loadedContext);
+    setRelationshipSummary(loadedRelationshipSummary);
+    setCurrentLevel(loadedLevel);
+    setCurrentStoryId(storyId);
+
+    const lastChat = loadedJournal[loadedJournal.length - 1];
+    const previousSummary = loadedJournal.length > 1 ? loadedJournal[loadedJournal.length - 2].summary : '';
+
+    const history: Content[] = lastChat.messages.map(msg => ({
+      role: msg.sender === 'user' ? 'user' : 'model',
+      parts: [{ text: msg.rawText || msg.text }],
+    }));
+
+    const activeChars = loadedCharacters.filter(c => loadedActiveIds.includes(c.id));
+    chatRef.current = await initChat(activeChars, loadedContext, history, previousSummary, loadedRelationshipSummary, loadedLevel);
+
+    setView('journal');
+    setIsDataLoaded(true);
+  };
+
+  const handleCreateStory = async () => {
+    if (!newStoryName.trim()) {
+      alert("Vui lòng nhập tên truyện");
+      return;
+    }
+
+    setIsCreatingStory(true);
+    try {
+      // Send current level to preserve it in the new story (streak is in separate file)
+      const response = await http.post(API_URL.API_STORY, { 
+        name: newStoryName.trim(),
+        currentLevel: currentLevel
+      });
+      if (!response.ok) {
+        throw new Error(response.error || "Không thể tạo truyện mới");
+      }
+
+      const { story } = response.data as { success: boolean; story: StoryMeta };
+      
+      // Update stories index
+      setStoriesIndex(prev => ({
+        ...prev,
+        stories: [...prev.stories, story],
+        lastOpenedStoryId: story.id
+      }));
+
+      // Load the new story
+      await loadStory(story.id);
+      
+      setNewStoryName('');
+      setIsStoryListOpen(false);
+      alert(`Đã tạo truyện mới: ${story.name}`);
+
+    } catch (error: any) {
+      console.error("Không thể tạo truyện:", error);
+      alert(error.message || "Đã xảy ra lỗi khi tạo truyện mới.");
+    } finally {
+      setIsCreatingStory(false);
+    }
+  };
+
+  const handleSwitchStory = async (storyId: string) => {
+    if (storyId === currentStoryId) {
+      setIsStoryListOpen(false);
+      return;
+    }
+
+    // Save current story before switching
+    if (currentStoryId) {
+      await saveCurrentStory();
+    }
+
+    await loadStory(storyId);
+    setIsStoryListOpen(false);
+  };
+
+  const handleDeleteStory = async (storyId: string) => {
+    if (storiesIndex.stories.length <= 1) {
+      alert("Không thể xóa truyện cuối cùng!");
+      return;
+    }
+
+    const story = storiesIndex.stories.find(s => s.id === storyId);
+    if (!confirm(`Bạn có chắc muốn xóa truyện "${story?.name}"?`)) {
+      return;
+    }
+
+    try {
+      const response = await http.delete(`${API_URL.API_STORY}/${storyId}`);
+      if (!response.ok) {
+        throw new Error("Không thể xóa truyện");
+      }
+
+      // Update stories index
+      const newStories = storiesIndex.stories.filter(s => s.id !== storyId);
+      setStoriesIndex(prev => ({
+        ...prev,
+        stories: newStories
+      }));
+
+      // If deleted current story, switch to another
+      if (storyId === currentStoryId && newStories.length > 0) {
+        await loadStory(newStories[0].id);
+      }
+
+    } catch (error) {
+      console.error("Không thể xóa truyện:", error);
+      alert("Đã xảy ra lỗi khi xóa truyện.");
+    }
+  };
+
+  const saveCurrentStory = async () => {
+    if (!currentStoryId) return;
+
+    const dataToSave: SavedData = {
+      version: 5,
+      journal,
+      characters,
+      activeCharacterIds,
+      context,
+      relationshipSummary,
+      currentLevel,
+    };
+
+    try {
+      await http.put(`${API_URL.API_STORY}/${currentStoryId}`, { data: dataToSave });
+    } catch (error) {
+      console.error("Không thể lưu truyện:", error);
     }
   };
 
@@ -1543,10 +1716,14 @@ const App: React.FC = () => {
           activeCharacterIds,
           context,
           relationshipSummary,
-          streak,
           currentLevel,
         };
-        await http.post(API_URL.API_SAVE_DATA, { data: dataToSave });
+        
+        if (currentStoryId) {
+          await http.put(`${API_URL.API_STORY}/${currentStoryId}`, { data: dataToSave });
+        } else {
+          await http.post(API_URL.API_SAVE_DATA, { data: dataToSave });
+        }
       } catch (error) {
         console.error("Auto-save failed:", error);
       } finally {
@@ -1557,7 +1734,7 @@ const App: React.FC = () => {
     const timeoutId = setTimeout(saveData, 3000); // Debounce 3s
 
     return () => clearTimeout(timeoutId);
-  }, [journal, characters, activeCharacterIds, context, relationshipSummary, streak, currentLevel, isDataLoaded]);
+  }, [journal, characters, activeCharacterIds, context, relationshipSummary, currentLevel, isDataLoaded, currentStoryId]);
 
   const currentMessages = getCurrentChat()?.messages || [];
 
@@ -1591,8 +1768,20 @@ const App: React.FC = () => {
               <path strokeLinecap="round" strokeLinejoin="round" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" />
             </svg>
           </button>
+          <button onClick={() => setIsStoryListOpen(true)} title="Quản lý truyện" className="text-gray-600 hover:text-purple-500 transition-colors">
+            <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253" />
+            </svg>
+          </button>
         </div>
-        <h1 className="text-2xl font-bold text-center text-gray-800 flex-1">Mimi Messenger</h1>
+        <div className="flex flex-col items-center flex-1">
+          <h1 className="text-2xl font-bold text-center text-gray-800">Mimi Messenger</h1>
+          {currentStoryId && storiesIndex.stories.find(s => s.id === currentStoryId) && (
+            <span className="text-xs text-purple-600 font-medium">
+              📖 {storiesIndex.stories.find(s => s.id === currentStoryId)?.name}
+            </span>
+          )}
+        </div>
         <div className="flex items-center space-x-3">
           {/* Level Badge */}
           <button
@@ -1642,6 +1831,134 @@ const App: React.FC = () => {
         isOpen={isLevelSelectorOpen}
         onClose={() => setIsLevelSelectorOpen(false)}
       />
+
+      {/* Story List Modal */}
+      {isStoryListOpen && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-xl shadow-2xl w-full max-w-md max-h-[80vh] overflow-hidden flex flex-col">
+            <div className="p-4 border-b border-gray-200 flex items-center justify-between bg-gradient-to-r from-purple-500 to-indigo-600 text-white">
+              <h2 className="text-xl font-bold flex items-center gap-2">
+                <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253" />
+                </svg>
+                Danh sách truyện
+              </h2>
+              <button
+                onClick={() => setIsStoryListOpen(false)}
+                className="p-1 hover:bg-white/20 rounded-full transition-colors"
+              >
+                <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+            </div>
+            
+            {/* Create new story form */}
+            <div className="p-4 border-b border-gray-100 bg-gray-50">
+              <div className="flex gap-2">
+                <input
+                  type="text"
+                  value={newStoryName}
+                  onChange={(e) => setNewStoryName(e.target.value)}
+                  placeholder="Nhập tên truyện mới..."
+                  className="flex-1 px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent"
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' && !isCreatingStory) {
+                      handleCreateStory();
+                    }
+                  }}
+                />
+                <button
+                  onClick={handleCreateStory}
+                  disabled={isCreatingStory || !newStoryName.trim()}
+                  className="px-4 py-2 bg-gradient-to-r from-purple-500 to-indigo-600 text-white font-medium rounded-lg hover:from-purple-600 hover:to-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed transition-all flex items-center gap-1"
+                >
+                  {isCreatingStory ? (
+                    <svg className="animate-spin h-5 w-5" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                    </svg>
+                  ) : (
+                    <>
+                      <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" />
+                      </svg>
+                      Tạo
+                    </>
+                  )}
+                </button>
+              </div>
+            </div>
+            
+            {/* Story list */}
+            <div className="flex-1 overflow-y-auto">
+              {storiesIndex.stories.length === 0 ? (
+                <div className="p-8 text-center text-gray-500">
+                  <svg xmlns="http://www.w3.org/2000/svg" className="h-16 w-16 mx-auto mb-4 text-gray-300" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253" />
+                  </svg>
+                  <p className="font-medium">Chưa có truyện nào</p>
+                  <p className="text-sm">Tạo truyện mới để bắt đầu!</p>
+                </div>
+              ) : (
+                <div className="divide-y divide-gray-100">
+                  {storiesIndex.stories.map((story) => (
+                    <div
+                      key={story.id}
+                      className={`p-4 hover:bg-gray-50 transition-colors cursor-pointer ${
+                        story.id === currentStoryId ? 'bg-purple-50 border-l-4 border-purple-500' : ''
+                      }`}
+                      onClick={() => handleSwitchStory(story.id)}
+                    >
+                      <div className="flex items-start justify-between">
+                        <div className="flex-1 min-w-0">
+                          <h3 className="font-semibold text-gray-800 truncate flex items-center gap-2">
+                            {story.id === currentStoryId && (
+                              <span className="text-purple-500">▶</span>
+                            )}
+                            {story.name}
+                          </h3>
+                          <div className="flex items-center gap-3 mt-1 text-xs text-gray-500">
+                            <span className="flex items-center gap-1">
+                              <svg xmlns="http://www.w3.org/2000/svg" className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                                <path strokeLinecap="round" strokeLinejoin="round" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
+                              </svg>
+                              {story.messageCount} tin nhắn
+                            </span>
+                            {story.charactersPreview && story.charactersPreview.length > 0 && (
+                              <span className="flex items-center gap-1">
+                                <svg xmlns="http://www.w3.org/2000/svg" className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                                  <path strokeLinecap="round" strokeLinejoin="round" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z" />
+                                </svg>
+                                {story.charactersPreview.join(', ')}
+                              </span>
+                            )}
+                          </div>
+                          <div className="text-xs text-gray-400 mt-1">
+                            Cập nhật: {new Date(story.updatedAt).toLocaleDateString('vi-VN')}
+                          </div>
+                        </div>
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleDeleteStory(story.id);
+                          }}
+                          className="p-2 text-gray-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition-colors"
+                          title="Xóa truyện"
+                        >
+                          <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                            <path strokeLinecap="round" strokeLinejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                          </svg>
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
 
       {view === 'chat' ? (
         <>

@@ -213,6 +213,328 @@ const getData = (req: Request, res: Response) => {
 }
 
 // ---------------------------
+// Story Management APIs
+// ---------------------------
+interface StoryMeta {
+  id: string;
+  name: string;
+  createdAt: string;
+  updatedAt: string;
+  charactersPreview: string[];
+  messageCount: number;
+}
+
+interface StoriesIndex {
+  stories: StoryMeta[];
+  lastOpenedStoryId?: string;
+}
+
+const STORIES_DIR = path.join(__dirname, "data", "stories");
+const STORIES_INDEX_PATH = path.join(__dirname, "data", "stories-index.json");
+
+// Ensure data directory exists first
+const DATA_DIR = path.join(__dirname, "data");
+if (!fs.existsSync(DATA_DIR)) {
+  fs.mkdirSync(DATA_DIR, { recursive: true });
+}
+
+// Ensure stories directory exists
+if (!fs.existsSync(STORIES_DIR)) {
+  fs.mkdirSync(STORIES_DIR, { recursive: true });
+}
+
+// Initialize stories index if not exists
+if (!fs.existsSync(STORIES_INDEX_PATH)) {
+  // Migrate existing data.json to first story if exists
+  const oldDataPath = path.join(__dirname, "data", "data.json");
+  if (fs.existsSync(oldDataPath)) {
+    const oldData = JSON.parse(fs.readFileSync(oldDataPath, "utf-8"));
+    const storyId = crypto.randomUUID();
+    const storyMeta: StoryMeta = {
+      id: storyId,
+      name: "Câu chuyện đầu tiên",
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+      charactersPreview: (oldData.characters || []).slice(0, 3).map((c: any) => c.name),
+      messageCount: (oldData.journal || []).reduce((sum: number, dc: any) => sum + (dc.messages?.length || 0), 0)
+    };
+    
+    // Save story data
+    fs.writeFileSync(path.join(STORIES_DIR, `${storyId}.json`), JSON.stringify(oldData, null, 2));
+    
+    // Create index
+    const index: StoriesIndex = {
+      stories: [storyMeta],
+      lastOpenedStoryId: storyId
+    };
+    fs.writeFileSync(STORIES_INDEX_PATH, JSON.stringify(index, null, 2));
+  } else {
+    // Create empty index
+    const index: StoriesIndex = { stories: [] };
+    fs.writeFileSync(STORIES_INDEX_PATH, JSON.stringify(index, null, 2));
+  }
+}
+
+const getStoriesIndex = (): StoriesIndex => {
+  if (!fs.existsSync(STORIES_INDEX_PATH)) {
+    return { stories: [] };
+  }
+  return JSON.parse(fs.readFileSync(STORIES_INDEX_PATH, "utf-8"));
+};
+
+const saveStoriesIndex = (index: StoriesIndex) => {
+  fs.writeFileSync(STORIES_INDEX_PATH, JSON.stringify(index, null, 2));
+};
+
+// ---------------------------
+// Streak Management (separate file)
+// ---------------------------
+interface StreakData {
+  currentStreak: number;
+  longestStreak: number;
+  lastActivityDate: string | null;
+}
+
+const STREAK_PATH = path.join(__dirname, "data", "streak.json");
+
+// Initialize streak file if not exists
+if (!fs.existsSync(STREAK_PATH)) {
+  const defaultStreak: StreakData = {
+    currentStreak: 0,
+    longestStreak: 0,
+    lastActivityDate: null
+  };
+  fs.writeFileSync(STREAK_PATH, JSON.stringify(defaultStreak, null, 2));
+}
+
+const getStreak = (): StreakData => {
+  if (!fs.existsSync(STREAK_PATH)) {
+    return { currentStreak: 0, longestStreak: 0, lastActivityDate: null };
+  }
+  const data = JSON.parse(fs.readFileSync(STREAK_PATH, "utf-8"));
+  // Remove streakHistory if exists (migration)
+  const { streakHistory, ...streakWithoutHistory } = data;
+  return streakWithoutHistory;
+};
+
+const saveStreak = (streak: StreakData) => {
+  fs.writeFileSync(STREAK_PATH, JSON.stringify(streak, null, 2));
+};
+
+// GET /api/streak - Get streak data
+app.get("/api/streak", (req: Request, res: Response) => {
+  try {
+    const streak = getStreak();
+    res.json(streak);
+  } catch (e: any) {
+    res.status(500).json({ error: e.message || "Failed to load streak" });
+  }
+});
+
+// PUT /api/streak - Update streak data
+app.put("/api/streak", (req: Request, res: Response) => {
+  try {
+    const streakData = req.body as StreakData;
+    saveStreak(streakData);
+    res.json({ success: true });
+  } catch (e: any) {
+    res.status(500).json({ error: e.message || "Failed to save streak" });
+  }
+});
+
+// GET /api/stories - List all stories
+app.get("/api/stories", (req: Request, res: Response) => {
+  try {
+    const index = getStoriesIndex();
+    res.json(index);
+  } catch (e: any) {
+    res.status(500).json({ error: e.message || "Failed to load stories" });
+  }
+});
+
+// GET /api/story/:id - Get a specific story
+app.get("/api/story/:id", (req: Request, res: Response) => {
+  try {
+    const storyId = req.params.id;
+    const storyPath = path.join(STORIES_DIR, `${storyId}.json`);
+    
+    if (!fs.existsSync(storyPath)) {
+      return res.status(404).json({ error: "Story not found" });
+    }
+    
+    const data = JSON.parse(fs.readFileSync(storyPath, "utf-8"));
+    
+    // Update last opened story
+    const index = getStoriesIndex();
+    index.lastOpenedStoryId = storyId;
+    saveStoriesIndex(index);
+    
+    res.json(data);
+  } catch (e: any) {
+    res.status(500).json({ error: e.message || "Failed to load story" });
+  }
+});
+
+// POST /api/story - Create a new story
+app.post("/api/story", (req: Request, res: Response) => {
+  try {
+    const { name, data, currentLevel } = req.body;
+    
+    if (!name || !name.trim()) {
+      return res.status(400).json({ error: "Story name is required" });
+    }
+    
+    const storyId = crypto.randomUUID();
+    const now = new Date().toISOString();
+    
+    // Default data for a new story (streak is now in separate file)
+    const storyData = data || {
+      version: 5,
+      journal: [{
+        id: Date.now().toString(),
+        date: new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Ho_Chi_Minh' }),
+        summary: '',
+        messages: []
+      }],
+      characters: [
+        { 
+          id: 'mimi', 
+          name: 'Mimi', 
+          personality: 'a Korean girl. She must only speak Korean in very short and simple sentences (max 5 words). Her personality is cheerful, playful, and a bit stubborn.', 
+          gender: 'female', 
+          voiceName: 'Kore', 
+          pitch: 5.0, 
+          speakingRate: 1.1,
+          relations: {},
+          userOpinion: { opinion: '', sentiment: 'neutral', closeness: 0 },
+        }
+      ],
+      activeCharacterIds: ['mimi'],
+      context: "at Mimi's house",
+      relationshipSummary: '',
+      currentLevel: currentLevel || 'A1'
+    };
+    
+    // Save story data
+    fs.writeFileSync(path.join(STORIES_DIR, `${storyId}.json`), JSON.stringify(storyData, null, 2));
+    
+    // Update index
+    const index = getStoriesIndex();
+    const storyMeta: StoryMeta = {
+      id: storyId,
+      name: name.trim(),
+      createdAt: now,
+      updatedAt: now,
+      charactersPreview: (storyData.characters || []).slice(0, 3).map((c: any) => c.name),
+      messageCount: 0
+    };
+    index.stories.push(storyMeta);
+    index.lastOpenedStoryId = storyId;
+    saveStoriesIndex(index);
+    
+    res.json({ success: true, story: storyMeta });
+  } catch (e: any) {
+    res.status(500).json({ error: e.message || "Failed to create story" });
+  }
+});
+
+// PUT /api/story/:id - Update story data
+app.put("/api/story/:id", (req: Request, res: Response) => {
+  try {
+    const storyId = req.params.id;
+    const { data, name } = req.body;
+    
+    const storyPath = path.join(STORIES_DIR, `${storyId}.json`);
+    
+    if (!fs.existsSync(storyPath)) {
+      return res.status(404).json({ error: "Story not found" });
+    }
+    
+    // Save story data
+    if (data) {
+      fs.writeFileSync(storyPath, JSON.stringify(data, null, 2));
+    }
+    
+    // Update index
+    const index = getStoriesIndex();
+    const storyIndex = index.stories.findIndex(s => s.id === storyId);
+    if (storyIndex !== -1) {
+      index.stories[storyIndex].updatedAt = new Date().toISOString();
+      
+      if (name) {
+        index.stories[storyIndex].name = name.trim();
+      }
+      
+      if (data) {
+        index.stories[storyIndex].charactersPreview = (data.characters || []).slice(0, 3).map((c: any) => c.name);
+        index.stories[storyIndex].messageCount = (data.journal || []).reduce((sum: number, dc: any) => sum + (dc.messages?.length || 0), 0);
+      }
+      
+      saveStoriesIndex(index);
+    }
+    
+    res.json({ success: true });
+  } catch (e: any) {
+    res.status(500).json({ error: e.message || "Failed to update story" });
+  }
+});
+
+// DELETE /api/story/:id - Delete a story
+app.delete("/api/story/:id", (req: Request, res: Response) => {
+  try {
+    const storyId = req.params.id;
+    const storyPath = path.join(STORIES_DIR, `${storyId}.json`);
+    
+    // Delete story file
+    if (fs.existsSync(storyPath)) {
+      fs.unlinkSync(storyPath);
+    }
+    
+    // Update index
+    const index = getStoriesIndex();
+    index.stories = index.stories.filter(s => s.id !== storyId);
+    
+    // Update last opened if deleted
+    if (index.lastOpenedStoryId === storyId) {
+      index.lastOpenedStoryId = index.stories.length > 0 ? index.stories[0].id : undefined;
+    }
+    
+    saveStoriesIndex(index);
+    
+    res.json({ success: true });
+  } catch (e: any) {
+    res.status(500).json({ error: e.message || "Failed to delete story" });
+  }
+});
+
+// PUT /api/story/:id/name - Rename story
+app.put("/api/story/:id/name", (req: Request, res: Response) => {
+  try {
+    const storyId = req.params.id;
+    const { name } = req.body;
+    
+    if (!name || !name.trim()) {
+      return res.status(400).json({ error: "Story name is required" });
+    }
+    
+    const index = getStoriesIndex();
+    const storyIndex = index.stories.findIndex(s => s.id === storyId);
+    
+    if (storyIndex === -1) {
+      return res.status(404).json({ error: "Story not found" });
+    }
+    
+    index.stories[storyIndex].name = name.trim();
+    index.stories[storyIndex].updatedAt = new Date().toISOString();
+    saveStoriesIndex(index);
+    
+    res.json({ success: true });
+  } catch (e: any) {
+    res.status(500).json({ error: e.message || "Failed to rename story" });
+  }
+});
+
+// ---------------------------
 // Serve audio files
 app.get("/api/audio/:filename",async (req: Request, res: Response) => {  
   GetAudioMimeType(req, res);
