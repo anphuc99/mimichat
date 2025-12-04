@@ -317,7 +317,7 @@ const App: React.FC = () => {
     }
 
     for (const botResponse of responses) {
-      const { CharacterName, Text, Action, Tone } = botResponse;
+      const { CharacterName, Text, Action, Tone, Translation } = botResponse;
 
       const characterName = CharacterName || getActiveCharacters()[0]?.name || "Mimi";
       const speechText = Text || "";
@@ -343,6 +343,7 @@ const App: React.FC = () => {
         characterName: characterName,
         audioData: audioData ?? undefined,
         rawText: rawTextForCopy,
+        translation: Translation
       };
 
       updateCurrentChatMessages(prev => [...prev, botMessage]);

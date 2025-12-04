@@ -117,6 +117,7 @@ For each turn, you must provide a JSON object with the following fields:
 4. action: Short English action description showing emotion or gesture.
 5. tone: The specific Tone description string (see Tone Description below).
 6. emotion: One single keyword from the list: Neutral, Happy, Sad, Angry, Scared, Shy, Disgusted, Surprised, Shouting, Excited, Serious, Affectionate, Fierce.
+7. Translate each chat sentence into Vietnamese
 
 TTS TEXT FORMATTING RULES (Strictly apply this to the 'ttsText' field):
 - **Angry**: Add "!!!" at the end. (e.g., "하지 마!!!")
@@ -137,6 +138,16 @@ TONE DESCRIPTION:
 - Select low, medium, high pitch (This is a mandatory requirement. You must absolutely comply.)
 - Example: "Happy, high pitch", "Sad, low pitch"
 ${contextSummary ? `\nHere is a summary of our last conversation to help you remember: ${contextSummary}` : ''}
+
+RESPONSE FORMAT:
+Generate an array of dialogue turns. Each turn:
+{
+  "CharacterName": "Name of speaking character",
+  "Text": "Korean text (max ${maxWords} words)",
+  "Tone": "Emotion, pitch level (e.g., 'Happy, high pitch', 'Curious, medium pitch')",
+  "Translation": "Translate each chat sentence into Vietnamese",
+}
+
 `;
 
       console.log(systemInstruction )
@@ -154,7 +165,8 @@ ${contextSummary ? `\nHere is a summary of our last conversation to help you rem
           properties: {
             CharacterName: { type: Type.STRING },
             Text: { type: Type.STRING },
-            Tone: { type: Type.STRING },            
+            Tone: { type: Type.STRING },     
+            Translation: {type: Type.STRING}       
           }
         }
       },
@@ -246,16 +258,18 @@ RULES:
    - React emotionally to what others say
    - Share opinions and experiences related to the topic
    - Joke with each other
-   - Disagree or agree
+   - Disagree or agree   
 8. **STRICT SPLITTING RULE**: Each JSON object must contain EXACTLY ONE short sentence
 9. Characters thoughts in parentheses "()" are allowed
+10. Translate each chat sentence into Vietnamese
 
 RESPONSE FORMAT:
 Generate an array of dialogue turns. Each turn:
 {
   "CharacterName": "Name of speaking character",
   "Text": "Korean text (max ${maxWords} words)",
-  "Tone": "Emotion, pitch level (e.g., 'Happy, high pitch', 'Curious, medium pitch')"
+  "Tone": "Emotion, pitch level (e.g., 'Happy, high pitch', 'Curious, medium pitch')",
+  "Translation": "Translate each chat sentence into Vietnamese",
 }
 
 When I send "CONTINUE", generate the next 3-8 turns continuing the conversation naturally.
@@ -263,7 +277,7 @@ When I send "NEW TOPIC: [topic]", start a new discussion about that topic.
 `;
 
   const chat: Chat = ai.chats.create({
-    model: 'gemini-2.0-flash',
+    model: 'gemini-2.5-flash',
     history,
     config: {
       systemInstruction,
@@ -275,7 +289,8 @@ When I send "NEW TOPIC: [topic]", start a new discussion about that topic.
           properties: {
             CharacterName: { type: Type.STRING },
             Text: { type: Type.STRING },
-            Tone: { type: Type.STRING },            
+            Tone: { type: Type.STRING },       
+            Translation: { type: Type.STRING}  
           }
         }
       },

@@ -67,7 +67,7 @@ export const AutoChatModal: React.FC<AutoChatModalProps> = ({
       }
       if (shouldStopRef.current) break;
 
-      const { CharacterName, Text, Tone } = botResponse;
+      const { CharacterName, Text, Tone, Translation } = botResponse;
       if (!CharacterName || !Text) continue;
 
       const character = characters.find(c => c.name === CharacterName);
@@ -75,6 +75,7 @@ export const AutoChatModal: React.FC<AutoChatModalProps> = ({
       const pitch = character?.pitch;
       const speakingRate = character?.speakingRate;
       const tone = Tone || 'cheerfully';
+      const translation = Translation;
 
       // Tạo audio TRƯỚC (giống code cũ)
       let audioData: string | null = null;
@@ -92,6 +93,7 @@ export const AutoChatModal: React.FC<AutoChatModalProps> = ({
         characterName: CharacterName,
         audioData: audioData ?? undefined,
         rawText: `${CharacterName} Said: ${Text}\nTone: ${tone}`,
+        translation: translation
       };
 
       // Thêm message vào chat
