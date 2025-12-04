@@ -10,8 +10,9 @@ import { ReviewScene } from './components/ReviewScene';
 import { StreakDisplay } from './components/StreakDisplay';
 import { StreakCelebration } from './components/StreakCelebration';
 import { LevelSelector } from './components/LevelSelector';
+import { AutoChatModal } from './components/AutoChatModal';
 import type { Message, ChatJournal, DailyChat, Character, SavedData, CharacterThought, QuizState, VocabularyItem, VocabularyReview, StreakData, KoreanLevel, StoryMeta, StoriesIndex } from './types';
-import { initializeGeminiService, initChat, sendMessage, textToSpeech, translateAndExplainText, translateWord, summarizeConversation, generateCharacterThoughts, generateToneDescription, generateRelationshipSummary, generateContextSuggestion, generateMessageSuggestions, generateVocabulary, generateSceneImage } from './services/geminiService';
+import { initializeGeminiService, initChat, sendMessage, textToSpeech, translateAndExplainText, translateWord, summarizeConversation, generateCharacterThoughts, generateToneDescription, generateRelationshipSummary, generateContextSuggestion, generateMessageSuggestions, generateVocabulary, generateSceneImage, initAutoChatSession, sendAutoChatMessage } from './services/geminiService';
 import { calculateProgress } from './utils/vocabularyQuiz';
 import { getVocabulariesDueForReview, updateReviewAfterQuiz, initializeVocabularyReview, getReviewDueCount } from './utils/spacedRepetition';
 import { initializeStreak, updateStreak, checkStreakStatus } from './utils/streakManager';
@@ -106,6 +107,10 @@ const App: React.FC = () => {
   const [isStoryListOpen, setIsStoryListOpen] = useState(false);
   const [isCreatingStory, setIsCreatingStory] = useState(false);
   const [newStoryName, setNewStoryName] = useState('');
+
+  // Auto Chat state
+  const [isAutoChatOpen, setIsAutoChatOpen] = useState(false);
+  const [isAutoGenerating, setIsAutoGenerating] = useState(false);
 
   const [isGeminiInitialized, setIsGeminiInitialized] = useState(false);
   const [isDataLoaded, setIsDataLoaded] = useState(false);
@@ -1302,6 +1307,11 @@ const App: React.FC = () => {
     }
   };
 
+  // Handler for Auto Chat - thêm từng tin nhắn realtime vào chat
+  const handleAutoChatNewMessage = useCallback((message: Message) => {
+    updateCurrentChatMessages(prev => [...prev, message]);
+  }, [updateCurrentChatMessages]);
+
   const handleRegenerateImage = async (messageId: string) => {
     const currentChat = getCurrentChat();
     if (!currentChat) return;
@@ -1964,7 +1974,7 @@ const App: React.FC = () => {
         <>
           <ChatWindow
             messages={currentMessages}
-            isLoading={isLoading}
+            isLoading={isLoading || isAutoGenerating}
             onReplayAudio={handleReplayAudio}
             onTranslate={getTranslationAndExplanation}
             onStoreTranslation={handleStoreTranslation}
@@ -2048,6 +2058,16 @@ const App: React.FC = () => {
                   </svg>
                 )}
               </button>
+              <button
+                onClick={() => setIsAutoChatOpen(true)}
+                disabled={isLoading || isSummarizing}
+                className="p-2 hover:bg-gray-100 rounded-full disabled:opacity-50 transition-colors text-purple-500"
+                title="Auto Chat - Nhân vật tự nói chuyện"
+              >
+                <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M17 8h2a2 2 0 012 2v6a2 2 0 01-2 2h-2v4l-4-4H9a1.994 1.994 0 01-1.414-.586m0 0L11 14h4a2 2 0 002-2V6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2v4l.586-.586z" />
+                </svg>
+              </button>
             </div>
           </div>
           <MessageInput 
@@ -2110,6 +2130,19 @@ const App: React.FC = () => {
           characters={characters}
         />
       )}
+
+      {/* Auto Chat Modal */}
+      <AutoChatModal
+        isOpen={isAutoChatOpen}
+        onClose={() => setIsAutoChatOpen(false)}
+        characters={getActiveCharacters()}
+        context={context}
+        currentMessages={getCurrentChat()?.messages || []}
+        currentLevel={currentLevel}
+        onNewMessage={handleAutoChatNewMessage}
+        playAudio={playAudio}
+        onGeneratingChange={setIsAutoGenerating}
+      />
     </div>
   );
 };

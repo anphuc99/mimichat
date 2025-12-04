@@ -174,6 +174,129 @@ export const sendMessage = async (chat: Chat, message: string): Promise<string> 
   }
 };
 
+// Auto Chat Session - Characters talk to each other automatically
+export const initAutoChatSession = async (
+  characters: Character[],
+  context: string,
+  topic: string,
+  level: string = 'A1',
+  history: Content[] = []
+): Promise<Chat> => {
+  if (!ai) {
+    throw new Error('Gemini service not initialized. Call initializeGeminiService first.');
+  }
+
+  // Parse level info
+  const maxWords = level === 'A0' ? 3 : level === 'A1' ? 5 : level === 'A2' ? 7 : level === 'B1' ? 10 : level === 'B2' ? 12 : level === 'C1' ? 15 : 20;
+  const grammarGuideline = level === 'A0' ? 'Use only simple present tense sentences. Avoid complex grammar.' :
+                          level === 'A1' ? 'Use simple sentences with basic present and past tense. Can use -고 싶다, -아/어요.' :
+                          level === 'A2' ? 'Use simple compound sentences with -고, -지만. Use basic tenses.' :
+                          level === 'B1' ? 'Use complex sentences with intermediate grammar like -(으)ㄹ 수 있다, -아/어서, -기 때문에.' :
+                          level === 'B2' ? 'Use advanced grammar, compound sentences, express complex opinions.' :
+                          level === 'C1' ? 'Use advanced grammar, idioms, nuanced expressions.' :
+                          'Natural native-like speech with idioms, advanced grammar, varied styles.';
+
+  const characterDescriptions = characters.map(c => {
+    let desc = `- ${c.name} (${c.gender === 'female' ? 'girl' : 'boy'}): ${c.personality}`;
+    
+    // Add relations if exist
+    if (c.relations && Object.keys(c.relations).length > 0) {
+      const relationsList = Object.entries(c.relations)
+        .filter(([_, rel]) => rel.opinion)
+        .map(([targetId, rel]) => {
+          const targetChar = characters.find(ch => ch.id === targetId);
+          if (!targetChar) return null;
+          const sentiment = rel.sentiment === 'positive' ? '(positive)' : 
+                           rel.sentiment === 'negative' ? '(negative)' : '(neutral)';
+          return `      - About ${targetChar.name} ${sentiment}: ${rel.opinion}`;
+        })
+        .filter(r => r !== null);
+      
+      if (relationsList.length > 0) {
+        desc += '\n    * Relationships:\n' + relationsList.join('\n');
+      }
+    }
+    
+    return desc;
+  }).join('\n      ');
+
+const systemInstruction = `
+You are a scriptwriter creating a natural conversation between Korean characters. The characters are discussing a topic among themselves.
+
+LANGUAGE LEVEL: ${level}
+- Maximum ${maxWords} Korean words per sentence
+- ${grammarGuideline}
+
+CONVERSATION SETTING: ${context}
+
+TOPIC TO DISCUSS: ${topic}
+
+CHARACTERS:
+${characterDescriptions}
+
+RULES:
+1. Characters ONLY speak Korean (absolutely no English or Vietnamese in their speech)
+2. Each character should have their own personality and speaking style
+3. The conversation should flow naturally with reactions, agreements, disagreements, questions
+4. Characters can express emotions, laugh, be surprised, etc.
+5. Each response should be 3-8 turns of dialogue
+6. Keep sentences short and simple (max ${maxWords} words)
+7. Characters may:
+   - Ask each other questions
+   - React emotionally to what others say
+   - Share opinions and experiences related to the topic
+   - Joke with each other
+   - Disagree or agree
+8. **STRICT SPLITTING RULE**: Each JSON object must contain EXACTLY ONE short sentence
+9. Characters thoughts in parentheses "()" are allowed
+
+RESPONSE FORMAT:
+Generate an array of dialogue turns. Each turn:
+{
+  "CharacterName": "Name of speaking character",
+  "Text": "Korean text (max ${maxWords} words)",
+  "Tone": "Emotion, pitch level (e.g., 'Happy, high pitch', 'Curious, medium pitch')"
+}
+
+When I send "CONTINUE", generate the next 3-8 turns continuing the conversation naturally.
+When I send "NEW TOPIC: [topic]", start a new discussion about that topic.
+`;
+
+  const chat: Chat = ai.chats.create({
+    model: 'gemini-2.0-flash',
+    history,
+    config: {
+      systemInstruction,
+      responseMimeType: "application/json",
+      responseSchema: {
+        type: Type.ARRAY,
+        items: {
+          type: Type.OBJECT,
+          properties: {
+            CharacterName: { type: Type.STRING },
+            Text: { type: Type.STRING },
+            Tone: { type: Type.STRING },            
+          }
+        }
+      },
+    },
+  });
+  return chat;
+};
+
+export const sendAutoChatMessage = async (chat: Chat, command: 'START' | 'CONTINUE' | string): Promise<string> => {
+  try {
+    const message = command === 'START' ? 'Start the conversation about the topic.' :
+                    command === 'CONTINUE' ? 'CONTINUE' : command;
+    const response: GenerateContentResponse = await chat.sendMessage({ message });
+    console.log("Auto chat response:", response.text);
+    return response.text;
+  } catch (error) {
+    console.error("Auto chat API error:", error);
+    throw error;
+  }
+};
+
 export const textToSpeech = async (
   text: string,
   tone: string = 'cheerfully',
@@ -188,7 +311,7 @@ export const textToSpeech = async (
     return null;
   }
   try {
-    let url = API_URL.API_TTS + `?text=${encodeURIComponent(textWithoutEmoji)}&voice=${encodeURIComponent(voiceName)}&instructions=${encodeURIComponent(`Say ${tone}`)}`;
+    let url = API_URL.API_TTS + `?text=${encodeURIComponent(textWithoutEmoji)}&voice=${encodeURIComponent(voiceName)}&instructions=${encodeURIComponent(`Say slowly ${tone}`)}`;
     if (force) {
       url += `&force=true`;
     }
