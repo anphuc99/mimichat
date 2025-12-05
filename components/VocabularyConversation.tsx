@@ -33,6 +33,9 @@ export const VocabularyConversation: React.FC<VocabularyConversationProps> = ({
   const [topic, setTopic] = useState<string>('');
   const [isStarted, setIsStarted] = useState(false);
   const [isCompleted, setIsCompleted] = useState(false);
+  const [isReplaying, setIsReplaying] = useState(false);
+  const [replayIndex, setReplayIndex] = useState(0);
+  const shouldStopReplayRef = useRef(false);
   
   // State để chọn nhân vật
   const [selectedCharacterIds, setSelectedCharacterIds] = useState<string[]>(
@@ -46,9 +49,10 @@ export const VocabularyConversation: React.FC<VocabularyConversationProps> = ({
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const nextBatchRef = useRef<any[] | null>(null);
   const isFetchingRef = useRef(false);
+  const messageRefs = useRef<Map<number, HTMLDivElement>>(new Map());
 
   // Tính số tin nhắn mục tiêu dựa trên số từ vựng
-  const targetCount = Math.max(20, vocabularies.length * 5);
+  const targetCount = 1;
 
   // Lấy danh sách nhân vật đã chọn
   const selectedCharacters = characters.filter(c => selectedCharacterIds.includes(c.id));
@@ -301,6 +305,47 @@ export const VocabularyConversation: React.FC<VocabularyConversationProps> = ({
     await playAudio(audioData, character?.speakingRate, character?.pitch);
   };
 
+  // Nghe lại toàn bộ hội thoại
+  const handleReplayAll = async () => {
+    if (messages.length === 0) return;
+    
+    setIsReplaying(true);
+    shouldStopReplayRef.current = false;
+    
+    for (let i = 0; i < messages.length; i++) {
+      if (shouldStopReplayRef.current) break;
+      
+      setReplayIndex(i);
+      
+      // Scroll đến tin nhắn đang phát
+      const messageElement = messageRefs.current.get(i);
+      if (messageElement) {
+        messageElement.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      }
+      
+      const message = messages[i];
+      
+      if (message.audioData) {
+        const character = selectedCharacters.find(c => c.name === message.characterName) || characters.find(c => c.name === message.characterName);
+        await playAudio(message.audioData, character?.speakingRate, character?.pitch);
+      }
+      
+      // Delay ngắn giữa các tin nhắn
+      if (!shouldStopReplayRef.current && i < messages.length - 1) {
+        await new Promise(resolve => setTimeout(resolve, 500));
+      }
+    }
+    
+    setIsReplaying(false);
+    setReplayIndex(0);
+  };
+
+  const stopReplay = () => {
+    shouldStopReplayRef.current = true;
+    setIsReplaying(false);
+    setReplayIndex(0);
+  };
+
   // Màn hình chọn chủ đề (trước khi bắt đầu)
   if (!isStarted) {
     return (
@@ -492,20 +537,28 @@ export const VocabularyConversation: React.FC<VocabularyConversationProps> = ({
       {/* Messages */}
       <div className="flex-1 p-4 overflow-y-auto bg-gray-50">
         <div className="max-w-4xl mx-auto space-y-4">
-        {messages.map(message => {
+        {messages.map((message, index) => {
           const character = selectedCharacters.find(c => c.name === message.characterName) || characters.find(c => c.name === message.characterName);
+          const isCurrentlyPlaying = isReplaying && replayIndex === index;
           return (
-            <MessageBubble
+            <div 
               key={message.id}
-              message={message}
-              onReplayAudio={handleReplayAudio}
-              onGenerateAudio={async () => {}}
-              onTranslate={async () => message.translation || ''}
-              onStoreTranslation={() => {}}
-              onRetry={() => {}}
-              isJournalView={true}
-              avatarUrl={character?.avatar}
-            />
+              ref={(el) => {
+                if (el) messageRefs.current.set(index, el);
+              }}
+              className={`transition-all duration-300 ${isCurrentlyPlaying ? 'ring-2 ring-blue-500 ring-offset-2 rounded-lg bg-blue-50' : ''}`}
+            >
+              <MessageBubble
+                message={message}
+                onReplayAudio={handleReplayAudio}
+                onGenerateAudio={async () => {}}
+                onTranslate={async () => message.translation || ''}
+                onStoreTranslation={() => {}}
+                onRetry={() => {}}
+                isJournalView={true}
+                avatarUrl={character?.avatar}
+              />
+            </div>
           );
         })}
         <div ref={messagesEndRef} />
@@ -547,14 +600,40 @@ export const VocabularyConversation: React.FC<VocabularyConversationProps> = ({
           </div>
         )}
 
-        {isCompleted && (
-          <button
-            onClick={handleComplete}
-            className={`w-full py-4 ${isReviewMode ? 'bg-gradient-to-r from-orange-500 to-red-500 hover:from-orange-600 hover:to-red-600' : 'bg-gradient-to-r from-green-500 to-emerald-500 hover:from-green-600 hover:to-emerald-600'} text-white font-bold rounded-lg transition-all text-lg flex items-center justify-center space-x-2`}
-          >
-            <span>✅</span>
-            <span>Hoàn thành - Lưu kết quả</span>
-          </button>
+        {!isGenerating && isCompleted && (
+          <div className="space-y-3">
+            {/* Nút nghe lại */}
+            <div className="flex gap-2">
+              {!isReplaying ? (
+                <button
+                  onClick={handleReplayAll}
+                  disabled={messages.length === 0}
+                  className="flex-1 py-3 bg-blue-500 text-white font-medium rounded-lg hover:bg-blue-600 transition-colors flex items-center justify-center space-x-2 disabled:opacity-50"
+                >
+                  <span>🔊</span>
+                  <span>Nghe lại toàn bộ ({messages.length} tin)</span>
+                </button>
+              ) : (
+                <button
+                  onClick={stopReplay}
+                  className="flex-1 py-3 bg-red-500 text-white font-medium rounded-lg hover:bg-red-600 transition-colors flex items-center justify-center space-x-2"
+                >
+                  <span>⏹️</span>
+                  <span>Dừng nghe ({replayIndex + 1}/{messages.length})</span>
+                </button>
+              )}
+            </div>
+            
+            {/* Nút hoàn thành */}
+            <button
+              onClick={handleComplete}
+              disabled={isReplaying}
+              className={`w-full py-4 ${isReviewMode ? 'bg-gradient-to-r from-orange-500 to-red-500 hover:from-orange-600 hover:to-red-600' : 'bg-gradient-to-r from-green-500 to-emerald-500 hover:from-green-600 hover:to-emerald-600'} text-white font-bold rounded-lg transition-all text-lg flex items-center justify-center space-x-2 disabled:opacity-50`}
+            >
+              <span>✅</span>
+              <span>Hoàn thành - Lưu kết quả</span>
+            </button>
+          </div>
         )}
         </div>
       </div>
