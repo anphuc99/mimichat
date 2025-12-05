@@ -19,6 +19,8 @@ interface DailyEntryProps {
   onCollectVocabulary?: (korean: string, messageId: string, dailyChatId: string) => void;
   onDownloadTxt?: (dailyChatId: string) => void;
   characters: Character[];
+  onTranslate: (text: string) => Promise<string>;
+  onStoreTranslation: (messageId: string, translation: string, dailyChatId: string) => void;
 }
 
 const DailyEntry: React.FC<DailyEntryProps> = ({ 
@@ -36,6 +38,8 @@ const DailyEntry: React.FC<DailyEntryProps> = ({
     onCollectVocabulary,
     onDownloadTxt,
     characters,
+    onTranslate,
+    onStoreTranslation,
 }) => {
   const [isExpanded, setIsExpanded] = useState(false);
   const [isAutoPlaying, setIsAutoPlaying] = useState(false);
@@ -245,8 +249,8 @@ const DailyEntry: React.FC<DailyEntryProps> = ({
                       message={message} 
                       onReplayAudio={onReplayAudio} 
                       onGenerateAudio={async () => {}} 
-                      onTranslate={async () => ""}
-                      onStoreTranslation={() => {}}
+                      onTranslate={onTranslate}
+                      onStoreTranslation={(msgId, translation) => onStoreTranslation(msgId, translation, dailyChat.id)}
                       onRetry={() => {}}
                       isJournalView={true}
                       onCollectVocabulary={onCollectVocabulary ? (korean, messageId) => onCollectVocabulary(korean, messageId, dailyChat.id) : undefined}
@@ -361,6 +365,8 @@ interface JournalViewerProps {
   onPreloadAudio?: (audioData: string) => Promise<void>;
   onDownloadTxt?: (dailyChatId: string) => void;
   characters: Character[];
+  onTranslate: (text: string) => Promise<string>;
+  onStoreTranslation: (messageId: string, translation: string, dailyChatId: string) => void;
 }
 
 export const JournalViewer: React.FC<JournalViewerProps> = ({ 
@@ -381,6 +387,8 @@ export const JournalViewer: React.FC<JournalViewerProps> = ({
     onCollectVocabulary,
     onDownloadTxt,
     characters,
+    onTranslate,
+    onStoreTranslation,
 }) => {
     const [isViewingSummary, setIsViewingSummary] = useState(false);
     const [isEditingSummary, setIsEditingSummary] = useState(false);
@@ -698,6 +706,8 @@ export const JournalViewer: React.FC<JournalViewerProps> = ({
                             onCollectVocabulary={onCollectVocabulary}
                             onDownloadTxt={onDownloadTxt}
                             characters={characters}
+                            onTranslate={onTranslate}
+                            onStoreTranslation={onStoreTranslation}
                         />
                     ))}
                 </div>

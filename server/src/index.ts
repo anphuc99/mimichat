@@ -742,10 +742,9 @@ app.post("/api/save-data", (req: Request, res: Response) => {
 
 app.get("/api/text-to-speech", async (req: Request, res: Response) => {
   const text = req.query.text as string;
-  const voice = (req.query.voice as string) || "echo";
-  console.log(voice)
+  const voice = (req.query.voice as string) || "echo";  
   const format = "wav";
-  const instructions = (req.query.instructions as string) || undefined;
+  const instructions = (req.query.instructions as string) || undefined;  
   const force = req.query.force === 'true';
   const output = crypto.createHash("md5").update(normalizeText(text) + voice + normalizeText(instructions)).digest("hex");
   if(!force && fs.existsSync(path.join(__dirname, "data/audio", output + "." + format))) {

@@ -192,7 +192,8 @@ export const initAutoChatSession = async (
   context: string,
   topic: string,
   level: string = 'A1',
-  history: Content[] = []
+  history: Content[] = [],
+  vocabulary: string[] = [] // Từ vựng cần sử dụng ít nhất 5 lần mỗi từ
 ): Promise<Chat> => {
   if (!ai) {
     throw new Error('Gemini service not initialized. Call initializeGeminiService first.');
@@ -232,6 +233,22 @@ export const initAutoChatSession = async (
     return desc;
   }).join('\n      ');
 
+  // Vocabulary instruction
+  const vocabularyInstruction = vocabulary.length > 0 
+    ? `\n\n**IMPORTANT - VOCABULARY REQUIREMENT**:
+You MUST naturally incorporate these Korean vocabulary words throughout the conversation. Each word must be used AT LEAST 5 TIMES across all dialogue turns:
+${vocabulary.map((word, i) => `${i + 1}. ${word}`).join('\n')}
+
+Make sure to:
+- Use these words naturally in context
+- Vary the sentence structures when using them
+- Characters can ask about these words, explain them, or use them in their responses
+- Track mentally that each word appears at least 5 times before ending the conversation
+- **BOLD FORMATTING**: When using any of these vocabulary words in "Text", wrap them with **asterisks** like **word**
+- **TRANSLATION BOLD**: In the "Translation" field, also wrap the Vietnamese translation of those vocabulary words with **asterisks**
+- Example: If vocabulary is "사랑", Text: "나는 **사랑**해요", Translation: "Tôi **yêu** bạn"`
+    : '';
+
 const systemInstruction = `
 You are a scriptwriter creating a natural conversation between Korean characters. The characters are discussing a topic among themselves.
 
@@ -245,6 +262,7 @@ TOPIC TO DISCUSS: ${topic}
 
 CHARACTERS:
 ${characterDescriptions}
+${vocabularyInstruction}
 
 RULES:
 1. Characters ONLY speak Korean (absolutely no English or Vietnamese in their speech)
@@ -277,7 +295,7 @@ When I send "NEW TOPIC: [topic]", start a new discussion about that topic.
 `;
 
   const chat: Chat = ai.chats.create({
-    model: 'gemini-2.5-flash',
+    model: 'gemini-2.5-pro',
     history,
     config: {
       systemInstruction,

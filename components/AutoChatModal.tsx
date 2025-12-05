@@ -27,6 +27,7 @@ export const AutoChatModal: React.FC<AutoChatModalProps> = ({
   onGeneratingChange,
 }) => {
   const [topic, setTopic] = useState('');
+  const [vocabulary, setVocabulary] = useState(''); // Từ vựng cần sử dụng
   const [isGenerating, setIsGenerating] = useState(false);
   const [isPaused, setIsPaused] = useState(false);
   const [targetCount, setTargetCount] = useState(50);
@@ -39,6 +40,8 @@ export const AutoChatModal: React.FC<AutoChatModalProps> = ({
   const shouldStopRef = useRef(false);
   const isPausedRef = useRef(false);
   const currentCountRef = useRef(0);
+  const nextBatchRef = useRef<any[] | null>(null); // Buffer cho batch tiếp theo
+  const isFetchingRef = useRef(false); // Đang fetch batch mới
 
   useEffect(() => {
     isPausedRef.current = isPaused;
@@ -53,19 +56,53 @@ export const AutoChatModal: React.FC<AutoChatModalProps> = ({
     onGeneratingChange(isGenerating && !isPaused);
   }, [isGenerating, isPaused, onGeneratingChange]);
 
-  // Xử lý TUẦN TỰ như code cũ: tạo audio → thêm message → phát audio → delay
-  const processBotResponsesSequentially = async (responses: any[]) => {
+  // Hàm fetch batch mới (chạy background)
+  const fetchNextBatch = async () => {
+    if (!chatRef.current || isFetchingRef.current || shouldStopRef.current) return;
+    if (currentCountRef.current >= targetCount) return;
+    
+    isFetchingRef.current = true;
+    try {
+      const responseText = await sendAutoChatMessage(chatRef.current, 'CONTINUE');
+      let responses;
+      try {
+        responses = JSON.parse(responseText);
+        if (!Array.isArray(responses)) responses = [responses];
+      } catch {
+        responses = [];
+      }
+      
+      if (!shouldStopRef.current) {
+        nextBatchRef.current = responses;
+      }
+    } catch (e) {
+      console.error('Error fetching next batch:', e);
+    } finally {
+      isFetchingRef.current = false;
+    }
+  };
+
+  // Xử lý TUẦN TỰ: tạo audio → thêm message → phát audio → delay
+  // Đồng thời prefetch batch tiếp theo khi còn ít tin nhắn trong queue
+  const processBotResponsesSequentially = async (responses: any[], isLastBatch: boolean = false) => {
     if (!Array.isArray(responses) || responses.length === 0) return 0;
 
     let addedCount = 0;
 
-    for (const botResponse of responses) {
+    for (let i = 0; i < responses.length; i++) {
+      const botResponse = responses[i];
+      
       // Check stop/pause
       if (shouldStopRef.current) break;
       while (isPausedRef.current && !shouldStopRef.current) {
         await new Promise(resolve => setTimeout(resolve, 200));
       }
       if (shouldStopRef.current) break;
+
+      // Khi còn 2-3 tin nhắn cuối trong batch, bắt đầu prefetch batch mới
+      if (i >= responses.length - 3 && !nextBatchRef.current && !isFetchingRef.current && !isLastBatch) {
+        fetchNextBatch(); // Fire and forget - chạy background
+      }
 
       const { CharacterName, Text, Tone, Translation } = botResponse;
       if (!CharacterName || !Text) continue;
@@ -77,7 +114,7 @@ export const AutoChatModal: React.FC<AutoChatModalProps> = ({
       const tone = Tone || 'cheerfully';
       const translation = Translation;
 
-      // Tạo audio TRƯỚC (giống code cũ)
+      // Tạo audio TRƯỚC
       let audioData: string | null = null;
       if (generateAudio && Text) {
         audioData = await textToSpeech(Text, tone, voiceName);
@@ -101,12 +138,12 @@ export const AutoChatModal: React.FC<AutoChatModalProps> = ({
       setCurrentCount(prev => prev + 1);
       addedCount++;
 
-      // Phát audio (giống code cũ)
+      // Phát audio
       if (audioData) {
         await playAudio(audioData, speakingRate, pitch);
       }
 
-      // Delay giữa các tin nhắn (giống code cũ: 1200ms)
+      // Delay giữa các tin nhắn
       await new Promise(resolve => setTimeout(resolve, messageDelay * 1000));
     }
 
@@ -131,16 +168,38 @@ export const AutoChatModal: React.FC<AutoChatModalProps> = ({
     setCurrentCount(0);
     currentCountRef.current = 0;
     shouldStopRef.current = false;
+    nextBatchRef.current = null;
+    isFetchingRef.current = false;
 
     try {
+      // Parse vocabulary list
+      const vocabList = vocabulary.trim() 
+        ? vocabulary.split(/[,，、\n]/).map(v => v.trim()).filter(v => v.length > 0)
+        : [];
+
       chatRef.current = await initAutoChatSession(
         characters,
         context,
         topic,
-        currentLevel
+        currentLevel,
+        [],
+        vocabList // Pass vocabulary list
       );
 
-      // Generation loop
+      // Fetch batch đầu tiên
+      const firstResponseText = await sendAutoChatMessage(chatRef.current, 'START');
+      let currentBatch;
+      try {
+        currentBatch = JSON.parse(firstResponseText);
+        if (!Array.isArray(currentBatch)) currentBatch = [currentBatch];
+      } catch {
+        console.error('Invalid response format');
+        setError('Định dạng phản hồi không hợp lệ');
+        setIsGenerating(false);
+        return;
+      }
+
+      // Generation loop với prefetching
       while (currentCountRef.current < targetCount && !shouldStopRef.current) {
         // Check pause
         while (isPausedRef.current && !shouldStopRef.current) {
@@ -148,31 +207,59 @@ export const AutoChatModal: React.FC<AutoChatModalProps> = ({
         }
         if (shouldStopRef.current) break;
 
-        // Lấy batch tin nhắn từ AI
-        const command = currentCountRef.current === 0 ? 'START' : 'CONTINUE';
-        const responseText = await sendAutoChatMessage(chatRef.current, command);
+        // Kiểm tra xem có phải batch cuối không
+        const isLastBatch = currentCountRef.current + currentBatch.length >= targetCount;
         
-        let responses;
-        try {
-          responses = JSON.parse(responseText);
-          if (!Array.isArray(responses)) responses = [responses];
-        } catch {
-          console.error('Invalid response format');
-          await new Promise(resolve => setTimeout(resolve, 1000));
-          continue;
-        }
-
-        // Xử lý tuần tự giống code cũ
-        const generated = await processBotResponsesSequentially(responses);
+        // Xử lý batch hiện tại (đồng thời prefetch batch mới trong background)
+        const generated = await processBotResponsesSequentially(currentBatch, isLastBatch);
         
         if (generated === 0 && !shouldStopRef.current) {
           await new Promise(resolve => setTimeout(resolve, 1000));
+        }
+
+        // Kiểm tra đã đủ số lượng chưa
+        if (currentCountRef.current >= targetCount || shouldStopRef.current) break;
+
+        // Lấy batch tiếp theo (từ prefetch hoặc fetch mới)
+        if (nextBatchRef.current && nextBatchRef.current.length > 0) {
+          // Đã có batch prefetch sẵn
+          currentBatch = nextBatchRef.current;
+          nextBatchRef.current = null;
+        } else {
+          // Chờ prefetch hoàn thành hoặc fetch mới
+          while (isFetchingRef.current && !shouldStopRef.current) {
+            await new Promise(resolve => setTimeout(resolve, 100));
+          }
+          
+          if (nextBatchRef.current && nextBatchRef.current.length > 0) {
+            currentBatch = nextBatchRef.current;
+            nextBatchRef.current = null;
+          } else if (!shouldStopRef.current) {
+            // Fetch mới nếu không có prefetch
+            const responseText = await sendAutoChatMessage(chatRef.current, 'CONTINUE');
+            try {
+              currentBatch = JSON.parse(responseText);
+              if (!Array.isArray(currentBatch)) currentBatch = [currentBatch];
+            } catch {
+              console.error('Invalid response format');
+              await new Promise(resolve => setTimeout(resolve, 1000));
+              currentBatch = [];
+            }
+          }
+        }
+
+        // Nếu batch rỗng, thử lại
+        if (!currentBatch || currentBatch.length === 0) {
+          await new Promise(resolve => setTimeout(resolve, 1000));
+          continue;
         }
       }
     } catch (e: any) {
       setError(e.message || 'Failed to start');
     } finally {
       setIsGenerating(false);
+      nextBatchRef.current = null;
+      isFetchingRef.current = false;
     }
   };
 
@@ -236,13 +323,30 @@ export const AutoChatModal: React.FC<AutoChatModalProps> = ({
             />
           </div>
 
+          {/* Vocabulary input */}
+          <div>
+            <textarea
+              value={vocabulary}
+              onChange={(e) => setVocabulary(e.target.value)}
+              placeholder="Từ vựng cần dùng (phân cách bằng dấu phẩy)&#10;VD: 사랑, 친구, 학교, 공부"
+              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500 text-sm resize-none"
+              rows={2}
+              disabled={isGenerating}
+            />
+            {vocabulary.trim() && (
+              <div className="mt-1 text-xs text-purple-600">
+                📝 {vocabulary.split(/[,，、\n]/).filter(v => v.trim()).length} từ (mỗi từ sẽ xuất hiện ≥5 lần)
+              </div>
+            )}
+          </div>
+
           {/* Settings row 1 */}
           <div className="flex items-center gap-2 text-xs">
             <span className="text-gray-600">Số tin:</span>
             <input
               type="number"
               min="5"
-              max="200"
+              max="1000"
               step="5"
               value={targetCount}
               onChange={(e) => setTargetCount(Number(e.target.value))}

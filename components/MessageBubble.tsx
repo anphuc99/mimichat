@@ -2,6 +2,11 @@ import React, { useState } from 'react';
 import type { Message } from '../types';
 import { avatar } from './avatar';
 
+// Hàm render markdown bold (**text**) thành HTML
+const renderBoldText = (text: string): string => {
+  return text.replace(/\*\*(.+?)\*\*/g, '<strong class="text-purple-600 font-bold">$1</strong>');
+};
+
 interface MessageBubbleProps {
   message: Message;
   onReplayAudio: (audioData: string, characterName?: string) => Promise<void> | void;
@@ -342,7 +347,10 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({
                   )}
                 </div>
               )}
-              <p className="whitespace-pre-wrap">{message.text}</p>
+              <p 
+                className="whitespace-pre-wrap"
+                dangerouslySetInnerHTML={{ __html: renderBoldText(message.text) }}
+              />
               {isExpanded && !message.isError && (
                 <div className="mt-3 pt-3 border-t border-gray-500/20 text-left">
                   {isTranslating ? (
@@ -356,7 +364,7 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({
                   ) : (
                     <div
                         className="prose prose-sm max-w-none text-gray-700"
-                        dangerouslySetInnerHTML={{ __html: translationContent || '' }}
+                        dangerouslySetInnerHTML={{ __html: renderBoldText(translationContent || '') }}
                       />
                   )}
                   <button onClick={() => setIsExpanded(false)} className="text-xs text-blue-600 hover:underline mt-2 font-semibold">
@@ -407,6 +415,18 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({
                   <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
                     <path fillRule="evenodd" d="M9.383 3.076A1 1 0 0110 4v12a1 1 0 01-1.707.707L4.586 13H2a1 1 0 01-1-1V8a1 1 0 011-1h2.586l3.707-3.707a1 1 0 011.09-.217zM14.657 2.929a1 1 0 011.414 0A9.972 9.972 0 0119 10a9.972 9.972 0 01-2.929 7.071 1 1 0 01-1.414-1.414A7.971 7.971 0 0017 10c0-2.21-.894-4.208-2.343-5.657a1 1 0 010-1.414zm-2.829 2.828a1 1 0 011.415 0A5.983 5.983 0 0115 10a5.984 5.984 0 01-1.757 4.243 1 1 0 01-1.415-1.415A3.984 3.984 0 0013 10a3.983 3.983 0 00-1.172-2.828 1 1 0 010-1.414z" clipRule="evenodd" />
                   </svg>
+              </button>
+            )}
+            {!isUser && !message.isError && (
+              <button
+                onClick={handleTranslateClick}
+                className="text-gray-400 hover:text-blue-500 transition-colors p-1 rounded-full focus:outline-none focus:ring-2 focus:ring-blue-300"
+                aria-label={isExpanded ? "Đóng bản dịch" : "Dịch"}
+              >
+                <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+                  <path d="M10 2a6 6 0 100 12 6 6 0 000-12zM2 10a8 8 0 1116 0 8 8 0 01-16 0z" />
+                  <path d="M10 6a1 1 0 011 1v3a1 1 0 11-2 0V7a1 1 0 011-1zM9 12a1 1 0 112 0 1 1 0 01-2 0z" />
+                </svg>
               </button>
             )}
           </div>
