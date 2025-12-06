@@ -1960,7 +1960,7 @@ const App: React.FC = () => {
                             )}
                           </div>
                           <div className="text-xs text-gray-400 mt-1">
-                            Cập nhật: {new Date(story.updatedAt).toLocaleDateString('vi-VN')}
+                            Cập nhật: {new Date(story.updatedAt).toLocaleDateString('vi-VN', { timeZone: 'Asia/Ho_Chi_Minh' })}
                           </div>
                         </div>
                         <button

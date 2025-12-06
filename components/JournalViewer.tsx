@@ -48,12 +48,12 @@ const DailyEntry: React.FC<DailyEntryProps> = ({
   const messageRefs = React.useRef<Map<number, HTMLDivElement>>(new Map());
   const autoPlayRef = React.useRef<boolean>(false);
 
-  const formattedDate = new Date(dailyChat.date).toLocaleDateString('vi-VN', {
+  const formattedDate = new Date(dailyChat.date + 'T00:00:00+07:00').toLocaleDateString('vi-VN', {
     weekday: 'long',
     year: 'numeric',
     month: 'long',
     day: 'numeric',
-    timeZone: 'UTC'
+    timeZone: 'Asia/Ho_Chi_Minh'
   });
 
   // Effect to handle global playback scrolling/expanding
