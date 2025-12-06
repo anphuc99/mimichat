@@ -151,7 +151,7 @@ export function getVocabulariesDueForReview(journal: DailyChat[]): {
   
   // Shuffle the array to randomize the order and limit to 20 words
   const shuffled = shuffleArray(dueVocabularies);
-  return shuffled.slice(0, 20);
+  return shuffled.slice(0, 5);
 }
 
 /**

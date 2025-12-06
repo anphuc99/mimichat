@@ -12,7 +12,8 @@ import path from "path";
 // import ffmpegInstaller from "@ffmpeg-installer/ffmpeg";
 import os from "os";
 import { Readable } from "stream";
-import { textToSpeech } from "./modules/openai.js";
+import { textToSpeech } from "./modules/openai.js";  
+import GeminiService from "./modules/geminiService";
 import AdmZip from "adm-zip";
 
 // ---------------------------
@@ -718,6 +719,527 @@ app.post("/api/upload-audio", async (req: Request, res: Response) => {
     });
   } catch (e: any) {
     res.status(500).json({ error: e.message });
+  }
+});
+
+// ---------------------------
+// Declare global for chat sessions
+// ---------------------------
+declare global {
+  var chatSessions: Map<string, any>;
+}
+interface ChatMessage {
+  role: 'user' | 'model';
+  parts: [{ text: string }];
+}
+
+interface ChatRequest {
+  messages: ChatMessage[];
+  systemPrompt?: string;
+  options?: {
+    temperature?: number;
+    topP?: number;
+    topK?: number;
+    maxOutputTokens?: number;
+  };
+}
+
+// POST /api/chat - Chat with AI
+app.post("/api/chat", async (req: Request, res: Response) => {
+  try {
+    const { messages, systemPrompt, options }: ChatRequest = req.body;
+
+    if (!messages || !Array.isArray(messages) || messages.length === 0) {
+      return res.status(400).json({ error: "Messages array is required and cannot be empty" });
+    }
+
+    const apiKey = process.env.GEMINI_API_KEY || process.env.API_KEY;
+    if (!apiKey) {
+      return res.status(500).json({ error: "Gemini API key not configured" });
+    }
+
+    const geminiService = new GeminiService(apiKey);
+    const response = await geminiService.chat(messages, systemPrompt, options);
+
+    res.json({ 
+      success: true, 
+      response,
+      usage: {
+        model: "gemini-1.5-flash"
+      }
+    });
+  } catch (error: any) {
+    console.error("Chat API error:", error);
+    res.status(500).json({ error: error.message || "Chat request failed" });
+  }
+});
+
+// POST /api/chat/stream - Stream chat with AI
+app.post("/api/chat/stream", async (req: Request, res: Response) => {
+  try {
+    const { messages, systemPrompt, options }: ChatRequest = req.body;
+
+    if (!messages || !Array.isArray(messages) || messages.length === 0) {
+      return res.status(400).json({ error: "Messages array is required and cannot be empty" });
+    }
+
+    const apiKey = process.env.GEMINI_API_KEY || process.env.API_KEY;
+    if (!apiKey) {
+      return res.status(500).json({ error: "Gemini API key not configured" });
+    }
+
+    // Set headers for server-sent events
+    res.writeHead(200, {
+      'Content-Type': 'text/event-stream',
+      'Cache-Control': 'no-cache',
+      'Connection': 'keep-alive',
+      'Access-Control-Allow-Origin': '*',
+      'Access-Control-Allow-Headers': 'Content-Type, Authorization',
+    });
+
+    const geminiService = new GeminiService(apiKey);
+    const stream = await geminiService.streamChat(messages, systemPrompt, options);
+
+    let fullResponse = '';
+    
+    try {
+      for await (const chunk of stream) {
+        fullResponse += chunk;
+        // Send chunk as server-sent event
+        res.write(`data: ${JSON.stringify({ chunk, type: 'chunk' })}\n\n`);
+      }
+
+      // Send completion event
+      res.write(`data: ${JSON.stringify({ 
+        type: 'done', 
+        fullResponse,
+        usage: { model: "gemini-1.5-flash" }
+      })}\n\n`);
+      
+    } catch (streamError: any) {
+      res.write(`data: ${JSON.stringify({ 
+        type: 'error', 
+        error: streamError.message 
+      })}\n\n`);
+    }
+
+    res.end();
+  } catch (error: any) {
+    console.error("Stream chat API error:", error);
+    if (!res.headersSent) {
+      res.status(500).json({ error: error.message || "Stream chat request failed" });
+    }
+  }
+});
+
+// POST /api/generate-text - Generate text with AI
+app.post("/api/generate-text", async (req: Request, res: Response) => {
+  try {
+    const { prompt, systemPrompt, options } = req.body;
+
+    if (!prompt || typeof prompt !== 'string') {
+      return res.status(400).json({ error: "Prompt is required and must be a string" });
+    }
+
+    const apiKey = process.env.GEMINI_API_KEY || process.env.API_KEY;
+    if (!apiKey) {
+      return res.status(500).json({ error: "Gemini API key not configured" });
+    }
+
+    const geminiService = new GeminiService(apiKey);
+    const response = await geminiService.generateText(prompt, systemPrompt, options);
+
+    res.json({ 
+      success: true, 
+      response,
+      usage: {
+        model: "gemini-1.5-flash"
+      }
+    });
+  } catch (error: any) {
+    console.error("Generate text API error:", error);
+    res.status(500).json({ error: error.message || "Text generation failed" });
+  }
+});
+
+// POST /api/gemini/init-chat - Initialize chat session
+app.post("/api/gemini/init-chat", async (req: Request, res: Response) => {
+  try {
+    const { activeCharacters, context, history, contextSummary, relationshipSummary, level } = req.body;
+
+    if (!activeCharacters || !Array.isArray(activeCharacters)) {
+      return res.status(400).json({ error: "activeCharacters is required and must be an array" });
+    }
+
+    if (!context || typeof context !== 'string') {
+      return res.status(400).json({ error: "context is required and must be a string" });
+    }
+
+    const apiKey = process.env.GEMINI_API_KEY || process.env.API_KEY;
+    if (!apiKey) {
+      return res.status(500).json({ error: "Gemini API key not configured" });
+    }
+
+    const geminiService = new GeminiService(apiKey);
+    const chatSession = await geminiService.initChat(
+      activeCharacters,
+      context,
+      history || [],
+      contextSummary || '',
+      relationshipSummary || '',
+      level || 'A1'
+    );
+
+    // Store session in memory with a session ID
+    const sessionId = crypto.randomUUID();
+    // You might want to store this in Redis or a database for production
+    global.chatSessions = global.chatSessions || new Map();
+    global.chatSessions.set(sessionId, { chatSession, geminiService });
+
+    res.json({ 
+      success: true, 
+      sessionId,
+      message: "Chat session initialized successfully"
+    });
+  } catch (error: any) {
+    console.error("Init chat API error:", error);
+    res.status(500).json({ error: error.message || "Failed to initialize chat" });
+  }
+});
+
+// POST /api/gemini/send-message - Send message to chat session
+app.post("/api/gemini/send-message", async (req: Request, res: Response) => {
+  try {
+    const { sessionId, message } = req.body;
+
+    if (!sessionId || typeof sessionId !== 'string') {
+      return res.status(400).json({ error: "sessionId is required" });
+    }
+
+    if (!message || typeof message !== 'string') {
+      return res.status(400).json({ error: "message is required" });
+    }
+
+    global.chatSessions = global.chatSessions || new Map();
+    const session = global.chatSessions.get(sessionId);
+    
+    if (!session) {
+      return res.status(404).json({ error: "Chat session not found" });
+    }
+
+    const response = await session.geminiService.sendMessage(session.chatSession, message);
+
+    res.json({ 
+      success: true, 
+      response
+    });
+  } catch (error: any) {
+    console.error("Send message API error:", error);
+    res.status(500).json({ error: error.message || "Failed to send message" });
+  }
+});
+
+// POST /api/gemini/init-auto-chat - Initialize auto chat session
+app.post("/api/gemini/init-auto-chat", async (req: Request, res: Response) => {
+  try {
+    const { characters, context, topic, level, history, vocabulary } = req.body;
+
+    if (!characters || !Array.isArray(characters)) {
+      return res.status(400).json({ error: "characters is required and must be an array" });
+    }
+
+    if (!context || typeof context !== 'string') {
+      return res.status(400).json({ error: "context is required and must be a string" });
+    }
+
+    if (!topic || typeof topic !== 'string') {
+      return res.status(400).json({ error: "topic is required and must be a string" });
+    }
+
+    const apiKey = process.env.GEMINI_API_KEY || process.env.API_KEY;
+    if (!apiKey) {
+      return res.status(500).json({ error: "Gemini API key not configured" });
+    }
+
+    const geminiService = new GeminiService(apiKey);
+    const chatSession = await geminiService.initAutoChatSession(
+      characters,
+      context,
+      topic,
+      level || 'A1',
+      history || [],
+      vocabulary || []
+    );
+
+    // Store session in memory with a session ID
+    const sessionId = crypto.randomUUID();
+    global.chatSessions = global.chatSessions || new Map();
+    global.chatSessions.set(sessionId, { chatSession, geminiService });
+
+    res.json({ 
+      success: true, 
+      sessionId,
+      message: "Auto chat session initialized successfully"
+    });
+  } catch (error: any) {
+    console.error("Init auto chat API error:", error);
+    res.status(500).json({ error: error.message || "Failed to initialize auto chat" });
+  }
+});
+
+// POST /api/gemini/send-auto-chat - Send command to auto chat session
+app.post("/api/gemini/send-auto-chat", async (req: Request, res: Response) => {
+  try {
+    const { sessionId, command } = req.body;
+
+    if (!sessionId || typeof sessionId !== 'string') {
+      return res.status(400).json({ error: "sessionId is required" });
+    }
+
+    if (!command || typeof command !== 'string') {
+      return res.status(400).json({ error: "command is required" });
+    }
+
+    global.chatSessions = global.chatSessions || new Map();
+    const session = global.chatSessions.get(sessionId);
+    
+    if (!session) {
+      return res.status(404).json({ error: "Chat session not found" });
+    }
+
+    const response = await session.geminiService.sendAutoChatMessage(session.chatSession, command);
+
+    res.json({ 
+      success: true, 
+      response
+    });
+  } catch (error: any) {
+    console.error("Send auto chat API error:", error);
+    res.status(500).json({ error: error.message || "Failed to send auto chat command" });
+  }
+});
+
+// POST /api/gemini/translate-text - Translate and explain Korean text
+app.post("/api/gemini/translate-text", async (req: Request, res: Response) => {
+  try {
+    const { text } = req.body;
+
+    if (!text || typeof text !== 'string') {
+      return res.status(400).json({ error: "text is required and must be a string" });
+    }
+
+    const apiKey = process.env.GEMINI_API_KEY || process.env.API_KEY;
+    if (!apiKey) {
+      return res.status(500).json({ error: "Gemini API key not configured" });
+    }
+
+    const geminiService = new GeminiService(apiKey);
+    const response = await geminiService.translateAndExplainText(text);
+
+    res.json({ 
+      success: true, 
+      response
+    });
+  } catch (error: any) {
+    console.error("Translate text API error:", error);
+    res.status(500).json({ error: error.message || "Failed to translate text" });
+  }
+});
+
+// POST /api/gemini/translate-word - Translate Korean word
+app.post("/api/gemini/translate-word", async (req: Request, res: Response) => {
+  try {
+    const { word } = req.body;
+
+    if (!word || typeof word !== 'string') {
+      return res.status(400).json({ error: "word is required and must be a string" });
+    }
+
+    const apiKey = process.env.GEMINI_API_KEY || process.env.API_KEY;
+    if (!apiKey) {
+      return res.status(500).json({ error: "Gemini API key not configured" });
+    }
+
+    const geminiService = new GeminiService(apiKey);
+    const response = await geminiService.translateWord(word);
+
+    res.json({ 
+      success: true, 
+      response
+    });
+  } catch (error: any) {
+    console.error("Translate word API error:", error);
+    res.status(500).json({ error: error.message || "Failed to translate word" });
+  }
+});
+
+// POST /api/gemini/summarize-conversation - Summarize conversation
+app.post("/api/gemini/summarize-conversation", async (req: Request, res: Response) => {
+  try {
+    const { messages } = req.body;
+
+    if (!messages || !Array.isArray(messages)) {
+      return res.status(400).json({ error: "messages is required and must be an array" });
+    }
+
+    const apiKey = process.env.GEMINI_API_KEY || process.env.API_KEY;
+    if (!apiKey) {
+      return res.status(500).json({ error: "Gemini API key not configured" });
+    }
+
+    const geminiService = new GeminiService(apiKey);
+    const response = await geminiService.summarizeConversation(messages);
+
+    res.json({ 
+      success: true, 
+      response
+    });
+  } catch (error: any) {
+    console.error("Summarize conversation API error:", error);
+    res.status(500).json({ error: error.message || "Failed to summarize conversation" });
+  }
+});
+
+// POST /api/gemini/generate-character-thoughts - Generate character thoughts
+app.post("/api/gemini/generate-character-thoughts", async (req: Request, res: Response) => {
+  try {
+    const { messages, characters } = req.body;
+
+    if (!messages || !Array.isArray(messages)) {
+      return res.status(400).json({ error: "messages is required and must be an array" });
+    }
+
+    if (!characters || !Array.isArray(characters)) {
+      return res.status(400).json({ error: "characters is required and must be an array" });
+    }
+
+    const apiKey = process.env.GEMINI_API_KEY || process.env.API_KEY;
+    if (!apiKey) {
+      return res.status(500).json({ error: "Gemini API key not configured" });
+    }
+
+    const geminiService = new GeminiService(apiKey);
+    const response = await geminiService.generateCharacterThoughts(messages, characters);
+
+    res.json({ 
+      success: true, 
+      response
+    });
+  } catch (error: any) {
+    console.error("Generate character thoughts API error:", error);
+    res.status(500).json({ error: error.message || "Failed to generate character thoughts" });
+  }
+});
+
+// POST /api/gemini/generate-tone - Generate tone description
+app.post("/api/gemini/generate-tone", async (req: Request, res: Response) => {
+  try {
+    const { text, character } = req.body;
+
+    if (!text || typeof text !== 'string') {
+      return res.status(400).json({ error: "text is required and must be a string" });
+    }
+
+    if (!character || typeof character !== 'object') {
+      return res.status(400).json({ error: "character is required and must be an object" });
+    }
+
+    const apiKey = process.env.GEMINI_API_KEY || process.env.API_KEY;
+    if (!apiKey) {
+      return res.status(500).json({ error: "Gemini API key not configured" });
+    }
+
+    const geminiService = new GeminiService(apiKey);
+    const response = await geminiService.generateToneDescription(text, character);
+
+    res.json({ 
+      success: true, 
+      response
+    });
+  } catch (error: any) {
+    console.error("Generate tone API error:", error);
+    res.status(500).json({ error: error.message || "Failed to generate tone" });
+  }
+});
+
+// POST /api/gemini/generate-relationship-summary - Generate relationship summary
+app.post("/api/gemini/generate-relationship-summary", async (req: Request, res: Response) => {
+  try {
+    const { messages, characters, currentSummary } = req.body;
+
+    if (!messages || !Array.isArray(messages)) {
+      return res.status(400).json({ error: "messages is required and must be an array" });
+    }
+
+    if (!characters || !Array.isArray(characters)) {
+      return res.status(400).json({ error: "characters is required and must be an array" });
+    }
+
+    const apiKey = process.env.GEMINI_API_KEY || process.env.API_KEY;
+    if (!apiKey) {
+      return res.status(500).json({ error: "Gemini API key not configured" });
+    }
+
+    const geminiService = new GeminiService(apiKey);
+    const response = await geminiService.generateRelationshipSummary(messages, characters, currentSummary || '');
+
+    res.json({ 
+      success: true, 
+      response
+    });
+  } catch (error: any) {
+    console.error("Generate relationship summary API error:", error);
+    res.status(500).json({ error: error.message || "Failed to generate relationship summary" });
+  }
+});
+
+// POST /api/gemini/generate-vocabulary - Generate vocabulary from conversation
+app.post("/api/gemini/generate-vocabulary", async (req: Request, res: Response) => {
+  try {
+    const { messages, level, existingVocabularies } = req.body;
+
+    if (!messages || !Array.isArray(messages)) {
+      return res.status(400).json({ error: "messages is required and must be an array" });
+    }
+
+    const apiKey = process.env.GEMINI_API_KEY || process.env.API_KEY;
+    if (!apiKey) {
+      return res.status(500).json({ error: "Gemini API key not configured" });
+    }
+
+    const geminiService = new GeminiService(apiKey);
+    const response = await geminiService.generateVocabulary(
+      messages, 
+      level || 'A1', 
+      existingVocabularies || []
+    );
+
+    res.json({ 
+      success: true, 
+      response
+    });
+  } catch (error: any) {
+    console.error("Generate vocabulary API error:", error);
+    res.status(500).json({ error: error.message || "Failed to generate vocabulary" });
+  }
+});
+
+// DELETE /api/gemini/session/:sessionId - Delete chat session
+app.delete("/api/gemini/session/:sessionId", (req: Request, res: Response) => {
+  try {
+    const { sessionId } = req.params;
+
+    global.chatSessions = global.chatSessions || new Map();
+    
+    if (global.chatSessions.has(sessionId)) {
+      global.chatSessions.delete(sessionId);
+      res.json({ success: true, message: "Session deleted successfully" });
+    } else {
+      res.status(404).json({ error: "Session not found" });
+    }
+  } catch (error: any) {
+    console.error("Delete session API error:", error);
+    res.status(500).json({ error: error.message || "Failed to delete session" });
   }
 });
 

@@ -295,7 +295,7 @@ When I send "NEW TOPIC: [topic]", start a new discussion about that topic.
 `;
 
   const chat: Chat = ai.chats.create({
-    model: 'gemini-2.5-pro',
+    model: 'gemini-2.5-flash',
     history,
     config: {
       systemInstruction,

@@ -52,7 +52,7 @@ export const VocabularyConversation: React.FC<VocabularyConversationProps> = ({
   const messageRefs = useRef<Map<number, HTMLDivElement>>(new Map());
 
   // Tính số tin nhắn mục tiêu dựa trên số từ vựng
-  const targetCount = 1;
+  const targetCount = Math.max(20, vocabularies.length * 10);
 
   // Lấy danh sách nhân vật đã chọn
   const selectedCharacters = characters.filter(c => selectedCharacterIds.includes(c.id));

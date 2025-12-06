@@ -1186,7 +1186,7 @@ const App: React.FC = () => {
     // Return to journal
     setView('journal');
     setCurrentReviewItems(null);
-  }, [journal, characters, activeCharacterIds, context, relationshipSummary, handleStreakUpdate, currentStoryId]);
+  }, [journal, characters, activeCharacterIds, context, relationshipSummary, handleStreakUpdate, currentStoryId, currentReviewItems, currentLevel]);
 
   const handleBackFromReview = useCallback(() => {
     setView('journal');
