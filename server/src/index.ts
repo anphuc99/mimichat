@@ -86,6 +86,7 @@ app.use(express.static(path.join(__dirname, "/public/dist"), {
 // JWT middleware
 app.use((req: Request, res: Response, next: NextFunction) => {
   // Skip JWT check for health, login, static files and root
+  startAudioCleanupScheduler();
   if (!req.path.startsWith("/api")) {
     return next();
   }
@@ -1372,6 +1373,266 @@ app.post("/api/deploy-client", async (req: Request, res: Response) => {
 // ---------------------------
 app.listen(port, () => {
   console.log(`Server running at http://localhost:${port}`);
+});
+
+// ---------------------------
+// Audio Cleanup Scheduler
+// ---------------------------
+const CLEANUP_INTERVAL_MS = 24 * 60 * 60 * 1000; // 24 hours
+
+const NEXT_CLEANUP_PATH = path.join(__dirname, "data", "next_audio_cleanup.json");
+const CLEANUP_LOCK_PATH = path.join(__dirname, "data", "cleanup.lock");
+// Protect these audio base-names from deletion (voice samples / built-in voices)
+const PROTECTED_AUDIO_NAMES = new Set<string>([
+  'alloy', 'ballad', 'coral', 'cedar', 'echo', 'fable', 'marin', 'nova', 'onyx'
+]);
+
+function getNextCleanupTime(): number {
+  try {
+    if (!fs.existsSync(NEXT_CLEANUP_PATH)) return 0;
+    const raw = fs.readFileSync(NEXT_CLEANUP_PATH, "utf-8");
+    const parsed = JSON.parse(raw);
+    return typeof parsed.nextCleanup === 'number' ? parsed.nextCleanup : 0;
+  } catch (e) {
+    console.error('Failed to read next cleanup time:', e);
+    return 0;
+  }
+}
+
+function setNextCleanupTime(ts: number) {
+  try {
+    fs.writeFileSync(NEXT_CLEANUP_PATH, JSON.stringify({ nextCleanup: ts }, null, 2), 'utf-8');
+  } catch (e) {
+    console.error('Failed to write next cleanup time:', e);
+  }
+}
+
+function lockExists(): boolean {
+  try {
+    return fs.existsSync(CLEANUP_LOCK_PATH);
+  } catch (e) {
+    return false;
+  }
+}
+
+function createLock() {
+  try {
+    fs.writeFileSync(CLEANUP_LOCK_PATH, JSON.stringify({ pid: process.pid, ts: Date.now() }), 'utf-8');
+  } catch (e) {
+    console.error('Failed to create cleanup lock:', e);
+  }
+}
+
+function removeLock() {
+  try {
+    if (fs.existsSync(CLEANUP_LOCK_PATH)) fs.unlinkSync(CLEANUP_LOCK_PATH);
+  } catch (e) {
+    console.error('Failed to remove cleanup lock:', e);
+  }
+}
+
+function getAllUsedAudioFromStories(): Set<string> {
+  const usedAudios = new Set<string>();
+  
+  try {
+    // Get all story files
+    if (!fs.existsSync(STORIES_DIR)) {
+      return usedAudios;
+    }
+    
+    const storyFiles = fs.readdirSync(STORIES_DIR).filter(f => f.endsWith('.json'));
+    
+    for (const storyFile of storyFiles) {
+      try {
+        const storyPath = path.join(STORIES_DIR, storyFile);
+        const storyData = JSON.parse(fs.readFileSync(storyPath, 'utf-8'));
+
+        // Recursively scan the story object for any `audioData` properties
+        const scanForAudio = (obj: any) => {
+          if (!obj || typeof obj !== 'object') return;
+
+          if (Array.isArray(obj)) {
+            for (const item of obj) scanForAudio(item);
+            return;
+          }
+
+          for (const key of Object.keys(obj)) {
+            const val = obj[key];
+            if (key === 'audioData' && typeof val === 'string' && val) {
+              usedAudios.add(val);
+            } else if (typeof val === 'object' && val !== null) {
+              scanForAudio(val);
+            }
+          }
+        };
+
+        scanForAudio(storyData);
+      } catch (e) {
+        console.error(`Error reading story file ${storyFile}:`, e);
+      }
+    }
+    
+    // Also check old data.json if exists
+    const oldDataPath = path.join(__dirname, "data", "data.json");
+    if (fs.existsSync(oldDataPath)) {
+      try {
+        const oldData = JSON.parse(fs.readFileSync(oldDataPath, 'utf-8'));
+        // Reuse the same recursive scanner to collect any audioData fields
+        const scanForAudio = (obj: any) => {
+          if (!obj || typeof obj !== 'object') return;
+
+          if (Array.isArray(obj)) {
+            for (const item of obj) scanForAudio(item);
+            return;
+          }
+
+          for (const key of Object.keys(obj)) {
+            const val = obj[key];
+            if (key === 'audioData' && typeof val === 'string' && val) {
+              usedAudios.add(val);
+            } else if (typeof val === 'object' && val !== null) {
+              scanForAudio(val);
+            }
+          }
+        };
+
+        scanForAudio(oldData);
+      } catch (e) {
+        console.error('Error reading old data.json:', e);
+      }
+    }
+  } catch (e) {
+    console.error('Error getting used audios:', e);
+  }
+  
+  return usedAudios;
+}
+
+function cleanupUnusedAudio(): { deleted: number; errors: number; totalFiles: number } {
+  const result = { deleted: 0, errors: 0, totalFiles: 0 };
+  
+  const audioDir = path.join(__dirname, "data", "audio");
+  
+  if (!fs.existsSync(audioDir)) {
+    console.log('Audio directory does not exist, skipping cleanup');
+    return result;
+  }
+  
+  try {
+    // Get all used audio references
+    const usedAudios = getAllUsedAudioFromStories();
+    console.log(`Found ${usedAudios.size} audio references in use`);
+    
+    // Get all audio files
+    const audioFiles = fs.readdirSync(audioDir);
+    result.totalFiles = audioFiles.length;
+    
+    for (const audioFile of audioFiles) {
+      // Get filename without extension
+      const fileNameWithoutExt = path.basename(audioFile, path.extname(audioFile));
+      
+      // Check if this audio is being used
+      // Skip deletion if the audio is referenced OR is a protected voice sample
+      if (usedAudios.has(fileNameWithoutExt) || PROTECTED_AUDIO_NAMES.has(fileNameWithoutExt)) {
+        if (PROTECTED_AUDIO_NAMES.has(fileNameWithoutExt)) {
+          console.log(`Skipping protected audio file: ${audioFile}`);
+        }
+        continue;
+      }
+
+      if (!usedAudios.has(fileNameWithoutExt)) {
+        try {
+          const filePath = path.join(audioDir, audioFile);
+          fs.unlinkSync(filePath);
+          result.deleted++;
+          console.log(`Deleted unused audio: ${audioFile}`);
+        } catch (e) {
+          result.errors++;
+          console.error(`Error deleting audio file ${audioFile}:`, e);
+        }
+      }
+    }
+    
+    console.log(`Audio cleanup completed: ${result.deleted} deleted, ${result.errors} errors, ${result.totalFiles} total files`);
+  } catch (e) {
+    console.error('Error during audio cleanup:', e);
+  }
+  
+  return result;
+}
+
+function startAudioCleanupScheduler() {
+  // Initialize persistent next-cleanup timestamp if missing.
+  const next = getNextCleanupTime();
+  if (!next || next <= 0) {
+    const initial = Date.now() + CLEANUP_INTERVAL_MS;
+    setNextCleanupTime(initial);
+    const result = cleanupUnusedAudio();
+    console.log(`Initial audio cleanup done: ${result.deleted} deleted, ${result.errors} errors, ${result.totalFiles} total files`);
+    console.log('Initialized next audio cleanup time:', new Date(initial).toISOString());
+  } else {
+    console.log('Next audio cleanup scheduled at', new Date(next).toISOString());
+  }
+
+  console.log('Audio cleanup is now on-demand: each API request checks whether cleanup is due');
+}
+
+// // Middleware: on each API request check if it's time to run cleanup. If due, trigger it once
+// // and persist the next scheduled time to disk. Cleanup runs in background and does not
+// // block the request-response cycle.
+// app.use((req: Request, res: Response, next: NextFunction) => {
+//   try {
+//     if (!req.path.startsWith('/api')) return next();
+
+//     const nextTs = getNextCleanupTime();
+//     const now = Date.now();
+
+//     if (nextTs && now >= nextTs) {
+//       // If a lock exists, someone else is already cleaning up
+//       if (lockExists()) {
+//         return next();
+//       }
+
+//       // Create lock and run cleanup asynchronously
+//       createLock();
+
+//       (async () => {
+//         try {
+//           console.log('Cleanup due: running cleanupUnusedAudio() now');
+//           const result = cleanupUnusedAudio();
+//           const newNext = Date.now() + CLEANUP_INTERVAL_MS;
+//           setNextCleanupTime(newNext);
+//           console.log(`Cleanup finished. Deleted=${result.deleted} errors=${result.errors}. Next at ${new Date(newNext).toISOString()}`);
+//         } catch (e) {
+//           console.error('Error during on-demand audio cleanup:', e);
+//         } finally {
+//           removeLock();
+//         }
+//       })();
+//     }
+//   } catch (e) {
+//     console.error('Error checking audio cleanup schedule:', e);
+//   }
+
+//   return next();
+// });
+
+// Manual cleanup endpoint (for admin use)
+app.post("/api/cleanup-audio", (req: Request, res: Response) => {
+  try {
+    console.log('Manual audio cleanup triggered');
+    const result = cleanupUnusedAudio();
+    res.json({ 
+      success: true, 
+      message: `Audio cleanup completed`,
+      deleted: result.deleted,
+      errors: result.errors,
+      totalFiles: result.totalFiles
+    });
+  } catch (error: any) {
+    console.error("Audio cleanup failed:", error);
+    res.status(500).json({ error: error.message || "Audio cleanup failed" });
+  }
 });
 
 // Fallback: redirect all non-API routes to root
