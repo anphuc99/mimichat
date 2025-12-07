@@ -836,7 +836,7 @@ export const generateVocabulary = async (
   // Create list of existing Korean words to avoid
   const existingWords = existingVocabularies.map(v => v.korean).join(', ');
 
-  const prompt = `Analyze the following conversation and identify 5-10 vocabulary words or phrases suitable for a beginner Korean learner (Level ${level}).
+  const prompt = `Analyze the following conversation and identify 5 vocabulary words or phrases suitable for a beginner Korean learner (Level ${level}).
 
 CONVERSATION:
 ${conversationText}
