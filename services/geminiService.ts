@@ -829,6 +829,28 @@ export const generateVocabulary = async (
     return [];
   }
 
+  switch (level) {
+    case 'A0':
+      level = 'A1';
+      break;
+    case 'A1':
+      level = 'A2';
+      break;
+    case 'A2':
+      level = 'B1';
+      break;
+    case 'B1':
+      level = 'B2';
+      break;
+    case 'B2':
+      level = 'C1';
+      break;
+    case 'C1':
+      break;
+    default:
+      level = 'A1';
+  }
+
   const conversationText = messages
     .map((msg, index) => `[ID: ${msg.id}] ${msg.sender === 'user' ? 'User' : msg.characterName || 'Bot'}: ${msg.text}`)
     .join('\n');
