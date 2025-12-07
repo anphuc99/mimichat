@@ -25,7 +25,8 @@ export const initChat = async (
   history: Content[] = [],
   contextSummary: string = '',
   relationshipSummary: string = '',
-  level: string = 'A1'
+  level: string = 'A1',
+  reviewVocabularies: VocabularyItem[] = []
 ): Promise<Chat> => {
   if (!ai) {
     throw new Error('Gemini service not initialized. Call initializeGeminiService first.');
@@ -85,7 +86,13 @@ ${context}
 ${relationshipSummary ? `RELATIONSHIP CONTEXT:
 ${relationshipSummary}
 ` : ''}
+${reviewVocabularies.length > 0 ? `
+VOCABULARY TO REVIEW:
+The following Korean words are due for review. Try to naturally incorporate them into the conversation. When these words appear, they help reinforce the learner's memory.
+${reviewVocabularies.map(v => `- ${v.korean} (${v.vietnamese})`).join('\n')}
 
+Please try to use at least some of these words naturally in the conversation when appropriate. Bold the word and its meaning when used like: **word** (meaning).
+` : ''}
 CHARACTERS IN THIS SCENE:
 ${characterDescriptions}
 

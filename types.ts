@@ -174,6 +174,7 @@ export interface SavedData {
   context: string;
   relationshipSummary?: string;
   currentLevel?: KoreanLevel;
+  pendingReviewVocabularyIds?: string[]; // IDs of vocabularies being reviewed in current chat session
 }
 
 // Story types for multi-story support

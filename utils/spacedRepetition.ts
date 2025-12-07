@@ -174,6 +174,50 @@ export function getReviewDueCount(journal: DailyChat[]): number {
 }
 
 /**
+ * Get random vocabularies due for review to use in chat
+ * Returns up to 5 random vocabularies that are due for review
+ */
+export function getRandomReviewVocabulariesForChat(journal: DailyChat[]): {
+  vocabulary: VocabularyItem;
+  review: VocabularyReview;
+  dailyChatId: string;
+}[] {
+  const todayStr = getVietnamDateString(new Date());
+  
+  const dueVocabularies: {
+    vocabulary: VocabularyItem;
+    review: VocabularyReview;
+    dailyChatId: string;
+  }[] = [];
+  
+  for (const dailyChat of journal) {
+    if (!dailyChat.reviewSchedule || !dailyChat.vocabularies) continue;
+    
+    for (const review of dailyChat.reviewSchedule) {
+      const nextReviewDate = new Date(review.nextReviewDate);
+      const nextReviewDateStr = getVietnamDateString(nextReviewDate);
+      
+      // Check if due (today or earlier)
+      if (nextReviewDateStr <= todayStr) {
+        const vocabulary = dailyChat.vocabularies.find(v => v.id === review.vocabularyId);
+        
+        if (vocabulary) {
+          dueVocabularies.push({
+            vocabulary,
+            review,
+            dailyChatId: dailyChat.id
+          });
+        }
+      }
+    }
+  }
+  
+  // Shuffle and return up to 5
+  const shuffled = shuffleArray(dueVocabularies);
+  return shuffled.slice(0, 5);
+}
+
+/**
  * Get all vocabularies with their review schedule (for statistics)
  */
 export function getAllReviewStatistics(journal: DailyChat[]): {
