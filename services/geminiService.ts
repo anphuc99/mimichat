@@ -1028,3 +1028,35 @@ const urlToBase64 = async (url: string): Promise<string | null> => {
     return null;
   }
 };
+
+// Gợi ý bối cảnh hội thoại dựa trên từ vựng (cho chế độ ôn tập)
+export const suggestConversationTopic = async (
+  vocabularies: VocabularyItem[],
+  characters: Character[],
+  context: string
+): Promise<string> => {
+  if (!ai) throw new Error("Gemini not initialized");
+
+  const charNames = characters.map(c => c.name).join(', ');
+  const vocabCount = vocabularies.length;
+
+  const prompt = `Bạn là một giáo viên tiếng Hàn. Hãy gợi ý một bối cảnh hội thoại ngắn gọn (1-2 câu) để các nhân vật ${charNames} có thể trò chuyện tự nhiên.
+
+Bối cảnh hiện tại: ${context}
+Số từ vựng cần sử dụng: ${vocabCount} từ
+
+QUAN TRỌNG: 
+- KHÔNG được viết bất kỳ từ tiếng Hàn nào trong gợi ý
+- KHÔNG được dịch nghĩa của từ vựng ra tiếng Việt
+- Chỉ gợi ý bối cảnh/tình huống chung, ví dụ: "Các bạn đang ở quán cafe và nói chuyện về kế hoạch cuối tuần" hoặc "Mimi và Lisa đang đi mua sắm quần áo"
+- Giữ bí mật về nội dung từ vựng để người học có thể tự nhớ lại
+
+Chỉ trả về bối cảnh ngắn gọn bằng tiếng Việt, không giải thích thêm.`;
+
+  const response = await ai.models.generateContent({
+    model: "gemini-2.0-flash",
+    contents: [{ role: "user", parts: [{ text: prompt }] }],
+  });
+
+  return response.text?.trim() || "Các nhân vật đang nói chuyện hàng ngày";
+};

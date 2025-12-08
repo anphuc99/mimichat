@@ -1,7 +1,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 import type { Character, Message, VocabularyItem } from '../types';
 import type { Chat } from '@google/genai';
-import { initAutoChatSession, sendAutoChatMessage, textToSpeech } from '../services/geminiService';
+import { initAutoChatSession, sendAutoChatMessage, textToSpeech, suggestConversationTopic } from '../services/geminiService';
 import { MessageBubble } from './MessageBubble';
 
 interface VocabularyConversationProps {
@@ -37,6 +37,16 @@ export const VocabularyConversation: React.FC<VocabularyConversationProps> = ({
   const [replayIndex, setReplayIndex] = useState(0);
   const shouldStopReplayRef = useRef(false);
   
+  // State mới cho việc dừng sau mỗi 10 câu
+  const [isWaitingForContinue, setIsWaitingForContinue] = useState(false);
+  const [batchCount, setBatchCount] = useState(0); // Đếm số batch đã chạy
+  const MESSAGES_PER_BATCH = 10; // Số tin nhắn mỗi batch trước khi dừng
+  
+  // State cho AI suggested topic (chế độ ôn tập)
+  const [suggestedTopic, setSuggestedTopic] = useState<string>('');
+  const [isLoadingSuggestion, setIsLoadingSuggestion] = useState(false);
+  const [showMeaning, setShowMeaning] = useState(false); // Ẩn/hiện nghĩa tiếng Việt trong ôn tập
+  
   // State để chọn nhân vật
   const [selectedCharacterIds, setSelectedCharacterIds] = useState<string[]>(
     characters.length > 0 ? characters.slice(0, Math.min(2, characters.length)).map(c => c.id) : []
@@ -50,6 +60,8 @@ export const VocabularyConversation: React.FC<VocabularyConversationProps> = ({
   const nextBatchRef = useRef<any[] | null>(null);
   const isFetchingRef = useRef(false);
   const messageRefs = useRef<Map<number, HTMLDivElement>>(new Map());
+  const batchMessageCountRef = useRef(0); // Đếm số tin nhắn trong batch hiện tại
+  const waitingForContinueRef = useRef(false);
 
   // Tính số tin nhắn mục tiêu dựa trên số từ vựng
   const targetCount = Math.max(20, vocabularies.length * 10);
@@ -82,6 +94,25 @@ export const VocabularyConversation: React.FC<VocabularyConversationProps> = ({
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
+
+  // Gợi ý bối cảnh từ AI (cho chế độ ôn tập)
+  const handleSuggestTopic = async () => {
+    if (selectedCharacters.length < 1) {
+      setError('Vui lòng chọn nhân vật trước');
+      return;
+    }
+    setIsLoadingSuggestion(true);
+    setError(null);
+    try {
+      const suggestion = await suggestConversationTopic(vocabularies, selectedCharacters, context);
+      setSuggestedTopic(suggestion);
+      setTopic(suggestion);
+    } catch (e: any) {
+      setError(e.message || 'Không thể gợi ý bối cảnh');
+    } finally {
+      setIsLoadingSuggestion(false);
+    }
+  };
 
   // Tạo topic tự động từ từ vựng
   const generateTopicFromVocabularies = (): string => {
@@ -125,7 +156,9 @@ export const VocabularyConversation: React.FC<VocabularyConversationProps> = ({
       const botResponse = responses[i];
       
       if (shouldStopRef.current) break;
-      while (isPausedRef.current && !shouldStopRef.current) {
+      
+      // Chờ nếu đang pause hoặc đang chờ user continue
+      while ((isPausedRef.current || waitingForContinueRef.current) && !shouldStopRef.current) {
         await new Promise(resolve => setTimeout(resolve, 200));
       }
       if (shouldStopRef.current) break;
@@ -165,11 +198,26 @@ export const VocabularyConversation: React.FC<VocabularyConversationProps> = ({
 
       setMessages(prev => [...prev, message]);
       setCurrentCount(prev => prev + 1);
+      batchMessageCountRef.current++;
       addedCount++;
 
       // Phát audio
       if (audioData) {
         await playAudio(audioData, speakingRate, pitch);
+      }
+
+      // Kiểm tra nếu đã đủ 10 tin nhắn trong batch hiện tại -> dừng và chờ user continue
+      if (batchMessageCountRef.current >= MESSAGES_PER_BATCH && currentCountRef.current < targetCount) {
+        batchMessageCountRef.current = 0;
+        setBatchCount(prev => prev + 1);
+        setIsWaitingForContinue(true);
+        waitingForContinueRef.current = true;
+        
+        // Chờ cho đến khi user bấm tiếp tục
+        while (waitingForContinueRef.current && !shouldStopRef.current) {
+          await new Promise(resolve => setTimeout(resolve, 200));
+        }
+        if (shouldStopRef.current) break;
       }
 
       // Delay giữa các tin nhắn
@@ -196,6 +244,12 @@ export const VocabularyConversation: React.FC<VocabularyConversationProps> = ({
     shouldStopRef.current = false;
     nextBatchRef.current = null;
     isFetchingRef.current = false;
+    
+    // Reset batch tracking
+    batchMessageCountRef.current = 0;
+    waitingForContinueRef.current = false;
+    setIsWaitingForContinue(false);
+    setBatchCount(0);
 
     const generatedTopic = topic.trim() || generateTopicFromVocabularies();
     const vocabList = vocabularies.map(v => v.korean);
@@ -300,6 +354,11 @@ export const VocabularyConversation: React.FC<VocabularyConversationProps> = ({
     onComplete(learnedIds);
   };
 
+  // Tiếp tục sau khi dừng mỗi 10 tin nhắn
+  const handleContinue = () => {
+    setIsWaitingForContinue(false);
+    waitingForContinueRef.current = false;
+  };
   const handleReplayAudio = async (audioData: string, characterName?: string) => {
     const character = characters.find(c => c.name === characterName);
     await playAudio(audioData, character?.speakingRate, character?.pitch);
@@ -373,9 +432,19 @@ export const VocabularyConversation: React.FC<VocabularyConversationProps> = ({
           <div className="max-w-4xl mx-auto">
           {/* Từ vựng cần học */}
           <div className="mb-6">
-            <h2 className="text-lg font-semibold text-gray-800 mb-3">
-              📝 Từ vựng {isReviewMode ? 'cần ôn tập' : 'sẽ học'} ({vocabularies.length} từ):
-            </h2>
+            <div className="flex items-center justify-between mb-3">
+              <h2 className="text-lg font-semibold text-gray-800">
+                📝 Từ vựng {isReviewMode ? 'cần ôn tập' : 'sẽ học'} ({vocabularies.length} từ):
+              </h2>
+              {isReviewMode && (
+                <button
+                  onClick={() => setShowMeaning(!showMeaning)}
+                  className="text-sm px-3 py-1 bg-orange-100 text-orange-700 rounded-lg hover:bg-orange-200 transition-colors"
+                >
+                  {showMeaning ? '🙈 Ẩn nghĩa' : '👁️ Hiện nghĩa'}
+                </button>
+              )}
+            </div>
             <div className="flex flex-wrap gap-2">
               {vocabularies.map(vocab => (
                 <div 
@@ -383,10 +452,18 @@ export const VocabularyConversation: React.FC<VocabularyConversationProps> = ({
                   className={`px-3 py-2 rounded-lg text-sm ${isReviewMode ? 'bg-orange-100 text-orange-800' : 'bg-purple-100 text-purple-800'}`}
                 >
                   <span className="font-bold">{vocab.korean}</span>
-                  <span className="text-gray-600 ml-1">({vocab.vietnamese})</span>
+                  {/* Chế độ học mới: luôn hiển thị nghĩa. Chế độ ôn tập: ẩn mặc định */}
+                  {(!isReviewMode || showMeaning) && (
+                    <span className="text-gray-600 ml-1">({vocab.vietnamese})</span>
+                  )}
                 </div>
               ))}
             </div>
+            {isReviewMode && !showMeaning && (
+              <p className="text-sm text-orange-600 mt-2">
+                💡 Thử nhớ lại nghĩa của các từ trước khi xem!
+              </p>
+            )}
           </div>
 
           {/* Chọn chủ đề */}
@@ -394,15 +471,46 @@ export const VocabularyConversation: React.FC<VocabularyConversationProps> = ({
             <h2 className="text-lg font-semibold text-gray-800 mb-3">
               💬 Chủ đề hội thoại (tùy chọn):
             </h2>
-            <input
-              type="text"
-              value={topic}
-              onChange={(e) => setTopic(e.target.value)}
-              placeholder="Để trống để AI tự chọn chủ đề phù hợp..."
-              className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500"
-            />
+            <div className="flex gap-2">
+              <input
+                type="text"
+                value={topic}
+                onChange={(e) => setTopic(e.target.value)}
+                placeholder="Để trống để AI tự chọn chủ đề phù hợp..."
+                className="flex-1 px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500"
+              />
+              {isReviewMode && (
+                <button
+                  onClick={handleSuggestTopic}
+                  disabled={isLoadingSuggestion || selectedCharacters.length < 1}
+                  className="px-4 py-3 bg-orange-500 text-white font-medium rounded-lg hover:bg-orange-600 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center space-x-2"
+                >
+                  {isLoadingSuggestion ? (
+                    <>
+                      <span className="animate-spin">⏳</span>
+                      <span>Đang gợi ý...</span>
+                    </>
+                  ) : (
+                    <>
+                      <span>🤖</span>
+                      <span>AI gợi ý</span>
+                    </>
+                  )}
+                </button>
+              )}
+            </div>
+            {suggestedTopic && isReviewMode && (
+              <div className="mt-2 p-3 bg-orange-50 border border-orange-200 rounded-lg">
+                <p className="text-sm text-orange-700">
+                  <strong>💡 Gợi ý từ AI:</strong> {suggestedTopic}
+                </p>
+              </div>
+            )}
             <p className="text-sm text-gray-500 mt-2">
-              * AI sẽ tạo hội thoại tự nhiên sử dụng các từ vựng trên
+              {isReviewMode 
+                ? '* Trong chế độ ôn tập, AI sẽ gợi ý bối cảnh phù hợp dựa trên từ vựng'
+                : '* AI sẽ tạo hội thoại tự nhiên sử dụng các từ vựng trên'
+              }
             </p>
           </div>
 
@@ -572,7 +680,25 @@ export const VocabularyConversation: React.FC<VocabularyConversationProps> = ({
           <div className="text-red-500 text-sm mb-2">⚠️ {error}</div>
         )}
 
-        {isGenerating && !isCompleted && (
+        {/* Nút tiếp tục sau mỗi 10 tin nhắn */}
+        {isWaitingForContinue && isGenerating && (
+          <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 mb-3">
+            <div className="text-center mb-3">
+              <span className="text-blue-800 font-medium">
+                📖 Đã xong {batchCount * MESSAGES_PER_BATCH} tin nhắn. Hãy đọc hiểu rồi bấm tiếp tục!
+              </span>
+            </div>
+            <button
+              onClick={handleContinue}
+              className={`w-full py-3 ${isReviewMode ? 'bg-gradient-to-r from-orange-500 to-red-500 hover:from-orange-600 hover:to-red-600' : 'bg-gradient-to-r from-blue-500 to-indigo-500 hover:from-blue-600 hover:to-indigo-600'} text-white font-bold rounded-lg transition-all flex items-center justify-center space-x-2`}
+            >
+              <span>▶️</span>
+              <span>Đã hiểu - Tiếp tục học</span>
+            </button>
+          </div>
+        )}
+
+        {isGenerating && !isCompleted && !isWaitingForContinue && (
           <div className="flex gap-2">
             {!isPaused ? (
               <button

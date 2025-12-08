@@ -11,7 +11,7 @@ interface VocabHintsProps {
 }
 
 const VocabHints: React.FC<VocabHintsProps> = ({ reviewVocabularies, messagesLength, onSuggest }) => {
-  const [showPanel, setShowPanel] = useState<boolean>(messagesLength === 0);
+  const [showPanel, setShowPanel] = useState<boolean>(false);
 
   return (
     <div className="sticky top-0 z-20 w-full bg-gray-50 px-2 py-1 transform -translate-y-4">
@@ -25,7 +25,7 @@ const VocabHints: React.FC<VocabHintsProps> = ({ reviewVocabularies, messagesLen
         </button>
       </div>
 
-      {showPanel ? (
+      {showPanel && (
         <div className="p-1 bg-gradient-to-r from-purple-50 to-blue-50 rounded-lg border border-purple-200">
           <div className="flex items-center gap-2 mb-0.5">
             <span className="text-lg">📚</span>
@@ -48,23 +48,6 @@ const VocabHints: React.FC<VocabHintsProps> = ({ reviewVocabularies, messagesLen
             💡 Nhấn vào từ để tạo gợi ý hội thoại, hoặc tự do trò chuyện - AI sẽ cố gắng sử dụng những từ này!
           </p>
         </div>
-      ) : (
-        messagesLength > 0 && (
-          <div className="p-1 bg-purple-50 rounded-lg border border-purple-100">
-            <div className="flex items-center gap-2 flex-wrap">
-              <span className="text-sm text-purple-600">📚 Đang ôn:</span>
-              {reviewVocabularies.map((vocab) => (
-                <span
-                  key={vocab.id}
-                  className="px-2 py-0.5 bg-white rounded-full border border-purple-200 text-xs"
-                >
-                  <span className="font-medium text-purple-700">{vocab.korean}</span>
-                  <span className="text-gray-400 ml-1">({vocab.vietnamese})</span>
-                </span>
-              ))}
-            </div>
-          </div>
-        )
       )}
     </div>
   );

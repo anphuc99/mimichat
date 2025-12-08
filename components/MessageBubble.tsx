@@ -1,10 +1,68 @@
-import React, { useState } from 'react';
+import React, { useState, useCallback } from 'react';
 import type { Message } from '../types';
 import { avatar } from './avatar';
 
 // Hàm render markdown bold (**text**) thành HTML
 const renderBoldText = (text: string): string => {
   return text.replace(/\*\*(.+?)\*\*/g, '<strong class="text-purple-600 font-bold">$1</strong>');
+};
+
+// Component để render text với các từ ẩn có thể click để hiện
+const HiddenWordsText: React.FC<{ text: string }> = ({ text }) => {
+  const [revealedWords, setRevealedWords] = useState<Set<number>>(new Set());
+
+  const handleReveal = useCallback((index: number) => {
+    setRevealedWords(prev => new Set(prev).add(index));
+  }, []);
+
+  // Parse text để tìm các từ in đậm
+  const parts: React.ReactNode[] = [];
+  let lastIndex = 0;
+  let wordIndex = 0;
+  const regex = /\*\*(.+?)\*\*/g;
+  let match;
+
+  while ((match = regex.exec(text)) !== null) {
+    // Thêm text trước từ in đậm
+    if (match.index > lastIndex) {
+      parts.push(<span key={`text-${lastIndex}`}>{text.slice(lastIndex, match.index)}</span>);
+    }
+
+    const currentWordIndex = wordIndex;
+    const isRevealed = revealedWords.has(currentWordIndex);
+
+    if (isRevealed) {
+      // Hiện từ đã được reveal
+      parts.push(
+        <strong key={`word-${currentWordIndex}`} className="text-purple-600 font-bold">
+          {match[1]}
+        </strong>
+      );
+    } else {
+      // Ẩn từ, cho phép click để hiện
+      parts.push(
+        <button
+          key={`hidden-${currentWordIndex}`}
+          onClick={() => handleReveal(currentWordIndex)}
+          className="inline-flex items-center px-2 py-0.5 mx-0.5 bg-gray-300 hover:bg-gray-400 rounded text-transparent select-none transition-colors cursor-pointer"
+          style={{ minWidth: `${Math.max(match[1].length * 8, 40)}px` }}
+          title="Nhấp để hiện từ"
+        >
+          <span className="opacity-0">{match[1]}</span>
+        </button>
+      );
+    }
+
+    lastIndex = match.index + match[0].length;
+    wordIndex++;
+  }
+
+  // Thêm phần text còn lại
+  if (lastIndex < text.length) {
+    parts.push(<span key={`text-end`}>{text.slice(lastIndex)}</span>);
+  }
+
+  return <>{parts}</>;
 };
 
 interface MessageBubbleProps {
@@ -362,10 +420,9 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({
                       <span>Đang dịch...</span>
                     </div>
                   ) : (
-                    <div
-                        className="prose prose-sm max-w-none text-gray-700"
-                        dangerouslySetInnerHTML={{ __html: renderBoldText(translationContent || '') }}
-                      />
+                    <div className="prose prose-sm max-w-none text-gray-700">
+                      <HiddenWordsText text={translationContent || ''} />
+                    </div>
                   )}
                   <button onClick={() => setIsExpanded(false)} className="text-xs text-blue-600 hover:underline mt-2 font-semibold">
                     Đóng
