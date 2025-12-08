@@ -160,7 +160,7 @@ Generate an array of dialogue turns. Each turn:
       console.log(systemInstruction )
 
   const chat: Chat = ai.chats.create({
-    model: 'gemini-3-pro-preview',
+    model: 'gemini-2.5-pro',
     history,
     config: {
       systemInstruction,

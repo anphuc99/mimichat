@@ -841,25 +841,42 @@ const App: React.FC = () => {
             if (chatIndex === -1) continue;
             
             const dailyChat = updatedJournal[chatIndex];
-            if (!dailyChat.reviewSchedule) continue;
-            
-            const reviewIndex = dailyChat.reviewSchedule.findIndex(r => r.vocabularyId === vocabId);
-            if (reviewIndex === -1) continue;
-            
-            const updatedReview = updateReviewAfterQuiz(
-              dailyChat.reviewSchedule[reviewIndex],
-              1, // 1 correct for appearing in conversation
-              0
-            );
-            
-            updatedJournal[chatIndex] = {
-              ...dailyChat,
-              reviewSchedule: [
-                ...dailyChat.reviewSchedule.slice(0, reviewIndex),
-                updatedReview,
-                ...dailyChat.reviewSchedule.slice(reviewIndex + 1)
-              ]
-            };
+
+            // Ensure reviewSchedule exists
+            const existingSchedule = dailyChat.reviewSchedule || [];
+            const reviewIndex = existingSchedule.findIndex(r => r.vocabularyId === vocabId);
+
+            if (reviewIndex === -1) {
+              // If there is no existing review entry, try to initialize it from vocabularies in the same chat
+              const vocabItem = dailyChat.vocabularies?.find(v => v.id === vocabId);
+              if (vocabItem) {
+                const newReview = initializeVocabularyReview(vocabItem, dailyChat.id);
+                const appliedReview = updateReviewAfterQuiz(newReview, 1, 0);
+
+                updatedJournal[chatIndex] = {
+                  ...dailyChat,
+                  reviewSchedule: [...existingSchedule, appliedReview]
+                };
+              } else {
+                // If vocab not present in this chat, skip
+                continue;
+              }
+            } else {
+              const updatedReview = updateReviewAfterQuiz(
+                existingSchedule[reviewIndex],
+                1, // 1 correct for appearing in conversation
+                0
+              );
+
+              updatedJournal[chatIndex] = {
+                ...dailyChat,
+                reviewSchedule: [
+                  ...existingSchedule.slice(0, reviewIndex),
+                  updatedReview,
+                  ...existingSchedule.slice(reviewIndex + 1)
+                ]
+              };
+            }
           }
           
           console.log(`Updated review for ${usedVocabularyIds.length} vocabularies used in chat`);
@@ -1205,25 +1222,34 @@ const App: React.FC = () => {
       };
     });
 
-    // Update journal with new progress
-    setJournal(prevJournal => {
-      const newJournal = [...prevJournal];
-      newJournal[chatIndex] = {
-        ...newJournal[chatIndex],
-        vocabularyProgress: updatedProgress
-      };
-      return newJournal;
+    // Build updated journal synchronously so we can also ensure reviewSchedule entries exist
+    const updatedJournal = journal.map((chat, idx) => {
+      if (idx !== chatIndex) return chat;
+      const newChat = { ...chat, vocabularyProgress: updatedProgress } as DailyChat;
+      newChat.reviewSchedule = newChat.reviewSchedule || [];
+
+      // Ensure review entries exist for learned vocab ids; initialize and mark as reviewed now
+      for (const learnedId of learnedVocabIds) {
+        const exists = newChat.reviewSchedule.some(r => r.vocabularyId === learnedId);
+        if (!exists) {
+          const vocabItem = newChat.vocabularies?.find(v => v.id === learnedId);
+          if (vocabItem) {
+            const init = initializeVocabularyReview(vocabItem, newChat.id);
+            // Treat learning via vocabulary conversation as an immediate correct review
+            const updated = updateReviewAfterQuiz(init, 2, 0);
+            newChat.reviewSchedule.push(updated);
+          }
+        }
+      }
+
+      return newChat;
     });
 
-    // Save to server
+    // Persist updated journal
     try {
       const dataToSave: SavedData = {
         version: 5,
-        journal: journal.map((chat, idx) => 
-          idx === chatIndex 
-            ? { ...chat, vocabularyProgress: updatedProgress }
-            : chat
-        ),
+        journal: updatedJournal,
         characters,
         activeCharacterIds,
         context,
@@ -1284,12 +1310,12 @@ const App: React.FC = () => {
     const updatedJournal = [...journal];
     
     for (const result of results) {
-      // Find the daily chat and review for this vocabulary
+      // Find the daily chat and review for this vocabulary, create if missing
       for (let i = 0; i < updatedJournal.length; i++) {
         const dailyChat = updatedJournal[i];
-        if (!dailyChat.reviewSchedule) continue;
-        
-        const reviewIndex = dailyChat.reviewSchedule.findIndex(r => r.vocabularyId === result.vocabularyId);
+
+        const reviewIndex = dailyChat.reviewSchedule ? dailyChat.reviewSchedule.findIndex(r => r.vocabularyId === result.vocabularyId) : -1;
+
         if (reviewIndex !== -1) {
           const currentReview = dailyChat.reviewSchedule[reviewIndex];
           const updatedReview = updateReviewAfterQuiz(
@@ -1297,16 +1323,29 @@ const App: React.FC = () => {
             result.correctCount,
             result.incorrectCount
           );
-          
+
           updatedJournal[i] = {
             ...dailyChat,
             reviewSchedule: [
-              ...dailyChat.reviewSchedule.slice(0, reviewIndex),
+              ...dailyChat.reviewSchedule!.slice(0, reviewIndex),
               updatedReview,
-              ...dailyChat.reviewSchedule.slice(reviewIndex + 1)
+              ...dailyChat.reviewSchedule!.slice(reviewIndex + 1)
             ]
           };
           break;
+        } else {
+          // If no review entry exists yet, try to initialize it from vocabularies in this chat
+          const vocabItem = dailyChat.vocabularies?.find(v => v.id === result.vocabularyId);
+          if (vocabItem) {
+            const newReview = initializeVocabularyReview(vocabItem, dailyChat.id);
+            const updatedReview = updateReviewAfterQuiz(newReview, result.correctCount, result.incorrectCount);
+
+            updatedJournal[i] = {
+              ...dailyChat,
+              reviewSchedule: [...(dailyChat.reviewSchedule || []), updatedReview]
+            };
+            break;
+          }
         }
       }
     }

@@ -40,12 +40,12 @@ export function initializeVocabularyReview(
 ): VocabularyReview {
   const today = new Date();
   const firstReviewDate = new Date(today);
-  firstReviewDate.setDate(today.getDate() + 4); // First review in 4 days
+  firstReviewDate.setDate(today.getDate() + 1); // First review in 4 days
   
   return {
     vocabularyId: vocab.id,
     dailyChatId: dailyChatId,
-    currentIntervalDays: 4, // First interval is 4 days
+    currentIntervalDays: 1, // First interval is 4 days
     nextReviewDate: firstReviewDate.toISOString(),
     lastReviewDate: null,
     reviewHistory: [],
