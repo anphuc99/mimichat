@@ -110,14 +110,19 @@ function getVietnamDateString(date: Date): string {
 /**
  * Get all vocabularies that are due for review today or earlier
  * Maximum 20 words to avoid overwhelming the user
+ * @param excludeVocabularyIds - vocabulary IDs to exclude (e.g., words already in pending chat review)
  */
-export function getVocabulariesDueForReview(journal: DailyChat[]): {
+export function getVocabulariesDueForReview(
+  journal: DailyChat[],
+  excludeVocabularyIds: string[] = []
+): {
   vocabulary: VocabularyItem;
   review: VocabularyReview;
   dailyChat: DailyChat;
   messages: Message[];
 }[] {
   const todayStr = getVietnamDateString(new Date());
+  const excludeSet = new Set(excludeVocabularyIds);
   
   const dueVocabularies: {
     vocabulary: VocabularyItem;
@@ -130,6 +135,9 @@ export function getVocabulariesDueForReview(journal: DailyChat[]): {
     if (!dailyChat.reviewSchedule || !dailyChat.vocabularies) continue;
     
     for (const review of dailyChat.reviewSchedule) {
+      // Skip if this vocabulary is in the exclude list
+      if (excludeSet.has(review.vocabularyId)) continue;
+      
       const nextReviewDate = new Date(review.nextReviewDate);
       const nextReviewDateStr = getVietnamDateString(nextReviewDate);
       

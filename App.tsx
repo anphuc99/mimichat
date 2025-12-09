@@ -1283,7 +1283,9 @@ const App: React.FC = () => {
 
   // Review mode handlers
   const handleStartReview = useCallback(() => {
-    const reviewItems = getVocabulariesDueForReview(journal);
+    // Exclude vocabularies currently pending in chat review hints
+    const pendingIds = chatReviewVocabularies.map(rv => rv.vocabulary.id);
+    const reviewItems = getVocabulariesDueForReview(journal, pendingIds);
     
     if (reviewItems.length === 0) {
       alert('Không có từ vựng nào cần ôn tập hôm nay!');
@@ -1293,7 +1295,7 @@ const App: React.FC = () => {
     // Store shuffled list to keep consistent order
     setCurrentReviewItems(reviewItems);
     setView('review');
-  }, [journal]);
+  }, [journal, chatReviewVocabularies]);
 
   // Handler for review conversation completion
   const handleReviewConversationComplete = useCallback(async (learnedVocabIds: string[]) => {
