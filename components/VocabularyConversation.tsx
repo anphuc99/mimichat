@@ -64,7 +64,7 @@ export const VocabularyConversation: React.FC<VocabularyConversationProps> = ({
   const waitingForContinueRef = useRef(false);
 
   // Tính số tin nhắn mục tiêu dựa trên số từ vựng
-  const targetCount = Math.max(20, vocabularies.length * 10);
+  const targetCount = Math.max(20, vocabularies.length * 5);
 
   // Lấy danh sách nhân vật đã chọn
   const selectedCharacters = characters.filter(c => selectedCharacterIds.includes(c.id));
