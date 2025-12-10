@@ -422,7 +422,9 @@ export const JournalViewer: React.FC<JournalViewerProps> = ({
         if (selectedEntryIds.size === summarizedEntries.length) {
             setSelectedEntryIds(new Set());
         } else {
-            setSelectedEntryIds(new Set(summarizedEntries.map(e => e.id)));
+            // Select entries in reverse order (from the last displayed entry to the first)
+            // This preserves insertion order in the Set so playlist/operations iterate from last->first
+            setSelectedEntryIds(new Set(summarizedEntries.map(e => e.id).reverse()));
         }
     };
 
@@ -502,6 +504,58 @@ export const JournalViewer: React.FC<JournalViewerProps> = ({
         }
     };
 
+    const handleDownloadSelectedTxt = () => {
+        if (selectedEntryIds.size === 0) {
+            alert('Vui lòng chọn ít nhất một nhật ký để tải xuống.');
+            return;
+        }
+
+        // Get selected entries in the insertion order of the Set (so Select All reverse order is respected)
+        const entryMap = new Map(summarizedEntries.map(e => [e.id, e]));
+        const selectedEntries = Array.from(selectedEntryIds)
+            .map(id => entryMap.get(id))
+            .filter((e): e is DailyChat => !!e);
+        
+        let content = '';
+        
+        for (const dailyChat of selectedEntries) {
+            // Add separator between entries
+            if (content.length > 0) {
+                content += '\n\n' + '='.repeat(50) + '\n\n';
+            }
+            
+            content += `Date: ${dailyChat.date}\n`;
+            content += `Summary: ${dailyChat.summary || 'N/A'}\n\n`;
+
+            if (dailyChat.characterThoughts && dailyChat.characterThoughts.length > 0) {
+                content += `--- Character Thoughts ---\n`;
+                dailyChat.characterThoughts.forEach(thought => {
+                    content += `${thought.characterName} (${thought.tone}): ${thought.text}\n`;
+                });
+                content += `\n`;
+            }
+
+            content += `--- Conversation ---\n`;
+            const lines = dailyChat.messages.map(msg => {
+                const sender = msg.sender === 'user' ? 'User' : (msg.characterName || 'Bot');
+                return `${sender}: ${msg.text}`;
+            });
+
+            content += lines.join('\n');
+        }
+
+        const blob = new Blob([content], { type: 'text/plain;charset=utf-8' });
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        link.href = url;
+        const dateStr = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Ho_Chi_Minh' });
+        link.download = `conversations-${dateStr}-${selectedEntries.length}entries.txt`;
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        URL.revokeObjectURL(url);
+    };
+
     const handleSaveSummary = () => {
         onUpdateRelationshipSummary(editedSummary);
         setIsEditingSummary(false);
@@ -574,6 +628,17 @@ export const JournalViewer: React.FC<JournalViewerProps> = ({
                                 <span>Phát đã chọn</span>
                             </>
                         )}
+                    </button>
+                    <button
+                        onClick={handleDownloadSelectedTxt}
+                        disabled={selectedEntryIds.size === 0}
+                        className="px-4 py-2 rounded-lg flex items-center space-x-2 transition-colors bg-gray-500 hover:bg-gray-600 text-white disabled:opacity-50 disabled:cursor-not-allowed"
+                        title="Tải xuống các nhật ký đã chọn dạng TXT"
+                    >
+                        <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+                            <path fillRule="evenodd" d="M3 17a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zm3.293-7.707a1 1 0 011.414 0L9 10.586V3a1 1 0 112 0v7.586l1.293-1.293a1 1 0 111.414 1.414l-3 3a1 1 0 01-1.414 0l-3-3a1 1 0 010-1.414z" clipRule="evenodd" />
+                        </svg>
+                        <span>Tải TXT</span>
                     </button>
                 </div>
 

@@ -22,6 +22,23 @@ export default defineConfig(({ mode }) => {
         alias: {
           '@': path.resolve(__dirname, '.'),
         }
+      },
+      build: {
+        chunkSizeWarningLimit: 1500, // Increase warning limit to 1.5MB (app bundle is large)
+        rollupOptions: {
+          output: {
+            manualChunks(id) {
+              // Split node_modules into vendor chunks
+              if (id.includes('node_modules')) {
+                if (id.includes('react') || id.includes('react-dom')) {
+                  return 'react-vendor';
+                }
+                // Group all other node_modules
+                return 'vendor';
+              }
+            }
+          }
+        }
       }
     };
 });
