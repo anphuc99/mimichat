@@ -89,7 +89,7 @@ ${relationshipSummary}
 ${reviewVocabularies.length > 0 ? `
 VOCABULARY TO REVIEW:
 The following Korean words are due for review. Try to naturally incorporate them into the conversation. When these words appear, they help reinforce the learner's memory.
-${reviewVocabularies.map(v => `- ${v.korean} (${v.vietnamese})`).join('\n')}
+${reviewVocabularies.map(v => `- ${v.korean}`).join('\n')}
 
 Please try to use at least some of these words naturally in the conversation when appropriate. Bold the word and its meaning when used like: **word** (meaning).
 ` : ''}
@@ -858,7 +858,7 @@ export const generateVocabulary = async (
   // Create list of existing Korean words to avoid
   const existingWords = existingVocabularies.map(v => v.korean).join(', ');
 
-  const prompt = `Analyze the following conversation and identify 5 vocabulary words or phrases suitable for a beginner Korean learner (Level ${level}).
+  const prompt = `Analyze the following conversation and identify 10 vocabulary words or phrases suitable for a beginner Korean learner (Level ${level}).
 
 CONVERSATION:
 ${conversationText}
@@ -1054,7 +1054,7 @@ QUAN TRỌNG:
 Chỉ trả về bối cảnh ngắn gọn bằng tiếng Việt, không giải thích thêm.`;
 
   const response = await ai.models.generateContent({
-    model: "gemini-2.0-flash",
+    model: "gemini-2.5-flash",
     contents: [{ role: "user", parts: [{ text: prompt }] }],
   });
 

@@ -45,7 +45,7 @@ export function initializeVocabularyReview(
   return {
     vocabularyId: vocab.id,
     dailyChatId: dailyChatId,
-    currentIntervalDays: 1, // First interval is 4 days
+    currentIntervalDays: 0, // First interval is 4 days
     nextReviewDate: firstReviewDate.toISOString(),
     lastReviewDate: null,
     reviewHistory: [],
@@ -71,7 +71,7 @@ export function updateReviewAfterQuiz(
   let nextInterval: number;
   if (intervalBefore === 0) {
     // Học mới: bắt đầu từ 4 ngày, trừ đi số câu sai
-    nextInterval = Math.max(1, 4 - incorrectCount);
+    nextInterval = 1;
   } else {
     // Ôn lại: gấp đôi interval hiện tại, trừ đi số câu sai
     nextInterval = calculateNextInterval(intervalBefore, incorrectCount);

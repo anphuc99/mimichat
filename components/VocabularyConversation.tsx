@@ -1,5 +1,5 @@
-import React, { useState, useRef, useEffect } from 'react';
-import type { Character, Message, VocabularyItem } from '../types';
+import React, { useState, useRef, useEffect, useMemo } from 'react';
+import type { Character, Message, VocabularyItem, VocabularyReview } from '../types';
 import type { Chat } from '@google/genai';
 import { initAutoChatSession, sendAutoChatMessage, textToSpeech, suggestConversationTopic } from '../services/geminiService';
 import { MessageBubble } from './MessageBubble';
@@ -13,6 +13,7 @@ interface VocabularyConversationProps {
   onBack: () => void;
   playAudio: (audioData: string, speakingRate?: number, pitch?: number) => Promise<void>;
   isReviewMode?: boolean; // Đang ôn tập hay học mới
+  reviewSchedule?: VocabularyReview[]; // Danh sách từ đã học
 }
 
 export const VocabularyConversation: React.FC<VocabularyConversationProps> = ({
@@ -24,6 +25,7 @@ export const VocabularyConversation: React.FC<VocabularyConversationProps> = ({
   onBack,
   playAudio,
   isReviewMode = false,
+  reviewSchedule = [],
 }) => {
   const [messages, setMessages] = useState<Message[]>([]);
   const [isGenerating, setIsGenerating] = useState(false);
@@ -47,6 +49,11 @@ export const VocabularyConversation: React.FC<VocabularyConversationProps> = ({
   const [isLoadingSuggestion, setIsLoadingSuggestion] = useState(false);
   const [showMeaning, setShowMeaning] = useState(false); // Ẩn/hiện nghĩa tiếng Việt trong ôn tập
   
+  // State để chọn từ vựng muốn học
+  const [selectedVocabIds, setSelectedVocabIds] = useState<Set<string>>(
+    new Set(vocabularies.map(v => v.id)) // Mặc định chọn tất cả
+  );
+  
   // State để chọn nhân vật
   const [selectedCharacterIds, setSelectedCharacterIds] = useState<string[]>(
     characters.length > 0 ? characters.slice(0, Math.min(2, characters.length)).map(c => c.id) : []
@@ -63,8 +70,8 @@ export const VocabularyConversation: React.FC<VocabularyConversationProps> = ({
   const batchMessageCountRef = useRef(0); // Đếm số tin nhắn trong batch hiện tại
   const waitingForContinueRef = useRef(false);
 
-  // Tính số tin nhắn mục tiêu dựa trên số từ vựng
-  const targetCount = Math.max(20, vocabularies.length * 5);
+  // Tính số tin nhắn mục tiêu dựa trên số từ vựng đã chọn
+  const targetCount = useMemo(() => Math.max(20, selectedVocabIds.size * 5), [selectedVocabIds.size]);
 
   // Lấy danh sách nhân vật đã chọn
   const selectedCharacters = characters.filter(c => selectedCharacterIds.includes(c.id));
@@ -81,6 +88,35 @@ export const VocabularyConversation: React.FC<VocabularyConversationProps> = ({
       }
     });
   };
+
+  // Toggle chọn từ vựng
+  const toggleVocab = (vocabId: string) => {
+    setSelectedVocabIds(prev => {
+      const newSet = new Set(prev);
+      if (newSet.has(vocabId)) {
+        // Không cho phép bỏ chọn nếu chỉ còn 1 từ
+        if (newSet.size <= 1) return prev;
+        newSet.delete(vocabId);
+      } else {
+        newSet.add(vocabId);
+      }
+      return newSet;
+    });
+  };
+
+  // Chọn/bỏ chọn tất cả từ vựng
+  const toggleAllVocabs = () => {
+    if (selectedVocabIds.size === vocabularies.length) {
+      // Bỏ chọn tất cả, chỉ giữ lại 1 từ đầu tiên
+      setSelectedVocabIds(new Set([vocabularies[0].id]));
+    } else {
+      // Chọn tất cả
+      setSelectedVocabIds(new Set(vocabularies.map(v => v.id)));
+    }
+  };
+
+  // Lấy danh sách từ vựng đã chọn
+  const selectedVocabularies = vocabularies.filter(v => selectedVocabIds.has(v.id));
 
   useEffect(() => {
     isPausedRef.current = isPaused;
@@ -104,7 +140,7 @@ export const VocabularyConversation: React.FC<VocabularyConversationProps> = ({
     setIsLoadingSuggestion(true);
     setError(null);
     try {
-      const suggestion = await suggestConversationTopic(vocabularies, selectedCharacters, context);
+      const suggestion = await suggestConversationTopic(selectedVocabularies, selectedCharacters, context);
       setSuggestedTopic(suggestion);
       setTopic(suggestion);
     } catch (e: any) {
@@ -114,9 +150,9 @@ export const VocabularyConversation: React.FC<VocabularyConversationProps> = ({
     }
   };
 
-  // Tạo topic tự động từ từ vựng
+  // Tạo topic tự động từ từ vựng đã chọn
   const generateTopicFromVocabularies = (): string => {
-    const koreanWords = vocabularies.map(v => v.korean).join(', ');
+    const koreanWords = selectedVocabularies.map(v => v.korean).join(', ');
     return `Hãy tạo một cuộc trò chuyện tự nhiên sử dụng các từ vựng sau: ${koreanWords}. AI hãy tự chọn chủ đề phù hợp với các từ này.`;
   };
 
@@ -233,6 +269,11 @@ export const VocabularyConversation: React.FC<VocabularyConversationProps> = ({
       return;
     }
 
+    if (selectedVocabIds.size === 0) {
+      setError('Cần chọn ít nhất 1 từ vựng để học');
+      return;
+    }
+
     setIsStarted(true);
     setIsGenerating(true);
     setIsPaused(false);
@@ -251,8 +292,10 @@ export const VocabularyConversation: React.FC<VocabularyConversationProps> = ({
     setIsWaitingForContinue(false);
     setBatchCount(0);
 
+    // Chỉ sử dụng từ vựng đã chọn
+    const vocabsToLearn = selectedVocabularies;
     const generatedTopic = topic.trim() || generateTopicFromVocabularies();
-    const vocabList = vocabularies.map(v => v.korean);
+    const vocabList = vocabsToLearn.map(v => v.korean);
 
     try {
       chatRef.current = await initAutoChatSession(
@@ -349,8 +392,8 @@ export const VocabularyConversation: React.FC<VocabularyConversationProps> = ({
   };
 
   const handleComplete = () => {
-    // Đánh dấu tất cả từ vựng đã học
-    const learnedIds = vocabularies.map(v => v.id);
+    // Chỉ đánh dấu những từ vựng đã chọn là đã học
+    const learnedIds = selectedVocabularies.map(v => v.id);
     onComplete(learnedIds);
   };
 
@@ -428,42 +471,71 @@ export const VocabularyConversation: React.FC<VocabularyConversationProps> = ({
           </div>
         </header>
 
-        <div className="flex-1 p-6 overflow-y-auto">
+        <div className="flex-1 p-6 overflow-y-auto pb-20">
           <div className="max-w-4xl mx-auto">
           {/* Từ vựng cần học */}
           <div className="mb-6">
             <div className="flex items-center justify-between mb-3">
               <h2 className="text-lg font-semibold text-gray-800">
-                📝 Từ vựng {isReviewMode ? 'cần ôn tập' : 'sẽ học'} ({vocabularies.length} từ):
+                📝 Từ vựng {isReviewMode ? 'cần ôn tập' : 'sẽ học'} ({selectedVocabIds.size}/{vocabularies.length} từ):
               </h2>
-              {isReviewMode && (
+              <div className="flex items-center gap-2">
                 <button
-                  onClick={() => setShowMeaning(!showMeaning)}
-                  className="text-sm px-3 py-1 bg-orange-100 text-orange-700 rounded-lg hover:bg-orange-200 transition-colors"
+                  onClick={toggleAllVocabs}
+                  className="text-sm px-3 py-1 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 transition-colors"
                 >
-                  {showMeaning ? '🙈 Ẩn nghĩa' : '👁️ Hiện nghĩa'}
+                  {selectedVocabIds.size === vocabularies.length ? 'Bỏ chọn hết' : 'Chọn tất cả'}
                 </button>
-              )}
+                {isReviewMode && (
+                  <button
+                    onClick={() => setShowMeaning(!showMeaning)}
+                    className="text-sm px-3 py-1 bg-orange-100 text-orange-700 rounded-lg hover:bg-orange-200 transition-colors"
+                  >
+                    {showMeaning ? '🙈 Ẩn nghĩa' : '👁️ Hiện nghĩa'}
+                  </button>
+                )}
+              </div>
             </div>
             <div className="flex flex-wrap gap-2">
-              {vocabularies.map(vocab => (
-                <div 
-                  key={vocab.id}
-                  className={`px-3 py-2 rounded-lg text-sm ${isReviewMode ? 'bg-orange-100 text-orange-800' : 'bg-purple-100 text-purple-800'}`}
-                >
-                  <span className="font-bold">{vocab.korean}</span>
-                  {/* Chế độ học mới: luôn hiển thị nghĩa. Chế độ ôn tập: ẩn mặc định */}
-                  {(!isReviewMode || showMeaning) && (
-                    <span className="text-gray-600 ml-1">({vocab.vietnamese})</span>
-                  )}
-                </div>
-              ))}
+              {vocabularies.map(vocab => {
+                const isSelected = selectedVocabIds.has(vocab.id);
+                const isLearned = reviewSchedule.some(r => r.vocabularyId === vocab.id);
+                return (
+                  <button
+                    key={vocab.id}
+                    onClick={() => toggleVocab(vocab.id)}
+                    className={`px-3 py-2 rounded-lg text-sm transition-all border-2 flex items-center gap-1 ${
+                      isSelected
+                        ? isReviewMode 
+                          ? 'bg-orange-100 text-orange-800 border-orange-400' 
+                          : 'bg-purple-100 text-purple-800 border-purple-400'
+                        : 'bg-gray-100 text-gray-500 border-gray-200 opacity-60'
+                    }`}
+                  >
+                    {isLearned && (
+                      <svg className="w-4 h-4 text-green-600" fill="currentColor" viewBox="0 0 20 20">
+                        <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
+                      </svg>
+                    )}
+                    <span className="font-bold">{vocab.korean}</span>
+                    {(!isReviewMode || showMeaning) && (
+                      <span className="text-gray-600">({vocab.vietnamese})</span>
+                    )}
+                  </button>
+                );
+              })}
             </div>
+            {selectedVocabIds.size === 0 && (
+              <p className="text-red-500 text-sm mt-2">⚠️ Vui lòng chọn ít nhất 1 từ để học</p>
+            )}
             {isReviewMode && !showMeaning && (
               <p className="text-sm text-orange-600 mt-2">
                 💡 Thử nhớ lại nghĩa của các từ trước khi xem!
               </p>
             )}
+            <p className="text-sm text-gray-500 mt-2">
+              💡 Click vào từ để chọn/bỏ chọn. Chỉ những từ được chọn sẽ xuất hiện trong hội thoại.
+            </p>
           </div>
 
           {/* Chọn chủ đề */}
@@ -570,16 +642,16 @@ export const VocabularyConversation: React.FC<VocabularyConversationProps> = ({
           </div>
         </div>
 
-        {/* Start button */}
-        <div className="p-4 bg-gray-50 border-t border-gray-200">
+        {/* Start button (sticky to viewport bottom; avoid using fixed) */}
+        <div className="sticky bottom-0 left-0 right-0 p-4 bg-gray-50 border-t border-gray-200 z-30">
           <div className="max-w-4xl mx-auto">
           <button
             onClick={startConversation}
-            disabled={selectedCharacters.length < 1}
-            className={`w-full py-4 ${isReviewMode ? 'bg-gradient-to-r from-orange-500 to-red-500 hover:from-orange-600 hover:to-red-600' : 'bg-gradient-to-r from-purple-500 to-indigo-500 hover:from-purple-600 hover:to-indigo-600'} text-white font-bold rounded-lg disabled:opacity-50 disabled:cursor-not-allowed transition-all text-lg flex items-center justify-center space-x-2`}
+            disabled={selectedCharacters.length < 1 || selectedVocabIds.size === 0}
+            className={`w-full py-3 ${isReviewMode ? 'bg-gradient-to-r from-orange-500 to-red-500 hover:from-orange-600 hover:to-red-600' : 'bg-gradient-to-r from-purple-500 to-indigo-500 hover:from-purple-600 hover:to-indigo-600'} text-white font-bold rounded-lg disabled:opacity-50 disabled:cursor-not-allowed transition-all text-base flex items-center justify-center space-x-3`}
           >
-            <span>▶️</span>
-            <span>Bắt đầu học qua hội thoại</span>
+            <span className="text-lg">▶️</span>
+            <span className="font-bold whitespace-nowrap">Bắt đầu học {selectedVocabIds.size} từ qua hội thoại</span>
           </button>
           </div>
         </div>

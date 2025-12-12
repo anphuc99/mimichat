@@ -1025,10 +1025,7 @@ const App: React.FC = () => {
         vietnamese
       };
 
-      // Initialize review schedule
-      const reviewSchedule = initializeVocabularyReview(newVocab, dailyChatId);
-
-      // Update journal
+      // Update journal (reviewSchedule will be created after learning in handleVocabConversationComplete)
       setJournal(prevJournal => {
         const newJournal = [...prevJournal];
         const chatIndex = newJournal.findIndex(dc => dc.id === dailyChatId);
@@ -1036,7 +1033,6 @@ const App: React.FC = () => {
           newJournal[chatIndex] = {
             ...newJournal[chatIndex],
             vocabularies: [...(newJournal[chatIndex].vocabularies || []), newVocab],
-            reviewSchedule: [...(newJournal[chatIndex].reviewSchedule || []), reviewSchedule],
             vocabularyProgress: [
               ...(newJournal[chatIndex].vocabularyProgress || []),
               {
@@ -1080,17 +1076,12 @@ const App: React.FC = () => {
     try {
       const vocabularies = await generateVocabulary(dailyChat.messages, currentLevel, existingVocabularies);
       
-      // Initialize review schedule for each vocabulary
-      const reviewSchedule = vocabularies.map(vocab => 
-        initializeVocabularyReview(vocab, dailyChatId)
-      );
-      
+      // Don't create reviewSchedule yet - it will be created after learning in handleVocabConversationComplete
       setJournal(prevJournal => {
         const newJournal = [...prevJournal];
         newJournal[chatIndex] = {
           ...newJournal[chatIndex],
           vocabularies,
-          reviewSchedule,
           vocabularyProgress: vocabularies.map(v => ({
             vocabularyId: v.id,
             correctCount: 0,
@@ -2460,6 +2451,7 @@ const App: React.FC = () => {
           onBack={handleBackFromVocabulary}
           playAudio={playAudio}
           isReviewMode={false}
+          reviewSchedule={journal.find(dc => dc.id === selectedDailyChatId)?.reviewSchedule || []}
         />
       ) : view === 'context' && contextViewState ? (
         <ChatContextViewer
@@ -2481,6 +2473,7 @@ const App: React.FC = () => {
           onBack={handleBackFromReview}
           playAudio={playAudio}
           isReviewMode={true}
+          reviewSchedule={currentReviewItems.map(item => item.review)}
         />
       ) : (
         <JournalViewer
