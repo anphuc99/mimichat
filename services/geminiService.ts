@@ -91,7 +91,10 @@ VOCABULARY TO REVIEW:
 The following Korean words are due for review. Try to naturally incorporate them into the conversation. When these words appear, they help reinforce the learner's memory.
 ${reviewVocabularies.map(v => `- ${v.korean}`).join('\n')}
 
-Please try to use at least some of these words naturally in the conversation when appropriate. Bold the word and its meaning when used like: **word** (meaning).
+Please try to use at least some of these words naturally in the conversation when appropriate. Bold the word and its meaning when used like: **word**.
+- **BOLD FORMATTING**: When using any of these vocabulary words in "Text", wrap them with **asterisks** like **word**
+- **TRANSLATION BOLD**: In the "Translation" field, also wrap the Vietnamese translation of those vocabulary words with **asterisks**
+- Example: If vocabulary is "사랑", Text: "나는 **사랑**해요", Translation: "Tôi **yêu** bạn"
 ` : ''}
 CHARACTERS IN THIS SCENE:
 ${characterDescriptions}
@@ -771,7 +774,8 @@ Gợi ý:`;
 export const generateMessageSuggestions = async (
   characters: Character[],
   context: string,
-  recentMessages: Message[]
+  recentMessages: Message[],
+  pendingReviewVocabulary?: VocabularyItem[]
 ): Promise<string[]> => {
   const characterDescriptions = characters.map(c => 
     `- ${c.name}: ${c.personality}`
@@ -781,7 +785,7 @@ export const generateMessageSuggestions = async (
     `${msg.sender === 'user' ? 'User' : msg.characterName}: ${msg.text}`
   ).join('\n');
 
-  const prompt = `Bạn là trợ lý gợi ý tin nhắn. Dựa trên ngữ cảnh và cuộc hội thoại gần đây, hãy đề xuất 3 câu trả lời phù hợp cho người dùng.
+  const prompt = `Bạn là trợ lý gợi ý tin nhắn. Dựa trên ngữ cảnh, cuộc hội thoại gần đây, và danh sách từ vựng đang ôn tập (nếu có), hãy đề xuất 3 câu trả lời phù hợp cho người dùng.
 
 THÔNG TIN NHÂN VẬT:
 ${characterDescriptions}
@@ -791,6 +795,9 @@ BỐI CẢNH: ${context}
 ${conversationText ? `HỘI THOẠI GẦN ĐÂY:
 ${conversationText}
 
+` : ''}${pendingReviewVocabulary && pendingReviewVocabulary.length > 0 ? `TỪ VỰNG ĐANG ÔN TẬP (tham chiếu, KHÔNG dịch nghĩa):
+${pendingReviewVocabulary.map(v => `- ${v.korean}`).join('\n')}
+
 ` : ''}NHIỆM VỤ:
 Đề xuất 3 câu trả lời bằng TIẾNG VIỆT mà người dùng có thể nói tiếp.
 
@@ -798,6 +805,7 @@ YÊU CẦU:
 - Mỗi câu ngắn gọn (5-10 từ tiếng Việt)
 - Phù hợp với ngữ cảnh và cuộc hội thoại
 - Đa dạng: 1 câu hỏi, 1 câu phản hồi, 1 câu chủ động
+- Nếu có danh sách từ ôn tập, hãy thiết kế câu gợi ý sao cho người dùng có thể tự nhiên sử dụng lại những từ tiếng Hàn đó (ví dụ: hỏi về từ, nói tình huống dùng từ, gợi mở để lồng từ vào câu tiếp theo). KHÔNG viết tiếng Hàn trong gợi ý.
 - CHỈ trả về 3 câu, mỗi câu một dòng
 - KHÔNG giải thích, KHÔNG đánh số
 
