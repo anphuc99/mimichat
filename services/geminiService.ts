@@ -348,7 +348,7 @@ export const textToSpeech = async (
 ): Promise<string | null> => {
   // Regex to remove a wide range of emojis.
   const emojiRegex = /(\u00a9|\u00ae|[\u2000-\u3300]|\ud83c[\ud000-\udfff]|\ud83d[\ud000-\udfff]|\ud83e[\ud000-\udfff])/g;
-  const textWithoutEmoji = text.replace(emojiRegex, '').trim();
+  const textWithoutEmoji = text.replace("**", "").replace(emojiRegex, '').trim();
 
   if (!textWithoutEmoji) {
     return null;
