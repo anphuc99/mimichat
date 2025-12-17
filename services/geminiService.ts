@@ -35,23 +35,23 @@ export const initChat = async (
   // Parse level info
   const maxWords = level === 'A0' ? 3 : level === 'A1' ? 5 : level === 'A2' ? 7 : level === 'B1' ? 10 : level === 'B2' ? 12 : level === 'C1' ? 15 : 20;
   const grammarGuideline = level === 'A0' ? 'Use only simple present tense sentences. Avoid complex grammar.' :
-                          level === 'A1' ? 'Use simple sentences with basic present and past tense. Can use -고 싶다, -아/어요.' :
-                          level === 'A2' ? 'Use simple compound sentences with -고, -지만. Use basic tenses.' :
-                          level === 'B1' ? 'Use complex sentences with intermediate grammar like -(으)ㄹ 수 있다, -아/어서, -기 때문에.' :
-                          level === 'B2' ? 'Use advanced grammar, compound sentences, express complex opinions.' :
-                          level === 'C1' ? 'Use advanced grammar, idioms, nuanced expressions.' :
-                          'Natural native-like speech with idioms, advanced grammar, varied styles.';
+    level === 'A1' ? 'Use simple sentences with basic present and past tense. Can use -고 싶다, -아/어요.' :
+      level === 'A2' ? 'Use simple compound sentences with -고, -지만. Use basic tenses.' :
+        level === 'B1' ? 'Use complex sentences with intermediate grammar like -(으)ㄹ 수 있다, -아/어서, -기 때문에.' :
+          level === 'B2' ? 'Use advanced grammar, compound sentences, express complex opinions.' :
+            level === 'C1' ? 'Use advanced grammar, idioms, nuanced expressions.' :
+              'Natural native-like speech with idioms, advanced grammar, varied styles.';
 
   const characterDescriptions = activeCharacters.map(c => {
     let desc = `- ${c.name} (${c.gender === 'female' ? 'girl' : 'boy'}): ${c.personality}`;
-    
+
     // Add user opinion if exists
     if (c.userOpinion && c.userOpinion.opinion) {
-      const sentiment = c.userOpinion.sentiment === 'positive' ? '(positive)' : 
-                       c.userOpinion.sentiment === 'negative' ? '(negative)' : '(neutral)';
+      const sentiment = c.userOpinion.sentiment === 'positive' ? '(positive)' :
+        c.userOpinion.sentiment === 'negative' ? '(negative)' : '(neutral)';
       desc += `\n    * Opinion about the user ${sentiment}: ${c.userOpinion.opinion}`;
     }
-    
+
     // Add relations if exist
     if (c.relations && Object.keys(c.relations).length > 0) {
       const relationsList = Object.entries(c.relations)
@@ -59,21 +59,21 @@ export const initChat = async (
         .map(([targetId, rel]) => {
           const targetChar = activeCharacters.find(ch => ch.id === targetId);
           if (!targetChar) return null;
-          const sentiment = rel.sentiment === 'positive' ? '(positive)' : 
-                           rel.sentiment === 'negative' ? '(negative)' : '(neutral)';
+          const sentiment = rel.sentiment === 'positive' ? '(positive)' :
+            rel.sentiment === 'negative' ? '(negative)' : '(neutral)';
           return `      - About ${targetChar.name} ${sentiment}: ${rel.opinion}`;
         })
         .filter(r => r !== null);
-      
+
       if (relationsList.length > 0) {
         desc += '\n    * Relationships:\n' + relationsList.join('\n');
       }
     }
-    
+
     return desc;
   }).join('\n      ');
 
-const systemInstruction = `
+  const systemInstruction = `
 You are a scriptwriter for a conversation between a Vietnamese user and several young Korean characters. I will speak to you in Vietnamese.
 The Korean characters must only speak Korean. They must use very short and simple sentences, no more than ${maxWords} Korean words per sentence, suitable for a Korean learner at level ${level} (Comprehensible Input). They should never speak more than one sentence at a time. They often repeat important or familiar words.
 
@@ -160,7 +160,7 @@ Generate an array of dialogue turns. Each turn:
 
 `;
 
-      console.log(systemInstruction )
+  console.log(systemInstruction)
 
   const chat: Chat = ai.chats.create({
     model: 'gemini-3-pro-preview',
@@ -175,8 +175,8 @@ Generate an array of dialogue turns. Each turn:
           properties: {
             CharacterName: { type: Type.STRING },
             Text: { type: Type.STRING },
-            Tone: { type: Type.STRING },     
-            Translation: {type: Type.STRING}       
+            Tone: { type: Type.STRING },
+            Translation: { type: Type.STRING }
           }
         }
       },
@@ -212,16 +212,16 @@ export const initAutoChatSession = async (
   // Parse level info
   const maxWords = level === 'A0' ? 3 : level === 'A1' ? 5 : level === 'A2' ? 7 : level === 'B1' ? 10 : level === 'B2' ? 12 : level === 'C1' ? 15 : 20;
   const grammarGuideline = level === 'A0' ? 'Use only simple present tense sentences. Avoid complex grammar.' :
-                          level === 'A1' ? 'Use simple sentences with basic present and past tense. Can use -고 싶다, -아/어요.' :
-                          level === 'A2' ? 'Use simple compound sentences with -고, -지만. Use basic tenses.' :
-                          level === 'B1' ? 'Use complex sentences with intermediate grammar like -(으)ㄹ 수 있다, -아/어서, -기 때문에.' :
-                          level === 'B2' ? 'Use advanced grammar, compound sentences, express complex opinions.' :
-                          level === 'C1' ? 'Use advanced grammar, idioms, nuanced expressions.' :
-                          'Natural native-like speech with idioms, advanced grammar, varied styles.';
+    level === 'A1' ? 'Use simple sentences with basic present and past tense. Can use -고 싶다, -아/어요.' :
+      level === 'A2' ? 'Use simple compound sentences with -고, -지만. Use basic tenses.' :
+        level === 'B1' ? 'Use complex sentences with intermediate grammar like -(으)ㄹ 수 있다, -아/어서, -기 때문에.' :
+          level === 'B2' ? 'Use advanced grammar, compound sentences, express complex opinions.' :
+            level === 'C1' ? 'Use advanced grammar, idioms, nuanced expressions.' :
+              'Natural native-like speech with idioms, advanced grammar, varied styles.';
 
   const characterDescriptions = characters.map(c => {
     let desc = `- ${c.name} (${c.gender === 'female' ? 'girl' : 'boy'}): ${c.personality}`;
-    
+
     // Add relations if exist
     if (c.relations && Object.keys(c.relations).length > 0) {
       const relationsList = Object.entries(c.relations)
@@ -229,22 +229,22 @@ export const initAutoChatSession = async (
         .map(([targetId, rel]) => {
           const targetChar = characters.find(ch => ch.id === targetId);
           if (!targetChar) return null;
-          const sentiment = rel.sentiment === 'positive' ? '(positive)' : 
-                           rel.sentiment === 'negative' ? '(negative)' : '(neutral)';
+          const sentiment = rel.sentiment === 'positive' ? '(positive)' :
+            rel.sentiment === 'negative' ? '(negative)' : '(neutral)';
           return `      - About ${targetChar.name} ${sentiment}: ${rel.opinion}`;
         })
         .filter(r => r !== null);
-      
+
       if (relationsList.length > 0) {
         desc += '\n    * Relationships:\n' + relationsList.join('\n');
       }
     }
-    
+
     return desc;
   }).join('\n      ');
 
   // Vocabulary instruction
-  const vocabularyInstruction = vocabulary.length > 0 
+  const vocabularyInstruction = vocabulary.length > 0
     ? `\n\n**IMPORTANT - VOCABULARY REQUIREMENT**:
 You MUST naturally incorporate these Korean vocabulary words throughout the conversation. Each word must be used AT LEAST 5 TIMES across all dialogue turns:
 ${vocabulary.map((word, i) => `${i + 1}. ${word}`).join('\n')}
@@ -259,7 +259,7 @@ Make sure to:
 - Example: If vocabulary is "사랑", Text: "나는 **사랑**해요", Translation: "Tôi **yêu** bạn"`
     : '';
 
-const systemInstruction = `
+  const systemInstruction = `
 You are a scriptwriter creating a natural conversation between Korean characters. The characters are discussing a topic among themselves.
 
 LANGUAGE LEVEL: ${level}
@@ -317,8 +317,8 @@ When I send "NEW TOPIC: [topic]", start a new discussion about that topic.
           properties: {
             CharacterName: { type: Type.STRING },
             Text: { type: Type.STRING },
-            Tone: { type: Type.STRING },       
-            Translation: { type: Type.STRING}  
+            Tone: { type: Type.STRING },
+            Translation: { type: Type.STRING }
           }
         }
       },
@@ -330,7 +330,7 @@ When I send "NEW TOPIC: [topic]", start a new discussion about that topic.
 export const sendAutoChatMessage = async (chat: Chat, command: 'START' | 'CONTINUE' | string): Promise<string> => {
   try {
     const message = command === 'START' ? 'Start the conversation about the topic.' :
-                    command === 'CONTINUE' ? 'CONTINUE' : command;
+      command === 'CONTINUE' ? 'CONTINUE' : command;
     const response: GenerateContentResponse = await chat.sendMessage({ message });
     console.log("Auto chat response:", response.text);
     return response.text;
@@ -359,7 +359,7 @@ export const textToSpeech = async (
       url += `&force=true`;
     }
     const rs = await http.get(url)
-    if (rs.ok && rs.data?.output){
+    if (rs.ok && rs.data?.output) {
       return rs.data.output;
     }
     return null;
@@ -628,7 +628,7 @@ export const generateToneDescription = async (text: string, character: Character
 };
 
 export const generateRelationshipSummary = async (
-  messages: Message[], 
+  messages: Message[],
   characters: Character[],
   currentSummary: string = ''
 ): Promise<string> => {
@@ -637,16 +637,16 @@ export const generateRelationshipSummary = async (
   }
 
   const characterNames = characters.map(c => c.name).join(', ');
-  
+
   // Build detailed character descriptions with relationships
   const characterDescriptions = characters.map(c => {
     let desc = `- ${c.name}: ${c.personality}`;
-    
+
     // Add user opinion
     if (c.userOpinion && c.userOpinion.opinion) {
       desc += `\n  * Về người dùng: ${c.userOpinion.opinion}`;
     }
-    
+
     // Add relations with other characters
     if (c.relations && Object.keys(c.relations).length > 0) {
       const relations = Object.entries(c.relations)
@@ -657,15 +657,15 @@ export const generateRelationshipSummary = async (
           return `  * Về ${targetChar.name}: ${rel.opinion}`;
         })
         .filter(r => r !== null);
-      
+
       if (relations.length > 0) {
         desc += '\n' + relations.join('\n');
       }
     }
-    
+
     return desc;
   }).join('\n');
-  
+
   const conversationText = messages
     .map(msg => `${msg.sender === 'user' ? 'User' : msg.characterName || 'Bot'}: ${msg.text}`)
     .join('\n');
@@ -717,13 +717,14 @@ Tóm tắt bối cảnh chung:`;
 export const generateContextSuggestion = async (
   characters: Character[],
   relationshipSummary: string,
-  currentContext: string
+  currentContext: string,
+  pendingReviewVocabulary?: VocabularyItem[]
 ): Promise<string[]> => {
-  const characterDescriptions = characters.map(c => 
+  const characterDescriptions = characters.map(c =>
     `- ${c.name}: ${c.personality}`
   ).join('\n');
 
-  const prompt = `Bạn là trợ lý gợi ý bối cảnh trò chuyện. Dựa trên thông tin về các nhân vật và bối cảnh hiện tại, hãy đề xuất 5 bối cảnh khác nhau cho cuộc hội thoại tiếp theo.
+  const prompt = `Bạn là trợ lý gợi ý bối cảnh trò chuyện. Dựa trên thông tin về các nhân vật, bối cảnh hiện tại, và danh sách từ vựng đang ôn tập (nếu có), hãy đề xuất 5 bối cảnh khác nhau cho cuộc hội thoại tiếp theo.
 
 THÔNG TIN CÁC NHÂN VẬT:
 ${characterDescriptions}
@@ -733,6 +734,9 @@ ${relationshipSummary}
 
 ` : ''}${currentContext ? `Bối cảnh gần đây: ${currentContext}
 
+` : ''}${pendingReviewVocabulary && pendingReviewVocabulary.length > 0 ? `TỪ VỰNG ĐANG ÔN TẬP (tham chiếu để tạo bối cảnh liên quan):
+${pendingReviewVocabulary.map(v => `- ${v.korean} (${v.vietnamese})`).join('\n')}
+
 ` : ''}NHIỆM VỤ:
 Đề xuất 5 bối cảnh khác nhau, mỗi bối cảnh ngắn gọn (5-10 từ tiếng Việt).
 
@@ -741,17 +745,19 @@ CẤU TRÚC:
   (Ví dụ: nếu đang ở nhà → đi ra công viên gần nhà, chuẩn bị bữa trưa cùng nhau, xem phim ở phòng khách)
   
 - 2-3 bối cảnh sau: Hoàn toàn mới, khác biệt
-  (Ví dụ: đi mua sắm ở trung tâm thương mại, học làm bánh ở lớp học, tham quan bảo tàng nghệ thuật)
+  ${pendingReviewVocabulary && pendingReviewVocabulary.length > 0 ? `(Nếu có từ vựng đang ôn tập, hãy ưu tiên gợi ý bối cảnh mà từ vựng đó sẽ được sử dụng tự nhiên)
+  Ví dụ: đi mua sắm ở trung tâm thương mại, học làm bánh ở lớp học, tham quan bảo tàng nghệ thuật` : `(Ví dụ: đi mua sắm ở trung tâm thương mại, học làm bánh ở lớp học, tham quan bảo tàng nghệ thuật)`}
 
 YÊU CẦU:
 - Mỗi dòng một bối cảnh
 - Ngắn gọn, cụ thể (5-10 từ)
 - KHÔNG đánh số, KHÔNG giải thích
 - Phù hợp tính cách nhân vật
+- Nếu có danh sách từ ôn tập, ưu tiên tạo bối cảnh liên quan đến những từ đó để tăng cơ hội sử dụng tự nhiên
 - Đa dạng, thú vị
 
 Gợi ý:`;
-
+console.log(prompt)
   try {
     const response = await ai.models.generateContent({
       model: "gemini-2.5-pro",
@@ -763,7 +769,7 @@ Gợi ý:`;
       .map(line => line.replace(/^[-*•]\s*/, '').replace(/['"]/g, '').trim())
       .filter(line => line.length > 0)
       .slice(0, 5);
-    
+
     return suggestions.length > 0 ? suggestions : ["ở nhà", "ở công viên", "ở quán cà phê", "ở trường học", "ở trung tâm thương mại"];
   } catch (error) {
     console.error("Gemini context suggestion error:", error);
@@ -777,11 +783,11 @@ export const generateMessageSuggestions = async (
   recentMessages: Message[],
   pendingReviewVocabulary?: VocabularyItem[]
 ): Promise<string[]> => {
-  const characterDescriptions = characters.map(c => 
+  const characterDescriptions = characters.map(c =>
     `- ${c.name}: ${c.personality}`
   ).join('\n');
 
-  const conversationText = recentMessages.slice(-5).map(msg => 
+  const conversationText = recentMessages.slice(-5).map(msg =>
     `${msg.sender === 'user' ? 'User' : msg.characterName}: ${msg.text}`
   ).join('\n');
 
@@ -911,7 +917,7 @@ JSON Array of objects:
     console.log(response.text);
 
     const rawVocabularies = JSON.parse(response.text);
-    
+
     // Process each vocabulary to add id
     const vocabularies: VocabularyItem[] = rawVocabularies.map((vocab: { korean: string; vietnamese: string }) => {
       const m = {
@@ -947,7 +953,7 @@ export const generateSceneImage = async (
           characterParts.push({
             inlineData: {
               data: base64,
-              mimeType: "image/png" 
+              mimeType: "image/png"
             }
           });
           characterParts.push({
@@ -958,9 +964,9 @@ export const generateSceneImage = async (
     }
 
     // 2. Prepare Conversation Context
-    const conversationText = messages.map(m => `${m.rawText ? m.rawText: ""}`).join('\n');
-    
-    const characterDescriptions = characters.map(c => 
+    const conversationText = messages.map(m => `${m.rawText ? m.rawText : ""}`).join('\n');
+
+    const characterDescriptions = characters.map(c =>
       `- ${c.name} (${c.gender}): ${c.personality}${c.appearance ? `\n  Appearance: ${c.appearance}` : ''}`
     ).join('\n');
 
@@ -990,28 +996,28 @@ export const generateSceneImage = async (
         }
       ]
     });
-    
+
     const candidates = imagenResponse.candidates;
     if (candidates && candidates[0] && candidates[0].content && candidates[0].content.parts) {
-        const part = candidates[0].content.parts[0];
-        if (part.inlineData && part.inlineData.data) {
-            const base64Image = `data:${part.inlineData.mimeType || 'image/png'};base64,${part.inlineData.data}`;
-            
-            // Upload to server
-            try {
-              const uploadRes = await http.post<{ url: string }>(API_URL.API_UPLOAD_IMAGE_MESSAGE, { image: base64Image });
-              if (uploadRes.ok && uploadRes.data?.url) {
-                 const baseUrl = http.getBaseUrl();
-                 return `${baseUrl}${uploadRes.data.url}`;
-              }
-            } catch (e) {
-              console.error("Failed to upload generated image to server", e);
-            }
-            
-            return base64Image; // Fallback to base64 if upload fails
+      const part = candidates[0].content.parts[0];
+      if (part.inlineData && part.inlineData.data) {
+        const base64Image = `data:${part.inlineData.mimeType || 'image/png'};base64,${part.inlineData.data}`;
+
+        // Upload to server
+        try {
+          const uploadRes = await http.post<{ url: string }>(API_URL.API_UPLOAD_IMAGE_MESSAGE, { image: base64Image });
+          if (uploadRes.ok && uploadRes.data?.url) {
+            const baseUrl = http.getBaseUrl();
+            return `${baseUrl}${uploadRes.data.url}`;
+          }
+        } catch (e) {
+          console.error("Failed to upload generated image to server", e);
         }
+
+        return base64Image; // Fallback to base64 if upload fails
+      }
     }
-    
+
     return null;
   } catch (error) {
     console.error("Image generation failed", error);

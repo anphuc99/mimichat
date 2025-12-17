@@ -630,7 +630,8 @@ const App: React.FC = () => {
     
     setIsGeneratingSuggestion(true);
     try {
-      const suggestions = await generateContextSuggestion(activeChars, relationshipSummary, context);
+      const pendingVocabs = chatReviewVocabularies.map(rv => rv.vocabulary);
+      const suggestions = await generateContextSuggestion(activeChars, relationshipSummary, context, pendingVocabs);
       setContextSuggestions(suggestions);
     } catch (error) {
       console.error('Failed to generate context suggestion:', error);
