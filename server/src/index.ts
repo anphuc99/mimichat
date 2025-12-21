@@ -554,7 +554,7 @@ const GetAudioMimeType = (req: Request, res: Response)  => {
   if (!fs.existsSync(filePath)) {
     filePath = path.join(baseDir, safeName + ".wav");
     if (!fs.existsSync(filePath)) {
-      return res.status(404).json({ error: "Audio file not found" });
+      return res.status(404).json({ error: "Audio file not found" }); 
     }
   }
 
