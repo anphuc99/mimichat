@@ -11,7 +11,7 @@ import { StreakCelebration } from './components/StreakCelebration';
 import { LevelSelector } from './components/LevelSelector';
 import { AutoChatModal } from './components/AutoChatModal';
 import type { Message, ChatJournal, DailyChat, Character, SavedData, CharacterThought, VocabularyItem, VocabularyReview, StreakData, KoreanLevel, StoryMeta, StoriesIndex } from './types';
-import { initializeGeminiService, initChat, sendMessage, textToSpeech, translateAndExplainText, translateWord, summarizeConversation, generateCharacterThoughts, generateToneDescription, generateRelationshipSummary, generateContextSuggestion, generateMessageSuggestions, generateVocabulary, generateSceneImage, initAutoChatSession, sendAutoChatMessage } from './services/geminiService';
+import { initializeGeminiService, initChat, sendMessage, textToSpeech, translateAndExplainText, translateWord, summarizeConversation, generateCharacterThoughts, generateToneDescription, generateRelationshipSummary, generateContextSuggestion, generateMessageSuggestions, generateVocabulary, generateSceneImage, initAutoChatSession, sendAutoChatMessage, uploadAudio, sendAudioMessage } from './services/geminiService';
 import { getVocabulariesDueForReview, updateReviewAfterQuiz, initializeVocabularyReview, getReviewDueCount, getRandomReviewVocabulariesForChat } from './utils/spacedRepetition';
 import { initializeStreak, updateStreak, checkStreakStatus } from './utils/streakManager';
 import { KOREAN_LEVELS } from './types';
@@ -484,6 +484,85 @@ const App: React.FC = () => {
       setIsLoading(false);
     }
   }, [isLoading, getActiveCharacters, context, updateCurrentChatMessages, processBotResponsesSequentially, handleStreakUpdate]);
+
+  // Handle sending voice message
+  const handleSendAudio = useCallback(async (audioBase64: string, duration: number) => {
+    if (isLoading) return;
+
+    setIsLoading(true);
+    userPromptRef.current = '🎤 Voice message';
+
+    try {
+      // Upload audio to server
+      const audioId = await uploadAudio(audioBase64);
+      
+      // Create user voice message
+      const userMessage: Message = { 
+        id: Date.now().toString(), 
+        text: '🎤 Tin nhắn giọng nói', 
+        sender: 'user',
+        kind: 'voice',
+        audioId: audioId,
+        audioDuration: duration
+      };
+      updateCurrentChatMessages(prev => [...prev, userMessage]);
+
+      // Initialize chat if needed
+      if (!chatRef.current) {
+        const activeChars = getActiveCharacters();
+        chatRef.current = await initChat(activeChars, context, [], '', relationshipSummary, currentLevel, chatReviewVocabularies.map(rv => rv.vocabulary));
+      }
+      
+      // Send audio to Gemini
+      let botResponseText = await sendAudioMessage(chatRef.current, audioBase64, 'audio/wav');
+
+      const parseAndValidate = (jsonString: string) => {
+        try {
+          let parsed = JSON.parse(jsonString);
+          if (!Array.isArray(parsed)) parsed = [parsed];
+          
+          const isValid = parsed.every((item: any) => 
+            item && 
+            typeof item.CharacterName === 'string' && 
+            typeof item.Text === 'string' && 
+            typeof item.Tone === 'string'
+          );
+          
+          return isValid ? parsed : null;
+        } catch (e) {
+          return null;
+        }
+      };
+
+      let botResponses = parseAndValidate(botResponseText);
+      let retryCount = 0;
+      const maxRetries = 2;
+
+      while (!botResponses && retryCount < maxRetries) {
+        console.warn(`Invalid response format. Retrying (${retryCount + 1}/${maxRetries})...`);
+        const retryPrompt = "SYSTEM: The last response was not in the correct JSON format. Please strictly output a JSON array where each object has 'CharacterName', 'Text', and 'Tone' fields.";
+        botResponseText = await sendMessage(chatRef.current, retryPrompt);
+        botResponses = parseAndValidate(botResponseText);
+        retryCount++;
+      }
+
+      if (!botResponses) {
+        console.error("Failed to parse AI response after retries.");
+        throw new Error("Failed to parse AI response.");
+      }
+
+      await processBotResponsesSequentially(botResponses);
+      
+      // Update streak after successful voice chat
+      await handleStreakUpdate('chat');
+
+    } catch (error) {
+      console.error("Không thể gửi tin nhắn giọng nói:", error);
+      const errorMessage: Message = { id: (Date.now() + 1).toString(), text: 'Xin lỗi, đã xảy ra lỗi khi xử lý giọng nói. Vui lòng thử lại.', sender: 'bot', isError: true };
+      updateCurrentChatMessages(prev => [...prev, errorMessage]);
+      setIsLoading(false);
+    }
+  }, [isLoading, getActiveCharacters, context, updateCurrentChatMessages, processBotResponsesSequentially, handleStreakUpdate, relationshipSummary, currentLevel, chatReviewVocabularies]);
 
   const handleUpdateMessage = useCallback(async (messageId: string, newText: string) => {
     if (isLoading) return;
@@ -2440,6 +2519,7 @@ const App: React.FC = () => {
             suggestions={messageSuggestions}
             onGenerateSuggestions={handleGenerateMessageSuggestions}
             isGeneratingSuggestions={isGeneratingMessageSuggestions}
+            onSendAudio={handleSendAudio}
           />
         </>
       ) : view === 'vocabulary' && selectedDailyChatId && vocabLearningVocabs.length > 0 ? (
@@ -2453,6 +2533,7 @@ const App: React.FC = () => {
           playAudio={playAudio}
           isReviewMode={false}
           reviewSchedule={journal.find(dc => dc.id === selectedDailyChatId)?.reviewSchedule || []}
+          relationshipSummary={relationshipSummary}
         />
       ) : view === 'context' && contextViewState ? (
         <ChatContextViewer
@@ -2475,6 +2556,7 @@ const App: React.FC = () => {
           playAudio={playAudio}
           isReviewMode={true}
           reviewSchedule={currentReviewItems.map(item => item.review)}
+          relationshipSummary={relationshipSummary}
         />
       ) : (
         <JournalViewer

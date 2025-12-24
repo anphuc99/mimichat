@@ -1,8 +1,11 @@
-import React, { useState, useRef, useEffect, useMemo } from 'react';
+import React, { useState, useRef, useEffect, useMemo, useCallback } from 'react';
 import type { Character, Message, VocabularyItem, VocabularyReview } from '../types';
-import type { Chat } from '@google/genai';
-import { initAutoChatSession, sendAutoChatMessage, textToSpeech, suggestConversationTopic } from '../services/geminiService';
+import type { Chat, Content } from '@google/genai';
+import { initAutoChatSession, sendAutoChatMessage, textToSpeech, suggestConversationTopic, initChat, sendMessage, sendAudioMessage, uploadAudio } from '../services/geminiService';
 import { MessageBubble } from './MessageBubble';
+import { MessageInput } from './MessageInput';
+
+type LearningMode = 'passive' | 'active';
 
 interface VocabularyConversationProps {
   vocabularies: VocabularyItem[];
@@ -14,6 +17,7 @@ interface VocabularyConversationProps {
   playAudio: (audioData: string, speakingRate?: number, pitch?: number) => Promise<void>;
   isReviewMode?: boolean; // Đang ôn tập hay học mới
   reviewSchedule?: VocabularyReview[]; // Danh sách từ đã học
+  relationshipSummary?: string; // Needed for active learning chat
 }
 
 export const VocabularyConversation: React.FC<VocabularyConversationProps> = ({
@@ -26,8 +30,11 @@ export const VocabularyConversation: React.FC<VocabularyConversationProps> = ({
   playAudio,
   isReviewMode = false,
   reviewSchedule = [],
+  relationshipSummary = '',
 }) => {
   const [messages, setMessages] = useState<Message[]>([]);
+  // Learning mode: passive (AI talks to each other) or active (user interacts)
+  const [learningMode, setLearningMode] = useState<LearningMode | null>(null);
   const [isGenerating, setIsGenerating] = useState(false);
   const [isPaused, setIsPaused] = useState(false);
   const [currentCount, setCurrentCount] = useState(0);
@@ -69,6 +76,11 @@ export const VocabularyConversation: React.FC<VocabularyConversationProps> = ({
   const messageRefs = useRef<Map<number, HTMLDivElement>>(new Map());
   const batchMessageCountRef = useRef(0); // Đếm số tin nhắn trong batch hiện tại
   const waitingForContinueRef = useRef(false);
+
+  // Active learning states
+  const [isActiveLoading, setIsActiveLoading] = useState(false);
+  const userPromptRef = useRef<string>('');
+  const activeChatRef = useRef<Chat | null>(null);
 
   // Tính số tin nhắn mục tiêu dựa trên số từ vựng đã chọn
   const targetCount = useMemo(() => Math.max(20, selectedVocabIds.size * 5), [selectedVocabIds.size]);
@@ -448,8 +460,257 @@ export const VocabularyConversation: React.FC<VocabularyConversationProps> = ({
     setReplayIndex(0);
   };
 
-  // Màn hình chọn chủ đề (trước khi bắt đầu)
-  if (!isStarted) {
+  // ============ ACTIVE LEARNING HANDLERS ============
+  
+  // Start active learning session
+  const startActiveLearning = async () => {
+    if (selectedCharacters.length < 1) {
+      setError('Cần chọn ít nhất 1 nhân vật để bắt đầu');
+      return;
+    }
+
+    if (selectedVocabIds.size === 0) {
+      setError('Cần chọn ít nhất 1 từ vựng để học');
+      return;
+    }
+
+    setIsStarted(true);
+    setError(null);
+    setMessages([]);
+
+    // Build context with topic if provided
+    const vocabList = selectedVocabularies.map(v => `${v.korean} (${v.vietnamese})`).join(', ');
+    const topicContext = topic.trim() 
+      ? `Chủ đề hội thoại: ${topic}. Hãy nói chuyện xoay quanh chủ đề này và sử dụng các từ vựng: ${vocabList}`
+      : `Hãy nói chuyện tự nhiên và sử dụng các từ vựng sau: ${vocabList}`;
+
+    try {
+      // Initialize chat with same logic as main chat in App.tsx
+      activeChatRef.current = await initChat(
+        selectedCharacters,
+        context,
+        [],
+        topicContext, // Pass topic as context summary
+        relationshipSummary,
+        currentLevel,
+        selectedVocabularies // Pass vocabularies to review
+      );
+      console.log("Active vocabulary learning chat initialized with topic:", topic || '(auto)', "and vocabularies:", selectedVocabularies.map(v => v.korean));
+    } catch (e: any) {
+      setError(e.message || 'Không thể khởi tạo phiên học');
+    }
+  };
+
+  // Process bot responses for active learning (similar to App.tsx)
+  const processActiveBotResponses = useCallback(async (responses: any[]) => {
+    if (!Array.isArray(responses) || responses.length === 0) {
+      setIsActiveLoading(false);
+      return;
+    }
+
+    for (const botResponse of responses) {
+      const { CharacterName, Text, Tone, Translation } = botResponse;
+
+      const characterName = CharacterName || selectedCharacters[0]?.name || "Mimi";
+      const speechText = Text || "";
+      const tone = Tone || 'cheerfully';
+      const displayText = speechText || "...";
+
+      const character = characters.find(c => c.name === characterName);
+      const voiceName = character?.voiceName || 'echo';
+      const pitch = character?.pitch;
+      const speakingRate = character?.speakingRate;
+
+      let audioData: string | null = null;
+      if (speechText) {
+        audioData = await textToSpeech(speechText, tone, voiceName);
+      }
+
+      const rawTextForCopy = `User Said: ${userPromptRef.current}\n${characterName} Said: ${speechText}\nTone: ${tone}`;
+
+      const botMessage: Message = {
+        id: (Date.now() + Math.random()).toString(),
+        text: displayText,
+        sender: 'bot',
+        characterName: characterName,
+        audioData: audioData ?? undefined,
+        rawText: rawTextForCopy,
+        translation: Translation
+      };
+
+      setMessages(prev => [...prev, botMessage]);
+
+      if (audioData) {
+        await playAudio(audioData, speakingRate, pitch);
+      }
+
+      await new Promise(resolve => setTimeout(resolve, 1200));
+    }
+
+    setIsActiveLoading(false);
+  }, [selectedCharacters, characters, playAudio]);
+
+  // Handle send message in active learning mode
+  const handleActiveSendMessage = useCallback(async (text: string) => {
+    if (!text.trim() || isActiveLoading) return;
+
+    const userMessage: Message = { id: Date.now().toString(), text, sender: 'user' };
+    setMessages(prev => [...prev, userMessage]);
+    setIsActiveLoading(true);
+    userPromptRef.current = text;
+
+    try {
+      if (!activeChatRef.current) {
+        activeChatRef.current = await initChat(
+          selectedCharacters,
+          context,
+          [],
+          '',
+          relationshipSummary,
+          currentLevel,
+          selectedVocabularies
+        );
+      }
+      
+      let botResponseText = await sendMessage(activeChatRef.current, text);
+
+      const parseAndValidate = (jsonString: string) => {
+        try {
+          let parsed = JSON.parse(jsonString);
+          if (!Array.isArray(parsed)) parsed = [parsed];
+          
+          const isValid = parsed.every((item: any) => 
+            item && 
+            typeof item.CharacterName === 'string' && 
+            typeof item.Text === 'string' && 
+            typeof item.Tone === 'string'
+          );
+          
+          return isValid ? parsed : null;
+        } catch (e) {
+          return null;
+        }
+      };
+
+      let botResponses = parseAndValidate(botResponseText);
+      let retryCount = 0;
+      const maxRetries = 2;
+
+      while (!botResponses && retryCount < maxRetries) {
+        console.warn(`Invalid response format. Retrying (${retryCount + 1}/${maxRetries})...`);
+        const retryPrompt = "SYSTEM: The last response was not in the correct JSON format. Please strictly output a JSON array where each object has 'CharacterName', 'Text', and 'Tone' fields.";
+        botResponseText = await sendMessage(activeChatRef.current, retryPrompt);
+        botResponses = parseAndValidate(botResponseText);
+        retryCount++;
+      }
+
+      if (!botResponses) {
+        console.error("Failed to parse AI response after retries.");
+        throw new Error("Failed to parse AI response.");
+      }
+
+      await processActiveBotResponses(botResponses);
+
+    } catch (error) {
+      console.error("Không thể gửi tin nhắn:", error);
+      const errorMessage: Message = { id: (Date.now() + 1).toString(), text: 'Xin lỗi, đã xảy ra lỗi. Vui lòng thử lại.', sender: 'bot', isError: true };
+      setMessages(prev => [...prev, errorMessage]);
+      setIsActiveLoading(false);
+    }
+  }, [isActiveLoading, selectedCharacters, context, relationshipSummary, currentLevel, selectedVocabularies, processActiveBotResponses]);
+
+  // Handle send audio in active learning mode
+  const handleActiveSendAudio = useCallback(async (audioBase64: string, duration: number) => {
+    if (isActiveLoading) return;
+
+    setIsActiveLoading(true);
+    userPromptRef.current = '🎤 Voice message';
+
+    try {
+      // Upload audio to server
+      const audioId = await uploadAudio(audioBase64);
+      
+      // Create user voice message
+      const userMessage: Message = { 
+        id: Date.now().toString(), 
+        text: '🎤 Tin nhắn giọng nói', 
+        sender: 'user',
+        kind: 'voice',
+        audioId: audioId,
+        audioDuration: duration
+      };
+      setMessages(prev => [...prev, userMessage]);
+
+      // Initialize chat if needed
+      if (!activeChatRef.current) {
+        activeChatRef.current = await initChat(
+          selectedCharacters,
+          context,
+          [],
+          '',
+          relationshipSummary,
+          currentLevel,
+          selectedVocabularies
+        );
+      }
+      
+      // Send audio to Gemini
+      let botResponseText = await sendAudioMessage(activeChatRef.current, audioBase64, 'audio/wav');
+
+      const parseAndValidate = (jsonString: string) => {
+        try {
+          let parsed = JSON.parse(jsonString);
+          if (!Array.isArray(parsed)) parsed = [parsed];
+          
+          const isValid = parsed.every((item: any) => 
+            item && 
+            typeof item.CharacterName === 'string' && 
+            typeof item.Text === 'string' && 
+            typeof item.Tone === 'string'
+          );
+          
+          return isValid ? parsed : null;
+        } catch (e) {
+          return null;
+        }
+      };
+
+      let botResponses = parseAndValidate(botResponseText);
+      let retryCount = 0;
+      const maxRetries = 2;
+
+      while (!botResponses && retryCount < maxRetries) {
+        console.warn(`Invalid response format. Retrying (${retryCount + 1}/${maxRetries})...`);
+        const retryPrompt = "SYSTEM: The last response was not in the correct JSON format. Please strictly output a JSON array where each object has 'CharacterName', 'Text', and 'Tone' fields.";
+        botResponseText = await sendMessage(activeChatRef.current, retryPrompt);
+        botResponses = parseAndValidate(botResponseText);
+        retryCount++;
+      }
+
+      if (!botResponses) {
+        console.error("Failed to parse AI response after retries.");
+        throw new Error("Failed to parse AI response.");
+      }
+
+      await processActiveBotResponses(botResponses);
+
+    } catch (error) {
+      console.error("Không thể gửi tin nhắn giọng nói:", error);
+      const errorMessage: Message = { id: (Date.now() + 1).toString(), text: 'Xin lỗi, đã xảy ra lỗi khi xử lý giọng nói. Vui lòng thử lại.', sender: 'bot', isError: true };
+      setMessages(prev => [...prev, errorMessage]);
+      setIsActiveLoading(false);
+    }
+  }, [isActiveLoading, selectedCharacters, context, relationshipSummary, currentLevel, selectedVocabularies, processActiveBotResponses]);
+
+  // Handle complete active learning
+  const handleActiveComplete = () => {
+    // Mark all selected vocabularies as learned
+    const learnedIds = selectedVocabularies.map(v => v.id);
+    onComplete(learnedIds);
+  };
+
+  // ============ MODE SELECTION SCREEN ============
+  if (!learningMode) {
     return (
       <div className="flex flex-col h-screen w-full bg-white">
         {/* Header */}
@@ -466,6 +727,360 @@ export const VocabularyConversation: React.FC<VocabularyConversationProps> = ({
               </button>
               <h1 className="text-lg font-bold">
                 {isReviewMode ? '🔄 Ôn tập từ vựng' : '📚 Học từ vựng mới'}
+              </h1>
+            </div>
+          </div>
+        </header>
+
+        <div className="flex-1 p-6 overflow-y-auto">
+          <div className="max-w-4xl mx-auto">
+            <h2 className="text-xl font-bold text-gray-800 mb-6 text-center">
+              Chọn phương pháp học
+            </h2>
+
+            {/* Từ vựng hiển thị */}
+            <div className="mb-6 p-4 bg-gray-50 rounded-lg">
+              <h3 className="text-sm font-semibold text-gray-700 mb-2">
+                📝 Từ vựng ({vocabularies.length} từ):
+              </h3>
+              <div className="flex flex-wrap gap-2">
+                {vocabularies.slice(0, 10).map(vocab => (
+                  <span 
+                    key={vocab.id} 
+                    className={`px-2 py-1 rounded text-sm ${isReviewMode ? 'bg-orange-100 text-orange-800' : 'bg-purple-100 text-purple-800'}`}
+                  >
+                    {vocab.korean} ({vocab.vietnamese})
+                  </span>
+                ))}
+                {vocabularies.length > 10 && (
+                  <span className="px-2 py-1 bg-gray-200 text-gray-600 rounded text-sm">
+                    +{vocabularies.length - 10} từ nữa
+                  </span>
+                )}
+              </div>
+            </div>
+
+            <div className="grid md:grid-cols-2 gap-6">
+              {/* Passive Learning */}
+              <button
+                onClick={() => setLearningMode('passive')}
+                className={`p-6 rounded-xl border-2 transition-all text-left hover:shadow-lg ${
+                  isReviewMode 
+                    ? 'border-orange-300 hover:border-orange-500 hover:bg-orange-50' 
+                    : 'border-purple-300 hover:border-purple-500 hover:bg-purple-50'
+                }`}
+              >
+                <div className="text-4xl mb-3">🎧</div>
+                <h3 className={`text-lg font-bold mb-2 ${isReviewMode ? 'text-orange-800' : 'text-purple-800'}`}>
+                  Học thụ động
+                </h3>
+                <p className="text-gray-600 text-sm mb-3">
+                  Các nhân vật tự nói chuyện với nhau xoay quanh từ vựng. Bạn chỉ cần nghe và đọc theo.
+                </p>
+                <ul className="text-xs text-gray-500 space-y-1">
+                  <li>✓ Học theo phương pháp nghe - hiểu</li>
+                  <li>✓ Từ vựng xuất hiện tự nhiên trong hội thoại</li>
+                  <li>✓ Phù hợp khi bạn muốn thư giãn</li>
+                </ul>
+              </button>
+
+              {/* Active Learning */}
+              <button
+                onClick={() => setLearningMode('active')}
+                className={`p-6 rounded-xl border-2 transition-all text-left hover:shadow-lg ${
+                  isReviewMode 
+                    ? 'border-orange-300 hover:border-orange-500 hover:bg-orange-50' 
+                    : 'border-purple-300 hover:border-purple-500 hover:bg-purple-50'
+                }`}
+              >
+                <div className="text-4xl mb-3">💬</div>
+                <h3 className={`text-lg font-bold mb-2 ${isReviewMode ? 'text-orange-800' : 'text-purple-800'}`}>
+                  Học chủ động
+                </h3>
+                <p className="text-gray-600 text-sm mb-3">
+                  Bạn sẽ tương tác trực tiếp với các nhân vật bằng text hoặc voice. Giống như chat bình thường.
+                </p>
+                <ul className="text-xs text-gray-500 space-y-1">
+                  <li>✓ Tương tác trực tiếp với nhân vật</li>
+                  <li>✓ Luyện nói và viết tiếng Hàn</li>
+                  <li>✓ Không lưu vào nhật ký trò chuyện</li>
+                </ul>
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // ============ ACTIVE LEARNING CONVERSATION SCREEN ============
+  if (learningMode === 'active' && isStarted) {
+    return (
+      <div className="flex flex-col h-screen w-full bg-white">
+        {/* Header */}
+        <header className={`${isReviewMode ? 'bg-gradient-to-r from-orange-500 to-red-500' : 'bg-gradient-to-r from-green-500 to-teal-500'} text-white p-4 shadow-lg`}>
+          <div className="flex items-center justify-between">
+            <div className="flex items-center space-x-3">
+              <button
+                onClick={() => {
+                  if (window.confirm('Bạn có chắc muốn thoát? Tiến độ học sẽ không được lưu.')) {
+                    setIsStarted(false);
+                    setLearningMode(null);
+                    setMessages([]);
+                  }
+                }}
+                className="text-white hover:bg-white/20 rounded-full p-2 transition-colors"
+              >
+                <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
+                </svg>
+              </button>
+              <h1 className="text-lg font-bold">
+                💬 Học chủ động
+              </h1>
+            </div>
+          </div>
+        </header>
+
+        {/* Vocabulary hints bar */}
+        <div className={`${isReviewMode ? 'bg-orange-50 border-orange-200' : 'bg-green-50 border-green-200'} border-b px-4 py-2`}>
+          <div className="flex items-center gap-2 overflow-x-auto">
+            <span className="text-xs text-gray-500 whitespace-nowrap">Từ vựng:</span>
+            {selectedVocabularies.map(v => (
+              <span 
+                key={v.id} 
+                className={`px-2 py-1 rounded text-xs whitespace-nowrap ${isReviewMode ? 'bg-orange-100 text-orange-800' : 'bg-green-100 text-green-800'}`}
+              >
+                <strong>{v.korean}</strong> ({v.vietnamese})
+              </span>
+            ))}
+          </div>
+        </div>
+
+        {/* Messages */}
+        <div className="flex-1 p-4 overflow-y-auto bg-gray-50">
+          <div className="max-w-4xl mx-auto space-y-4">
+            {messages.length === 0 && (
+              <div className="text-center py-8">
+                <div className="text-4xl mb-3">💬</div>
+                <p className="text-gray-600 mb-2">Bắt đầu trò chuyện với các nhân vật!</p>
+                <p className="text-sm text-gray-500">
+                  Hãy sử dụng các từ vựng ở trên trong cuộc hội thoại. Bạn có thể gửi tin nhắn text hoặc voice.
+                </p>
+              </div>
+            )}
+            {messages.map((message, index) => {
+              const character = selectedCharacters.find(c => c.name === message.characterName) || characters.find(c => c.name === message.characterName);
+              return (
+                <div key={message.id}>
+                  <MessageBubble
+                    message={message}
+                    onReplayAudio={handleReplayAudio}
+                    onGenerateAudio={async () => {}}
+                    onTranslate={async () => message.translation || ''}
+                    onStoreTranslation={() => {}}
+                    onRetry={() => {}}
+                    isJournalView={true}
+                    avatarUrl={character?.avatar}
+                  />
+                </div>
+              );
+            })}
+            {isActiveLoading && (
+              <div className="flex items-center space-x-2 text-gray-500">
+                <div className="flex space-x-1">
+                  <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: '0ms' }}></div>
+                  <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: '150ms' }}></div>
+                  <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: '300ms' }}></div>
+                </div>
+                <span className="text-sm">Đang trả lời...</span>
+              </div>
+            )}
+            <div ref={messagesEndRef} />
+          </div>
+        </div>
+
+        {/* Input - reuse MessageInput component */}
+        <MessageInput
+          onSendMessage={handleActiveSendMessage}
+          isLoading={isActiveLoading}
+          onSummarize={() => {}} // Not used in vocabulary learning
+          onSendAudio={handleActiveSendAudio}
+          footerChildren={
+            <button
+              onClick={handleActiveComplete}
+              disabled={isActiveLoading}
+              className="w-full py-3 bg-gradient-to-r from-green-600 to-teal-600 hover:from-green-700 hover:to-teal-700 text-white font-bold rounded-lg disabled:opacity-50 disabled:cursor-not-allowed transition-all"
+            >
+              ✅ Hoàn thành
+            </button>
+          }
+        />
+      </div>
+    );
+  }
+
+  // ============ ACTIVE LEARNING SETUP SCREEN ============
+  if (learningMode === 'active' && !isStarted) {
+    return (
+      <div className="flex flex-col h-screen w-full bg-white">
+        {/* Header */}
+        <header className={`${isReviewMode ? 'bg-gradient-to-r from-orange-500 to-red-500' : 'bg-gradient-to-r from-green-500 to-teal-500'} text-white p-4 shadow-lg`}>
+          <div className="flex items-center justify-between">
+            <div className="flex items-center space-x-3">
+              <button
+                onClick={() => setLearningMode(null)}
+                className="text-white hover:bg-white/20 rounded-full p-2 transition-colors"
+              >
+                <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
+                </svg>
+              </button>
+              <h1 className="text-lg font-bold">
+                💬 Học chủ động - Cài đặt
+              </h1>
+            </div>
+          </div>
+        </header>
+
+        <div className="flex-1 p-6 overflow-y-auto pb-20">
+          <div className="max-w-4xl mx-auto">
+            {/* Từ vựng */}
+            <div className="mb-6">
+              <div className="flex items-center justify-between mb-3">
+                <h2 className="text-lg font-semibold text-gray-800">
+                  📝 Từ vựng sẽ học ({selectedVocabIds.size}/{vocabularies.length} từ):
+                </h2>
+                <button
+                  onClick={toggleAllVocabs}
+                  className="text-sm px-3 py-1 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 transition-colors"
+                >
+                  {selectedVocabIds.size === vocabularies.length ? 'Bỏ chọn hết' : 'Chọn tất cả'}
+                </button>
+              </div>
+              <div className="flex flex-wrap gap-2">
+                {vocabularies.map(vocab => {
+                  const isSelected = selectedVocabIds.has(vocab.id);
+                  return (
+                    <button
+                      key={vocab.id}
+                      onClick={() => toggleVocab(vocab.id)}
+                      className={`px-3 py-2 rounded-lg text-sm transition-all border-2 ${
+                        isSelected
+                          ? 'bg-green-100 text-green-800 border-green-400'
+                          : 'bg-gray-100 text-gray-500 border-gray-200 opacity-60'
+                      }`}
+                    >
+                      <span className="font-bold">{vocab.korean}</span>
+                      <span className="text-gray-600"> ({vocab.vietnamese})</span>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+
+            {/* Chọn nhân vật */}
+            <div className="mb-6">
+              <h2 className="text-lg font-semibold text-gray-800 mb-3">
+                👥 Chọn nhân vật ({selectedCharacterIds.length} đã chọn):
+              </h2>
+              <div className="flex flex-wrap gap-3">
+                {characters.map(char => {
+                  const isSelected = selectedCharacterIds.includes(char.id);
+                  return (
+                    <button
+                      key={char.id}
+                      onClick={() => toggleCharacter(char.id)}
+                      className={`flex items-center space-x-2 px-3 py-2 rounded-lg transition-all border-2 ${
+                        isSelected 
+                          ? 'bg-green-100 border-green-500 text-green-800'
+                          : 'bg-gray-100 border-gray-300 text-gray-600 hover:border-gray-400'
+                      }`}
+                    >
+                      {char.avatar && (
+                        <img src={char.avatar} alt={char.name} className="w-8 h-8 rounded-full object-cover" />
+                      )}
+                      <span className="font-medium">{char.name}</span>
+                      {isSelected && (
+                        <span className="text-lg text-green-600">✓</span>
+                      )}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+
+            {/* Chủ đề hội thoại */}
+            <div className="mb-6">
+              <h2 className="text-lg font-semibold text-gray-800 mb-3">
+                💬 Chủ đề hội thoại (tùy chọn):
+              </h2>
+              <input
+                type="text"
+                value={topic}
+                onChange={(e) => setTopic(e.target.value)}
+                placeholder="Ví dụ: Đi mua sắm, Nấu ăn, Đi du lịch..."
+                className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500"
+              />
+              <p className="text-sm text-gray-500 mt-2">
+                * Để trống để AI tự chọn chủ đề phù hợp với từ vựng
+              </p>
+            </div>
+
+            {/* Thông tin */}
+            <div className="bg-green-50 border-green-200 border rounded-lg p-4">
+              <h3 className="font-semibold text-green-800 mb-2">
+                ℹ️ Cách học chủ động:
+              </h3>
+              <ul className="text-sm text-green-700 space-y-1">
+                <li>• Bạn sẽ chat trực tiếp với các nhân vật</li>
+                <li>• Gửi tin nhắn bằng text hoặc voice</li>
+                <li>• Cố gắng sử dụng từ vựng trong cuộc hội thoại</li>
+                <li>• Đoạn chat này <strong>KHÔNG</strong> được lưu vào nhật ký</li>
+              </ul>
+            </div>
+
+            {error && (
+              <div className="mt-4 text-red-500 text-sm">⚠️ {error}</div>
+            )}
+          </div>
+        </div>
+
+        {/* Start button */}
+        <div className="sticky bottom-0 left-0 right-0 p-4 bg-gray-50 border-t border-gray-200 z-30">
+          <div className="max-w-4xl mx-auto">
+            <button
+              onClick={startActiveLearning}
+              disabled={selectedCharacters.length < 1 || selectedVocabIds.size === 0}
+              className="w-full py-3 bg-gradient-to-r from-green-500 to-teal-500 hover:from-green-600 hover:to-teal-600 text-white font-bold rounded-lg disabled:opacity-50 disabled:cursor-not-allowed transition-all text-base flex items-center justify-center space-x-3"
+            >
+              <span className="text-lg">💬</span>
+              <span className="font-bold whitespace-nowrap">Bắt đầu chat với nhân vật</span>
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // ============ PASSIVE LEARNING SETUP SCREEN (Original) ============
+  if (learningMode === 'passive' && !isStarted) {
+    return (
+      <div className="flex flex-col h-screen w-full bg-white">
+        {/* Header */}
+        <header className={`${isReviewMode ? 'bg-gradient-to-r from-orange-500 to-red-500' : 'bg-gradient-to-r from-purple-500 to-indigo-500'} text-white p-4 shadow-lg`}>
+          <div className="flex items-center justify-between">
+            <div className="flex items-center space-x-3">
+              <button
+                onClick={() => setLearningMode(null)}
+                className="text-white hover:bg-white/20 rounded-full p-2 transition-colors"
+              >
+                <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
+                </svg>
+              </button>
+              <h1 className="text-lg font-bold">
+                🎧 Học thụ động {isReviewMode ? '- Ôn tập' : '- Cài đặt'}
               </h1>
             </div>
           </div>
@@ -659,7 +1274,8 @@ export const VocabularyConversation: React.FC<VocabularyConversationProps> = ({
     );
   }
 
-  // Màn hình hội thoại
+  // ============ PASSIVE LEARNING CONVERSATION SCREEN ============
+  // Màn hình hội thoại (passive)
   return (
     <div className="flex flex-col h-screen w-full bg-white">
       {/* Header */}
@@ -667,7 +1283,7 @@ export const VocabularyConversation: React.FC<VocabularyConversationProps> = ({
         <div className="flex items-center justify-between">
           <div className="flex items-center space-x-3">
             <h1 className="text-lg font-bold">
-              {isReviewMode ? '🔄 Ôn tập' : '📚 Học từ vựng'}
+              🎧 Học thụ động {isReviewMode ? '- Ôn tập' : ''}
             </h1>
             {isGenerating && !isPaused && (
               <span className="animate-pulse text-sm bg-white/20 px-2 py-1 rounded">

@@ -360,7 +360,59 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({
     );
   }
 
+  // Format duration for voice messages
+  const formatVoiceDuration = (seconds?: number): string => {
+    if (!seconds) return '0:00';
+    const mins = Math.floor(seconds / 60);
+    const secs = Math.floor(seconds % 60);
+    return `${mins}:${secs.toString().padStart(2, '0')}`;
+  };
+
+  // Handle play voice message for user
+  const handlePlayVoiceMessage = async () => {
+    if (message.audioId) {
+      await onReplayAudio(message.audioId);
+    }
+  };
+
   if (isUser) {
+    // Check if this is a voice message
+    if (message.kind === 'voice' && message.audioId) {
+      return (
+        <div className="group flex justify-end items-center">
+          {editButton}
+          <div className={`max-w-xs md:max-w-md lg:max-w-lg px-4 py-3 break-words ${bubbleClasses}`}>
+            <div className="flex items-center gap-3">
+              <button
+                onClick={handlePlayVoiceMessage}
+                className="flex-shrink-0 w-10 h-10 bg-white/20 hover:bg-white/30 rounded-full flex items-center justify-center transition-colors"
+                aria-label="Phát tin nhắn giọng nói"
+              >
+                <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+                  <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM9.555 7.168A1 1 0 008 8v4a1 1 0 001.555.832l3-2a1 1 0 000-1.664l-3-2z" clipRule="evenodd" />
+                </svg>
+              </button>
+              <div className="flex flex-col">
+                <div className="flex items-center gap-2">
+                  <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z" />
+                  </svg>
+                  <span className="text-sm font-medium">Tin nhắn giọng nói</span>
+                </div>
+                <span className="text-xs opacity-80">{formatVoiceDuration(message.audioDuration)}</span>
+              </div>
+            </div>
+            {message.transcript && (
+              <p className="mt-2 text-xs italic opacity-80 border-t border-white/20 pt-2">
+                "{message.transcript}"
+              </p>
+            )}
+          </div>
+        </div>
+      );
+    }
+
+    // Regular text message
     return (
       <div className="group flex justify-end items-center">
         {editButton}

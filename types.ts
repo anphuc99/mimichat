@@ -31,6 +31,11 @@ export interface Message {
   isError?: boolean;
   rawText?: string;
   imageUrl?: string;
+  // Voice message fields
+  kind?: 'text' | 'voice';
+  audioId?: string; // GUID from server for user voice messages
+  audioDuration?: number; // Duration in seconds
+  transcript?: string; // Transcribed text from Gemini
 }
 
 export interface CharacterThought {

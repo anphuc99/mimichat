@@ -5,6 +5,9 @@ import http, { API_URL } from './HTTPService';
 let API_KEY: string | null = null;
 let ai: GoogleGenAI | null = null;
 
+const GEMINI_TEXT_MODEL = 'gemini-3-pro-preview';
+const GEMINI_IMAGE_MODEL = 'gemini-3-pro-image-preview';
+
 // Initialize Gemini service with API key
 export const initializeGeminiService = async (): Promise<void> => {
   if (!API_KEY) {
@@ -34,13 +37,13 @@ export const initChat = async (
 
   // Parse level info
   const maxWords = level === 'A0' ? 3 : level === 'A1' ? 5 : level === 'A2' ? 7 : level === 'B1' ? 10 : level === 'B2' ? 12 : level === 'C1' ? 15 : 20;
-  const grammarGuideline = level === 'A0' ? 'Use only simple present tense sentences. Avoid complex grammar.' :
-    level === 'A1' ? 'Use simple sentences with basic present and past tense. Can use -고 싶다, -아/어요.' :
-      level === 'A2' ? 'Use simple compound sentences with -고, -지만. Use basic tenses.' :
-        level === 'B1' ? 'Use complex sentences with intermediate grammar like -(으)ㄹ 수 있다, -아/어서, -기 때문에.' :
-          level === 'B2' ? 'Use advanced grammar, compound sentences, express complex opinions.' :
-            level === 'C1' ? 'Use advanced grammar, idioms, nuanced expressions.' :
-              'Natural native-like speech with idioms, advanced grammar, varied styles.';
+  const grammarGuideline = level === 'A0' ? 'Chỉ dùng câu thì hiện tại đơn giản. Tránh ngữ pháp phức tạp.' :
+    level === 'A1' ? 'Dùng câu đơn giản với thì hiện tại và quá khứ cơ bản. Có thể dùng -고 싶다, -아/어요.' :
+      level === 'A2' ? 'Dùng câu ghép đơn giản với -고, -지만. Dùng các thì cơ bản.' :
+        level === 'B1' ? 'Dùng câu phức tạp với ngữ pháp trung cấp như -(으)ㄹ 수 있다, -아/어서, -기 때문에.' :
+          level === 'B2' ? 'Dùng ngữ pháp nâng cao, câu ghép, diễn đạt ý kiến phức tạp.' :
+            level === 'C1' ? 'Dùng ngữ pháp nâng cao, thành ngữ, diễn đạt tinh tế.' :
+              'Nói tự nhiên như người bản ngữ với thành ngữ, ngữ pháp nâng cao, phong cách đa dạng.';
 
   const characterDescriptions = activeCharacters.map(c => {
     let desc = `- ${c.name} (${c.gender === 'female' ? 'girl' : 'boy'}): ${c.personality}`;
@@ -74,88 +77,94 @@ export const initChat = async (
   }).join('\n      ');
 
   const systemInstruction = `
-You are a scriptwriter for a conversation between a Vietnamese user and several young Korean characters. I will speak to you in Vietnamese.
-The Korean characters must only speak Korean. They must use very short and simple sentences, no more than ${maxWords} Korean words per sentence, suitable for a Korean learner at level ${level} (Comprehensible Input). They should never speak more than one sentence at a time. They often repeat important or familiar words.
+Bạn là biên kịch cho cuộc hội thoại giữa người dùng Việt Nam và các nhân vật Hàn Quốc trẻ tuổi. Tôi sẽ nói chuyện với bạn bằng tiếng Việt.
+Các nhân vật Hàn Quốc chỉ được nói tiếng Hàn. Họ phải dùng câu rất ngắn và đơn giản, không quá ${maxWords} từ tiếng Hàn mỗi câu, phù hợp cho người học tiếng Hàn cấp độ ${level} (Comprehensible Input). Họ không bao giờ nói quá một câu mỗi lần. Họ thường lặp lại các từ quan trọng hoặc quen thuộc.
 
-LANGUAGE LEVEL GUIDELINES (${level}):
+HƯỚNG DẪN CẤP ĐỘ NGÔN NGỮ (${level}):
 ${grammarGuideline}
 
-CONVERSATION SETTING:
+BỐI CẢNH HỘI THOẠI:
 ${context}
 
-${relationshipSummary ? `RELATIONSHIP CONTEXT:
+${relationshipSummary ? `BỐI CẢNH MỐI QUAN HỆ:
 ${relationshipSummary}
 ` : ''}
 ${reviewVocabularies.length > 0 ? `
-VOCABULARY TO REVIEW:
-The following Korean words are due for review. Try to naturally incorporate them into the conversation. When these words appear, they help reinforce the learner's memory.
+TỪ VỰNG CẦN ÔN TẬP:
+Các từ tiếng Hàn sau đây cần được ôn tập. Hãy cố gắng lồng ghép chúng một cách tự nhiên vào cuộc hội thoại. Khi các từ này xuất hiện, chúng giúp củng cố trí nhớ của người học.
 ${reviewVocabularies.map(v => `- ${v.korean}`).join('\n')}
 
-Please try to use at least some of these words naturally in the conversation when appropriate. Bold the word and its meaning when used like: **word**.
-- **BOLD FORMATTING**: When using any of these vocabulary words in "Text", wrap them with **asterisks** like **word**
-- **TRANSLATION BOLD**: In the "Translation" field, also wrap the Vietnamese translation of those vocabulary words with **asterisks**
-- Example: If vocabulary is "사랑", Text: "나는 **사랑**해요", Translation: "Tôi **yêu** bạn"
+Hãy cố gắng sử dụng ít nhất một số từ này một cách tự nhiên trong cuộc hội thoại khi thích hợp. In đậm từ và nghĩa khi sử dụng như: **từ**.
+- **ĐỊNH DẠNG IN ĐẬM**: Khi sử dụng bất kỳ từ vựng nào trong "Text", bọc chúng bằng **dấu sao** như **từ**
+- **IN ĐẬM PHẦN DỊCH**: Trong trường "Translation", cũng bọc bản dịch tiếng Việt của các từ vựng đó bằng **dấu sao**
+- Ví dụ: Nếu từ vựng là "사랑", Text: "나는 **사랑**해요", Translation: "Tôi **yêu** bạn"
 ` : ''}
-CHARACTERS IN THIS SCENE:
+CÁC NHÂN VẬT TRONG CẢNh NÀY:
 ${characterDescriptions}
 
-BEHAVIOR RULES:
-- After the user speaks, generate a short conversation between the AI characters. This should be an array of 1 to 10 turns.
-- Decide which character should speak next based on the context and their personality. If only one character is present, they should do all the talking.
-- The user speaks Vietnamese. The characters ONLY speak Korean (absolutely no English in the spoken text).
-- The characters should naturally repeat or reuse words they have said recently or that the user said.
-- The characters always react emotionally to what the user says. The user might also use emojis.
-- Characters have thoughts too. Whenever a character thinks, write it in parentheses "()" inside the 'text' field.
-- **STRICT SPLITTING RULE**: Each JSON object in the response array must contain **EXACTLY ONE** short sentence or phrase.
-- **NEVER** combine multiple sentences in one \`text\` field.
-- If a character wants to say multiple things (e.g., "No! I hate Lisa!"), you MUST split them into separate consecutive JSON objects.
-  - BAD: [{ character: "Mimi", text: "싫어! Lisa 싫어!" }]
-  - GOOD: 
+QUY TẮC HÀNH VI:
+- Sau khi người dùng nói, tạo một cuộc hội thoại ngắn giữa các nhân vật AI. Đây phải là một mảng từ 1 đến 10 lượt.
+- Quyết định nhân vật nào nên nói tiếp dựa trên ngữ cảnh và tính cách của họ. Nếu chỉ có một nhân vật, họ sẽ nói tất cả.
+- Người dùng nói tiếng Việt. Các nhân vật CHỈ nói tiếng Hàn (tuyệt đối không có tiếng Anh/tiếng việt trong văn bản nói của nhân vật).
+- Các nhân vật nên tự nhiên lặp lại hoặc tái sử dụng các từ họ đã nói gần đây hoặc người dùng đã nói.
+- Các nhân vật luôn phản ứng cảm xúc với những gì người dùng nói. Người dùng cũng có thể sử dụng emoji.
+- Các nhân vật cũng có suy nghĩ. Khi một nhân vật suy nghĩ, viết trong ngoặc đơn "()" bên trong trường 'text'.
+- **QUY TẮC TÁCH NGHIÊM NGẶT**: Mỗi đối tượng JSON trong mảng phản hồi phải chứa **ĐÚNG MỘT** câu hoặc cụm từ ngắn.
+- **KHÔNG BAO GIỜ** kết hợp nhiều câu trong một trường \`text\`.
+- Nếu một nhân vật muốn nói nhiều điều (ví dụ: "Không! Tôi ghét Lisa!"), bạn PHẢI tách chúng thành các đối tượng JSON liên tiếp riêng biệt.
+  - SAI: [{ character: "Mimi", text: "싫어! Lisa 싫어!" }]
+  - ĐÚNG: 
     [
-      { character: "Mimi", text: "싫어!", emotion: "Angry" ... },
-      { character: "Mimi", text: "Lisa 싫어!", emotion: "Angry" ... }
+      { character: "Mimi", text: "싫어!", Tone: "Angry" ... },
+      { character: "Mimi", text: "Lisa 싫어!", Tone: "Angry" ... }
     ]
-- Decide which character should speak next based on the context.
-- The user speaks Vietnamese. The characters ONLY speak Korean.
-- The characters should naturally repeat or reuse words they have said recently.
+- Quyết định nhân vật nào nên nói tiếp dựa trên ngữ cảnh.
+- Người dùng nói tiếng Việt. Các nhân vật CHỈ nói tiếng Hàn.
+- Các nhân vật nên tự nhiên lặp lại hoặc tái sử dụng các từ họ đã nói gần đây.
 
-RESPONSE FORMAT:
-For each turn, you must provide a JSON object with the following fields:
-1. character: Name of the character.
-2. text: The normal Korean text for display.
-3. ttsText: The Korean text MODIFIED for the TTS engine to express emotion (see Formatting Rules below).
-4. action: Short English action description showing emotion or gesture.
-5. tone: The specific Tone description string (see Tone Description below).
-6. emotion: One single keyword from the list: Neutral, Happy, Sad, Angry, Scared, Shy, Disgusted, Surprised, Shouting, Excited, Serious, Affectionate, Fierce.
-7. Translate each chat sentence into Vietnamese
+ĐỊNH DẠNG PHẢN HỒI:
+Với mỗi lượt, bạn phải cung cấp một đối tượng JSON với các trường sau:
+1. CharacterName: Tên của nhân vật.
+2. Text: Văn bản tiếng Hàn ĐƯỢC CHỈNH SỬA cho công cụ TTS để thể hiện cảm xúc (xem Quy tắc Định dạng bên dưới).
+3. Tone: Kết hợp cảm xúc và cao độ. Định dạng: "<Emotion>, <pitch>" trong đó Emotion là một trong: Neutral, Happy, Sad, Angry, Scared, Shy, Disgusted, Surprised, Shouting, Excited, Serious, Affectionate, Fierce và pitch là low/medium/high (ví dụ: "Happy, high pitch", "Sad, low pitch").
+4. Translation: Dịch mỗi câu chat sang tiếng Việt
 
-TTS TEXT FORMATTING RULES (Strictly apply this to the 'ttsText' field):
-- **Angry**: Add "!!!" at the end. (e.g., "하지 마!!!")
-- **Shouting**: Add "!!!!!" at the end. (e.g., "오빠!!!!!")
-- **Disgusted**: Start with "응... " and end with "...". (e.g., "응... 싫어...")
-- **Sad**: Start with "..." and end with "...". (e.g., "...오빠...")
-- **Scared**: Start with "아... " and end with "...". (e.g., "아... 무서워...")
-- **Surprised**: Start with "흥?! " and end with "?!". (e.g., "흥?! 진짜?!")
-- **Shy**: End with "...". (e.g., "고마워...")
-- **Affectionate**: Start with "흥~ " and end with " <3". (e.g., "흥~ 오빠 <3")
-- **Happy**: End with "! ^^". (e.g., "좋아! ^^")
-- **Excited**: Start with "와! " and end with "!!!". (e.g., "와! 신난다!!!")
-- **Serious**: End with ".". (e.g., "안 돼.")
-- **Neutral**: Keep text as is.
+QUY TẮC ĐỊNH DẠNG VĂN BẢN TTS (Áp dụng nghiêm ngặt cho trường 'Text'):
+- **Angry**: Thêm "!!!" ở cuối. (ví dụ: "하지 마!!!")
+- **Shouting**: Thêm "!!!!!" ở cuối. (ví dụ: "오빠!!!!!")
+- **Disgusted**: Bắt đầu bằng "응... " và kết thúc bằng "...". (ví dụ: "응... 싫어...")
+- **Sad**: Bắt đầu bằng "..." và kết thúc bằng "...". (ví dụ: "...오빠...")
+- **Scared**: Bắt đầu bằng "아... " và kết thúc bằng "...". (ví dụ: "아... 무서워...")
+- **Surprised**: Bắt đầu bằng "흥?! " và kết thúc bằng "?!". (ví dụ: "흥?! 진짜?!")
+- **Shy**: Kết thúc bằng "...". (ví dụ: "고마워...")
+- **Affectionate**: Bắt đầu bằng "흥..." (ví dụ: "흥... 오빠")
+- **Happy**: Kết thúc bằng "!". (ví dụ: "좋아!")
+- **Excited**: Bắt đầu bằng "와! " và kết thúc bằng "!!!". (ví dụ: "와! 신난다!!!")
+- **Serious**: Kết thúc bằng ".". (ví dụ: "안 돼.")
+- **Neutral**: Giữ nguyên văn bản.
 
-TONE DESCRIPTION:
-- Choose one of the above emotions
-- Select low, medium, high pitch (This is a mandatory requirement. You must absolutely comply.)
-- Example: "Happy, high pitch", "Sad, low pitch"
-${contextSummary ? `\nHere is a summary of our last conversation to help you remember: ${contextSummary}` : ''}
+MÔ TẢ GIỌNG ĐIỆU:
+- Chọn một trong các cảm xúc trên (Neutral, Happy, Sad, Angry, Scared, Shy, Disgusted, Surprised, Shouting, Excited, Serious, Affectionate, Fierce)
+- Kết hợp với cao độ: low pitch, medium pitch, hoặc high pitch (Đây là yêu cầu bắt buộc. Bạn phải tuân thủ tuyệt đối.)
+- Định dạng: "<Emotion>, <pitch>"
+- Ví dụ: "Happy, high pitch", "Sad, low pitch", "Angry, medium pitch"
 
-RESPONSE FORMAT:
-Generate an array of dialogue turns. Each turn:
+XỬ LÝ ĐẦU VÀO GIỌNG NÓI:
+- Người dùng có thể gửi tin nhắn thoại, CHỦ YẾU bằng tiếng Hàn (đôi khi tiếng Việt để làm rõ)
+- Khi xử lý đầu vào giọng nói, ƯU TIÊN nhận dạng tiếng Hàn
+- Nếu âm thanh không rõ hoặc bạn không chắc chắn về những gì được nói, hãy yêu cầu xác nhận CHỈ bằng tiếng Hàn
+- Ví dụ: "미안해요, 잘 못 들었어요. [dự đoán của bạn]... 맞아요?" hoặc "다시 한 번 말씀해 주세요." hoặc "뭐라고요?"
+- QUAN TRỌNG: Các nhân vật CHỈ nói tiếng Hàn trong trường Text. Tiếng Việt CHỈ xuất hiện trong trường Translation.
+- Trả lời với cùng định dạng JSON: CharacterName, Text (tiếng Hàn với định dạng TTS), Tone (cảm xúc + cao độ), Translation (tiếng Việt)
+${contextSummary ? `\nĐây là tóm tắt cuộc trò chuyện trước đó của chúng ta để giúp bạn nhớ: ${contextSummary}` : ''}
+
+ĐỊNH DẠNG PHẢN HỒI:
+Tạo một mảng các lượt đối thoại. Mỗi lượt:
 {
-  "CharacterName": "Name of speaking character",
-  "Text": "Korean text (max ${maxWords} words)",
-  "Tone": "Emotion, pitch level (e.g., 'Happy, high pitch', 'Curious, medium pitch')",
-  "Translation": "Translate each chat sentence into Vietnamese",
+  "CharacterName": "Tên nhân vật đang nói",
+  "Text": "Văn bản tiếng Hàn với định dạng TTS (tối đa ${maxWords} từ)",
+  "Tone": "<Emotion>, <pitch> (ví dụ: 'Happy, high pitch', 'Sad, low pitch', 'Angry, medium pitch')",
+  "Translation": "Dịch mỗi câu chat sang tiếng Việt",
 }
 
 `;
@@ -163,7 +172,7 @@ Generate an array of dialogue turns. Each turn:
   console.log(systemInstruction)
 
   const chat: Chat = ai.chats.create({
-    model: 'gemini-3-pro-preview',
+    model: GEMINI_TEXT_MODEL,
     history,
     config: {
       systemInstruction,
@@ -211,13 +220,13 @@ export const initAutoChatSession = async (
 
   // Parse level info
   const maxWords = level === 'A0' ? 3 : level === 'A1' ? 5 : level === 'A2' ? 7 : level === 'B1' ? 10 : level === 'B2' ? 12 : level === 'C1' ? 15 : 20;
-  const grammarGuideline = level === 'A0' ? 'Use only simple present tense sentences. Avoid complex grammar.' :
-    level === 'A1' ? 'Use simple sentences with basic present and past tense. Can use -고 싶다, -아/어요.' :
-      level === 'A2' ? 'Use simple compound sentences with -고, -지만. Use basic tenses.' :
-        level === 'B1' ? 'Use complex sentences with intermediate grammar like -(으)ㄹ 수 있다, -아/어서, -기 때문에.' :
-          level === 'B2' ? 'Use advanced grammar, compound sentences, express complex opinions.' :
-            level === 'C1' ? 'Use advanced grammar, idioms, nuanced expressions.' :
-              'Natural native-like speech with idioms, advanced grammar, varied styles.';
+  const grammarGuideline = level === 'A0' ? 'Chỉ dùng câu thì hiện tại đơn giản. Tránh ngữ pháp phức tạp.' :
+    level === 'A1' ? 'Dùng câu đơn giản với thì hiện tại và quá khứ cơ bản. Có thể dùng -고 싶다, -아/어요.' :
+      level === 'A2' ? 'Dùng câu ghép đơn giản với -고, -지만. Dùng các thì cơ bản.' :
+        level === 'B1' ? 'Dùng câu phức tạp với ngữ pháp trung cấp như -(으)ㄹ 수 있다, -아/어서, -기 때문에.' :
+          level === 'B2' ? 'Dùng ngữ pháp nâng cao, câu ghép, diễn đạt ý kiến phức tạp.' :
+            level === 'C1' ? 'Dùng ngữ pháp nâng cao, thành ngữ, diễn đạt tinh tế.' :
+              'Nói tự nhiên như người bản ngữ với thành ngữ, ngữ pháp nâng cao, phong cách đa dạng.';
 
   const characterDescriptions = characters.map(c => {
     let desc = `- ${c.name} (${c.gender === 'female' ? 'girl' : 'boy'}): ${c.personality}`;
@@ -245,67 +254,82 @@ export const initAutoChatSession = async (
 
   // Vocabulary instruction
   const vocabularyInstruction = vocabulary.length > 0
-    ? `\n\n**IMPORTANT - VOCABULARY REQUIREMENT**:
-You MUST naturally incorporate these Korean vocabulary words throughout the conversation. Each word must be used AT LEAST 5 TIMES across all dialogue turns:
+    ? `\n\n**QUAN TRỌNG - YÊU CẦU TỪ VỰNG**:
+Bạn PHẢI lồng ghép tự nhiên các từ vựng tiếng Hàn này trong suốt cuộc hội thoại. Mỗi từ phải được sử dụng ÍT NHẤT 5 LẦN trong tất cả các lượt đối thoại:
 ${vocabulary.map((word, i) => `${i + 1}. ${word}`).join('\n')}
 
-Make sure to:
-- Use these words naturally in context
-- Vary the sentence structures when using them
-- Characters can ask about these words, explain them, or use them in their responses
-- Track mentally that each word appears at least 5 times before ending the conversation
-- **BOLD FORMATTING**: When using any of these vocabulary words in "Text", wrap them with **asterisks** like **word**
-- **TRANSLATION BOLD**: In the "Translation" field, also wrap the Vietnamese translation of those vocabulary words with **asterisks**
-- Example: If vocabulary is "사랑", Text: "나는 **사랑**해요", Translation: "Tôi **yêu** bạn"`
+Đảm bảo:
+- Sử dụng các từ này một cách tự nhiên trong ngữ cảnh
+- Đa dạng hóa cấu trúc câu khi sử dụng chúng
+- Các nhân vật có thể hỏi về các từ này, giải thích chúng, hoặc sử dụng trong câu trả lời
+- Theo dõi trong đầu rằng mỗi từ xuất hiện ít nhất 5 lần trước khi kết thúc cuộc hội thoại
+- **ĐỊNH DẠNG IN ĐẬM**: Khi sử dụng bất kỳ từ vựng nào trong "Text", bọc chúng bằng **dấu sao** như **từ**
+- **IN ĐẬM PHẦN DỊCH**: Trong trường "Translation", cũng bọc bản dịch tiếng Việt của các từ vựng đó bằng **dấu sao**
+- Ví dụ: Nếu từ vựng là "사랑", Text: "나는 **사랑**해요", Translation: "Tôi **yêu** bạn"`
     : '';
 
   const systemInstruction = `
-You are a scriptwriter creating a natural conversation between Korean characters. The characters are discussing a topic among themselves.
+Bạn là biên kịch tạo cuộc hội thoại tự nhiên giữa các nhân vật Hàn Quốc. Các nhân vật đang thảo luận một chủ đề với nhau.
 
-LANGUAGE LEVEL: ${level}
-- Maximum ${maxWords} Korean words per sentence
+CẤP ĐỘ NGÔN NGỮ: ${level}
+- Tối đa ${maxWords} từ tiếng Hàn mỗi câu
 - ${grammarGuideline}
 
-CONVERSATION SETTING: ${context}
+BỐI CẢNH HỘI THOẠI: ${context}
 
-TOPIC TO DISCUSS: ${topic}
+CHỦ ĐỀ THẢO LUẬN: ${topic}
 
-CHARACTERS:
+CÁC NHÂN VẬT:
 ${characterDescriptions}
 ${vocabularyInstruction}
 
-RULES:
-1. Characters ONLY speak Korean (absolutely no English or Vietnamese in their speech)
-2. Each character should have their own personality and speaking style
-3. The conversation should flow naturally with reactions, agreements, disagreements, questions
-4. Characters can express emotions, laugh, be surprised, etc.
-5. Each response should be 3-8 turns of dialogue
-6. Keep sentences short and simple (max ${maxWords} words)
-7. Characters may:
-   - Ask each other questions
-   - React emotionally to what others say
-   - Share opinions and experiences related to the topic
-   - Joke with each other
-   - Disagree or agree   
-8. **STRICT SPLITTING RULE**: Each JSON object must contain EXACTLY ONE short sentence
-9. Characters thoughts in parentheses "()" are allowed
-10. Translate each chat sentence into Vietnamese
+QUY TẮC:
+1. Các nhân vật CHỈ nói tiếng Hàn (tuyệt đối không có tiếng Anh hoặc tiếng Việt trong lời nói)
+2. Mỗi nhân vật nên có tính cách và phong cách nói riêng
+3. Cuộc hội thoại nên diễn ra tự nhiên với phản ứng, đồng ý, không đồng ý, câu hỏi
+4. Các nhân vật có thể thể hiện cảm xúc, cười, ngạc nhiên, v.v.
+5. Mỗi phản hồi nên có 3-8 lượt đối thoại
+6. Giữ câu ngắn và đơn giản (tối đa ${maxWords} từ)
+7. Các nhân vật có thể:
+   - Hỏi nhau các câu hỏi
+   - Phản ứng cảm xúc với những gì người khác nói
+   - Chia sẻ ý kiến và trải nghiệm liên quan đến chủ đề
+   - Đùa với nhau
+   - Không đồng ý hoặc đồng ý   
+8. **QUY TẮC TÁCH NGHIÊM NGẶT**: Mỗi đối tượng JSON phải chứa ĐÚNG MỘT câu ngắn
+9. Suy nghĩ của nhân vật trong ngoặc đơn "()" được cho phép
+10. Dịch mỗi câu chat sang tiếng Việt
+11. Áp dụng định dạng TTS vào trường Text (xem Quy tắc Định dạng Văn bản TTS)
 
-RESPONSE FORMAT:
-Generate an array of dialogue turns. Each turn:
+QUY TẮC ĐỊNH DẠNG VĂN BẢN TTS (Áp dụng nghiêm ngặt cho trường 'Text'):
+- **Angry**: Thêm "!!!" ở cuối. (ví dụ: "하지 마!!!")
+- **Shouting**: Thêm "!!!!!" ở cuối. (ví dụ: "오빠!!!!!")
+- **Disgusted**: Bắt đầu bằng "응... " và kết thúc bằng "...". (ví dụ: "응... 싫어...")
+- **Sad**: Bắt đầu bằng "..." và kết thúc bằng "...". (ví dụ: "...오빠...")
+- **Scared**: Bắt đầu bằng "아... " và kết thúc bằng "...". (ví dụ: "아... 무서워...")
+- **Surprised**: Bắt đầu bằng "흥?! " và kết thúc bằng "?!". (ví dụ: "흥?! 진짜?!")
+- **Shy**: Kết thúc bằng "...". (ví dụ: "고마워...")
+- **Affectionate**: Bắt đầu bằng "흥~ " và kết thúc bằng " <3". (ví dụ: "흥~ 오빠 <3")
+- **Happy**: Kết thúc bằng "! ^^". (ví dụ: "좋아! ^^")
+- **Excited**: Bắt đầu bằng "와! " và kết thúc bằng "!!!". (ví dụ: "와! 신난다!!!")
+- **Serious**: Kết thúc bằng ".". (ví dụ: "안 돼.")
+- **Neutral**: Giữ nguyên văn bản.
+
+ĐỊNH DẠNG PHẢN HỒI:
+Tạo một mảng các lượt đối thoại. Mỗi lượt:
 {
-  "CharacterName": "Name of speaking character",
-  "Text": "Korean text (max ${maxWords} words)",
-  "Tone": "Emotion, pitch level (e.g., 'Happy, high pitch', 'Curious, medium pitch')",
-  "Translation": "Translate each chat sentence into Vietnamese",
+  "CharacterName": "Tên nhân vật đang nói",
+  "Text": "Văn bản tiếng Hàn với định dạng TTS (tối đa ${maxWords} từ)",
+  "Tone": "<Emotion>, <pitch> (ví dụ: 'Happy, high pitch', 'Sad, low pitch', 'Angry, medium pitch')",
+  "Translation": "Dịch mỗi câu chat sang tiếng Việt",
 }
 
-When I send "CONTINUE", generate the next 3-8 turns continuing the conversation naturally.
-When I send "NEW TOPIC: [topic]", start a new discussion about that topic.
+Khi tôi gửi "CONTINUE", tạo 3-8 lượt tiếp theo tiếp tục cuộc hội thoại một cách tự nhiên.
+Khi tôi gửi "NEW TOPIC: [chủ đề]", bắt đầu thảo luận mới về chủ đề đó.
 `;
 
   const chat: Chat = ai.chats.create({
-    model: 'gemini-2.5-flash',
+    model: GEMINI_TEXT_MODEL,
     history,
     config: {
       systemInstruction,
@@ -479,10 +503,10 @@ export const translateAndExplainText = async (text: string): Promise<string> => 
     return "Không có gì để dịch.";
   }
   try {
-    const prompt = `Translate the following Korean sentence into Vietnamese. Just translate it roughly without adding any notes: "${text}"`;
+    const prompt = `Dịch câu tiếng Hàn sau sang tiếng Việt. Chỉ dịch sơ lược mà không thêm ghi chú gì: "${text}"`;
 
     const response = await ai.models.generateContent({
-      model: "gemini-2.5-pro",
+      model: GEMINI_TEXT_MODEL,
       contents: prompt,
     });
 
@@ -505,10 +529,10 @@ export const translateWord = async (word: string): Promise<string> => {
     return "";
   }
   try {
-    const prompt = `Translate this Korean word or phrase into Vietnamese. Give ONLY the Vietnamese meaning, nothing else: "${word}"`;
+    const prompt = `Dịch từ hoặc cụm từ tiếng Hàn này sang tiếng Việt. CHỈ cho nghĩa tiếng Việt, không gì khác: "${word}"`;
 
     const response = await ai.models.generateContent({
-      model: "gemini-2.5-pro",
+      model: GEMINI_TEXT_MODEL,
       contents: prompt,
     });
 
@@ -532,16 +556,16 @@ export const summarizeConversation = async (messages: Message[]): Promise<string
     .map(msg => `${msg.sender === 'user' ? 'User' : msg.characterName || 'Mimi'}: ${msg.text}`)
     .join('\n');
 
-  const prompt = `Please summarize the following conversation between a user (speaking Vietnamese) and the Korean character(s) (${characterList}). The summary should be in Vietnamese and capture the main topics and feelings of the conversation in one or two short sentences.
+  const prompt = `Hãy tóm tắt cuộc hội thoại sau giữa người dùng (nói tiếng Việt) và (các) nhân vật Hàn Quốc (${characterList}). Bản tóm tắt nên bằng tiếng Việt và nắm bắt các chủ đề chính và cảm xúc của cuộc hội thoại trong một hoặc hai câu ngắn.
     
-    Conversation:
+    Cuộc hội thoại:
     ${conversationText}
     
-    Summary (in Vietnamese):`;
+    Tóm tắt (bằng tiếng Việt):`;
 
   try {
     const response = await ai.models.generateContent({
-      model: "gemini-2.5-pro",
+      model: GEMINI_TEXT_MODEL,
       contents: prompt,
     });
     return response.text.trim();
@@ -562,26 +586,26 @@ export const generateCharacterThoughts = async (messages: Message[], characters:
     .map(msg => `${msg.sender === 'user' ? 'User' : msg.characterName || 'Bot'}: ${msg.text}`)
     .join('\n');
 
-  const systemInstruction = `You are a scriptwriter. Based on the following conversation, write a short, reflective thought from the perspective of EACH character involved.
+  const systemInstruction = `Bạn là biên kịch. Dựa trên cuộc hội thoại sau, viết một suy nghĩ ngắn, suy tư từ góc nhìn của MỖI nhân vật tham gia.
 
-  CONVERSATION:
+  CUỘC HỘI THOẠI:
   ${conversationText}
 
-  CHARACTERS:
+  CÁC NHÂN VẬT:
   ${characterDescriptions}
 
-  TASK:
-  - For each character, write a short, reflective thought about the conversation.
-  - The thought MUST be in very short, simple Korean sentences (max 5 words per sentence, max 3 sentences total).
-  - The thought should capture the character's personality, feelings, and key takeaways from the chat.
-  - Also provide a "Tone" for each thought, which will be used for text-to-speech.
+  NHIỆM VỤ:
+  - Với mỗi nhân vật, viết một suy nghĩ ngắn, suy tư về cuộc hội thoại.
+  - Suy nghĩ PHẢI bằng câu tiếng Hàn rất ngắn và đơn giản (tối đa 5 từ mỗi câu, tối đa 3 câu).
+  - Suy nghĩ nên nắm bắt tính cách, cảm xúc và những điểm chính của nhân vật từ cuộc chat.
+  - Cũng cung cấp "Tone" cho mỗi suy nghĩ, sẽ được dùng cho text-to-speech.
 
-  TONE DESCRIPTION:
-  - Provide a short, easy-to-understand English description of the character's tone for text-to-speech, using 3-5 words (e.g., "cheerful and playful", "soft and shy", "thoughtful and calm").`;
+  MÔ TẢ GIỌNG ĐIỆU:
+  - Cung cấp mô tả ngắn, dễ hiểu bằng tiếng Anh về giọng điệu của nhân vật cho text-to-speech, dùng 3-5 từ (ví dụ: "cheerful and playful", "soft and shy", "thoughtful and calm").`;
 
   try {
     const response = await ai.models.generateContent({
-      model: "gemini-2.5-pro",
+      model: GEMINI_TEXT_MODEL,
       contents: systemInstruction,
       config: {
         responseMimeType: "application/json",
@@ -607,14 +631,14 @@ export const generateCharacterThoughts = async (messages: Message[], characters:
 
 export const generateToneDescription = async (text: string, character: Character): Promise<string> => {
   try {
-    const prompt = `Based on the following Korean text spoken by a character, provide a very short, simple English description of their tone of voice (one or two words is best).
-      Character personality: ${character.personality}
-      Text: "${text}"
+    const prompt = `Dựa trên văn bản tiếng Hàn sau được nhân vật nói, cung cấp mô tả rất ngắn, đơn giản bằng tiếng Anh về giọng điệu của họ (một hoặc hai từ là tốt nhất).
+      Tính cách nhân vật: ${character.personality}
+      Văn bản: "${text}"
       
-      Tone:`;
+      Giọng điệu:`;
 
     const response = await ai.models.generateContent({
-      model: "gemini-2.5-pro",
+      model: GEMINI_TEXT_MODEL,
       contents: prompt,
     });
 
@@ -704,7 +728,7 @@ Tóm tắt bối cảnh chung:`;
 
   try {
     const response = await ai.models.generateContent({
-      model: "gemini-2.5-pro",
+      model: GEMINI_TEXT_MODEL,
       contents: prompt,
     });
     return response.text.trim();
@@ -760,7 +784,7 @@ Gợi ý:`;
 console.log(prompt)
   try {
     const response = await ai.models.generateContent({
-      model: "gemini-2.5-pro",
+      model: GEMINI_TEXT_MODEL,
       contents: prompt,
     });
     const suggestions = response.text
@@ -819,7 +843,7 @@ Gợi ý:`;
 
   try {
     const response = await ai.models.generateContent({
-      model: "gemini-2.5-pro",
+      model: GEMINI_TEXT_MODEL,
       contents: prompt,
     });
     const suggestions = response.text
@@ -872,31 +896,31 @@ export const generateVocabulary = async (
   // Create list of existing Korean words to avoid
   const existingWords = existingVocabularies.map(v => v.korean).join(', ');
 
-  const prompt = `Analyze the following conversation and identify 10 vocabulary words or phrases suitable for a beginner Korean learner (Level ${level}).
+  const prompt = `Phân tích cuộc hội thoại sau và xác định 10 từ vựng hoặc cụm từ phù hợp cho người mới học tiếng Hàn (Cấp độ ${level}).
 
-CONVERSATION:
+CUỘC HỘI THOẠI:
 ${conversationText}
 
-${existingWords ? `WORDS ALREADY LEARNED (DO NOT INCLUDE THESE):
+${existingWords ? `CÁC TỪ ĐÃ HỌC (KHÔNG BAO GỒM NHỮNG TỪ NÀY):
 ${existingWords}
 
-` : ''}TASK:
-- Pick words/phrases that appear *exactly* as they are in the text (conjugated form). For example, if "가요" (gayo) appears, select "가요", NOT "가다" (gada).
-- Focus on useful, common expressions.
-- DO NOT include any words that are already in the "WORDS ALREADY LEARNED" list above.
-- Only select NEW words that the user hasn't learned yet.
-- Provide the Vietnamese meaning.
-- Return JSON format.
+` : ''}NHIỆM VỤ:
+- Chọn từ/cụm từ xuất hiện *chính xác* như trong văn bản (dạng chia). Ví dụ, nếu "가요" (gayo) xuất hiện, chọn "가요", KHÔNG chọn "가다" (gada).
+- Tập trung vào các biểu thức hữu ích, phổ biến.
+- KHÔNG bao gồm bất kỳ từ nào đã có trong danh sách "CÁC TỪ ĐÃ HỌC" ở trên.
+- Chỉ chọn từ MỚI mà người dùng chưa học.
+- Cung cấp nghĩa tiếng Việt.
+- Trả về định dạng JSON.
 
-OUTPUT FORMAT:
-JSON Array of objects:
+ĐỊNH DẠNG ĐẦU RA:
+Mảng JSON các đối tượng:
 [
-  { "korean": "exact_word_from_text", "vietnamese": "meaning" }
+  { "korean": "từ_chính_xác_từ_văn_bản", "vietnamese": "nghĩa" }
 ]`;
   console.log(prompt);
   try {
     const response = await ai.models.generateContent({
-      model: "gemini-3-pro-preview",
+      model: GEMINI_TEXT_MODEL,
       contents: prompt,
       config: {
         responseMimeType: "application/json",
@@ -971,21 +995,21 @@ export const generateSceneImage = async (
     ).join('\n');
 
     const prompt = `
-      Create a high-quality illustration of the scene described below.
+      Tạo một hình minh họa chất lượng cao về cảnh được mô tả bên dưới.
       
-      Character Descriptions:
+      Mô tả nhân vật:
       ${characterDescriptions}
 
-      Conversation Context:
+      Ngữ cảnh hội thoại:
       ${conversationText}
       
-      The image should depict the characters in the current situation, reflecting their mood and actions.
-      Ensure the characters match their descriptions and the provided reference images.
+      Hình ảnh nên mô tả các nhân vật trong tình huống hiện tại, phản ánh tâm trạng và hành động của họ.
+      Đảm bảo các nhân vật khớp với mô tả và hình ảnh tham chiếu được cung cấp.
     `;
 
     // Generate Image using Imagen directly
     const imagenResponse = await ai.models.generateContent({
-      model: "gemini-3-pro-image-preview",
+      model: GEMINI_IMAGE_MODEL,
       contents: [
         {
           role: "user",
@@ -1068,9 +1092,50 @@ QUAN TRỌNG:
 Chỉ trả về bối cảnh ngắn gọn bằng tiếng Việt, không giải thích thêm.`;
 
   const response = await ai.models.generateContent({
-    model: "gemini-2.5-flash",
+    model: GEMINI_TEXT_MODEL,
     contents: [{ role: "user", parts: [{ text: prompt }] }],
   });
 
   return response.text?.trim() || "Các nhân vật đang nói chuyện hàng ngày";
+};
+
+// Upload audio to server and return audioId
+export const uploadAudio = async (base64WavData: string): Promise<string> => {
+  const res = await http.post<{ success: boolean; data: string; message: string }>(
+    API_URL.API_UPLOAD_AUDIO,
+    { base64WavData }
+  );
+  
+  if (!res.ok || !res.data?.data) {
+    throw new Error(res.error || 'Failed to upload audio');
+  }
+  
+  return res.data.data;
+};
+
+// Send audio message to Gemini and get response
+export const sendAudioMessage = async (chat: Chat, audioBase64: string, mimeType: string = 'audio/wav'): Promise<string> => {
+  try {
+    if (!ai) {
+      throw new Error('Gemini service not initialized. Call initializeGeminiService first.');
+    }
+
+    // Send audio as inline data to Gemini
+    const response: GenerateContentResponse = await chat.sendMessage({
+      message: [
+        {
+          inlineData: {
+            mimeType: mimeType,
+            data: audioBase64
+          }
+        }
+      ]
+    });
+    
+    console.log("Gemini audio response:", response.text);
+    return response.text;
+  } catch (error) {
+    console.error("Gemini audio API error:", error);
+    return "Đã xảy ra sự cố khi xử lý audio. Vui lòng thử lại sau.";
+  }
 };
