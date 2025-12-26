@@ -110,6 +110,7 @@ QUY TẮC HÀNH VI:
 - Các nhân vật luôn phản ứng cảm xúc với những gì người dùng nói. Người dùng cũng có thể sử dụng emoji.
 - Các nhân vật cũng có suy nghĩ. Khi một nhân vật suy nghĩ, viết trong ngoặc đơn "()" bên trong trường 'text'.
 - **QUY TẮC TÁCH NGHIÊM NGẶT**: Mỗi đối tượng JSON trong mảng phản hồi phải chứa **ĐÚNG MỘT** câu hoặc cụm từ ngắn.
+- **QUY TẮC TÁCH NGHIÊM NGẶT**: Tuyệt đối không được phép đổi tên nhân vật trong trường 'CharacterName'. Không được phép dịch sang tiếng anh tên nhân vật ví dụ nếu tên nhân vật là "Trợ lý ảo" thì không được đổi thành "Virtual Assistant".
 - **KHÔNG BAO GIỜ** kết hợp nhiều câu trong một trường \`text\`.
 - Nếu một nhân vật muốn nói nhiều điều (ví dụ: "Không! Tôi ghét Lisa!"), bạn PHẢI tách chúng thành các đối tượng JSON liên tiếp riêng biệt.
   - SAI: [{ character: "Mimi", text: "싫어! Lisa 싫어!" }]
@@ -150,12 +151,16 @@ MÔ TẢ GIỌNG ĐIỆU:
 - Ví dụ: "Happy, high pitch", "Sad, low pitch", "Angry, medium pitch"
 
 XỬ LÝ ĐẦU VÀO GIỌNG NÓI:
-- Người dùng có thể gửi tin nhắn thoại, CHỦ YẾU bằng tiếng Hàn (đôi khi tiếng Việt để làm rõ)
+- Người dùng có thể gửi tin nhắn thoại (audio), CHỦ YẾU bằng tiếng Hàn (đôi khi tiếng Việt để làm rõ)
+- Khi nhận được audio từ người dùng, bạn PHẢI:
+  1. Chuyển đổi audio thành văn bản (transcribe) dựa trên ngữ cảnh cuộc trò chuyện và tiên đoán của bạn vì người dùng có thể phát âm sai và ưu tiên nhận dạng tiếng Hàn
+  2. Điền văn bản đã chuyển đổi vào trường "UserTranscript" trong phản hồi ĐẦU TIÊN của mảng
+  3. Chỉ phần tử ĐẦU TIÊN của mảng cần có trường "UserTranscript", các phần tử sau KHÔNG cần
 - Khi xử lý đầu vào giọng nói, ƯU TIÊN nhận dạng tiếng Hàn
 - Nếu âm thanh không rõ hoặc bạn không chắc chắn về những gì được nói, hãy yêu cầu xác nhận CHỈ bằng tiếng Hàn
 - Ví dụ: "미안해요, 잘 못 들었어요. [dự đoán của bạn]... 맞아요?" hoặc "다시 한 번 말씀해 주세요." hoặc "뭐라고요?"
 - QUAN TRỌNG: Các nhân vật CHỈ nói tiếng Hàn trong trường Text. Tiếng Việt CHỈ xuất hiện trong trường Translation.
-- Trả lời với cùng định dạng JSON: CharacterName, Text (tiếng Hàn với định dạng TTS), Tone (cảm xúc + cao độ), Translation (tiếng Việt)
+- Trả lời với cùng định dạng JSON: CharacterName, Text (tiếng Hàn với định dạng TTS), Tone (cảm xúc + cao độ), Translation (tiếng Việt), UserTranscript (chỉ ở phần tử đầu tiên nếu là audio)
 ${contextSummary ? `\nĐây là tóm tắt cuộc trò chuyện trước đó của chúng ta để giúp bạn nhớ: ${contextSummary}` : ''}
 
 ĐỊNH DẠNG PHẢN HỒI:
@@ -165,6 +170,7 @@ Tạo một mảng các lượt đối thoại. Mỗi lượt:
   "Text": "Văn bản tiếng Hàn với định dạng TTS (tối đa ${maxWords} từ)",
   "Tone": "<Emotion>, <pitch> (ví dụ: 'Happy, high pitch', 'Sad, low pitch', 'Angry, medium pitch')",
   "Translation": "Dịch mỗi câu chat sang tiếng Việt",
+  "UserTranscript": "(CHỈ trong phần tử ĐẦU TIÊN nếu người dùng gửi audio) Văn bản chuyển đổi từ giọng nói của người dùng"
 }
 
 `;
@@ -185,7 +191,8 @@ Tạo một mảng các lượt đối thoại. Mỗi lượt:
             CharacterName: { type: Type.STRING },
             Text: { type: Type.STRING },
             Tone: { type: Type.STRING },
-            Translation: { type: Type.STRING }
+            Translation: { type: Type.STRING },
+            UserTranscript: { type: Type.STRING }
           }
         }
       },
@@ -867,28 +874,6 @@ export const generateVocabulary = async (
     return [];
   }
 
-  switch (level) {
-    case 'A0':
-      level = 'A1';
-      break;
-    case 'A1':
-      level = 'A2';
-      break;
-    case 'A2':
-      level = 'B1';
-      break;
-    case 'B1':
-      level = 'B2';
-      break;
-    case 'B2':
-      level = 'C1';
-      break;
-    case 'C1':
-      break;
-    default:
-      level = 'A1';
-  }
-
   const conversationText = messages
     .map((msg, index) => `[ID: ${msg.id}] ${msg.sender === 'user' ? 'User' : msg.characterName || 'Bot'}: ${msg.text}`)
     .join('\n');
@@ -905,7 +890,7 @@ ${existingWords ? `CÁC TỪ ĐÃ HỌC (KHÔNG BAO GỒM NHỮNG TỪ NÀY):
 ${existingWords}
 
 ` : ''}NHIỆM VỤ:
-- Chọn từ/cụm từ xuất hiện *chính xác* như trong văn bản (dạng chia). Ví dụ, nếu "가요" (gayo) xuất hiện, chọn "가요", KHÔNG chọn "가다" (gada).
+- Chọn từ/cụm từ xuất hiện và chuyển thành gốc từ (dạng chưa chia) ví dụ "가요" thành "가다".
 - Tập trung vào các biểu thức hữu ích, phổ biến.
 - KHÔNG bao gồm bất kỳ từ nào đã có trong danh sách "CÁC TỪ ĐÃ HỌC" ở trên.
 - Chỉ chọn từ MỚI mà người dùng chưa học.

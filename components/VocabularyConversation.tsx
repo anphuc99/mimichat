@@ -630,9 +630,10 @@ export const VocabularyConversation: React.FC<VocabularyConversationProps> = ({
       // Upload audio to server
       const audioId = await uploadAudio(audioBase64);
       
-      // Create user voice message
+      // Create user voice message (transcript will be updated after AI response)
+      const userMessageId = Date.now().toString();
       const userMessage: Message = { 
-        id: Date.now().toString(), 
+        id: userMessageId, 
         text: '🎤 Tin nhắn giọng nói', 
         sender: 'user',
         kind: 'voice',
@@ -690,6 +691,17 @@ export const VocabularyConversation: React.FC<VocabularyConversationProps> = ({
       if (!botResponses) {
         console.error("Failed to parse AI response after retries.");
         throw new Error("Failed to parse AI response.");
+      }
+
+      // Extract UserTranscript from the first response if available
+      const userTranscript = botResponses[0]?.UserTranscript;
+      if (userTranscript) {
+        // Update the user message with the transcript
+        setMessages(prev => prev.map(msg => 
+          msg.id === userMessageId 
+            ? { ...msg, text: userTranscript, transcript: userTranscript }
+            : msg
+        ));
       }
 
       await processActiveBotResponses(botResponses);
