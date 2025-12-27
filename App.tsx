@@ -12,7 +12,7 @@ import { LevelSelector } from './components/LevelSelector';
 import { AutoChatModal } from './components/AutoChatModal';
 import type { Message, ChatJournal, DailyChat, Character, SavedData, CharacterThought, VocabularyItem, VocabularyReview, StreakData, KoreanLevel, StoryMeta, StoriesIndex } from './types';
 import { initializeGeminiService, initChat, sendMessage, textToSpeech, translateAndExplainText, translateWord, summarizeConversation, generateCharacterThoughts, generateToneDescription, generateRelationshipSummary, generateContextSuggestion, generateMessageSuggestions, generateVocabulary, generateSceneImage, initAutoChatSession, sendAutoChatMessage, uploadAudio, sendAudioMessage } from './services/geminiService';
-import { getVocabulariesDueForReview, updateReviewAfterQuiz, initializeVocabularyReview, getReviewDueCount, getRandomReviewVocabulariesForChat } from './utils/spacedRepetition';
+import { getVocabulariesDueForReview, updateReviewAfterQuiz, initializeVocabularyReview, getReviewDueCount, getRandomReviewVocabulariesForChat, getTotalVocabulariesLearned } from './utils/spacedRepetition';
 import { initializeStreak, updateStreak, checkStreakStatus } from './utils/streakManager';
 import { KOREAN_LEVELS } from './types';
 import http, { API_URL } from './services/HTTPService';
@@ -188,8 +188,11 @@ const App: React.FC = () => {
         // Only get new review vocabularies if we don't have any yet
         // This prevents re-randomizing when context changes
         let reviewVocabs = chatReviewVocabularies;
-        if (chatReviewVocabularies.length === 0) {
+        if (chatReviewVocabularies.length < 20) {
           reviewVocabs = getRandomReviewVocabulariesForChat(journal);
+          if(reviewVocabs.length < 20){
+            reviewVocabs = [];
+          }
           setChatReviewVocabularies(reviewVocabs);
         }
         
@@ -2211,6 +2214,15 @@ const App: React.FC = () => {
           
           {/* Compact Streak Display */}
           <StreakDisplay streak={streak} compact={true} />
+          
+          {/* Vocabulary Count */}
+          <div 
+            className="px-3 py-1.5 bg-gradient-to-r from-emerald-500 to-teal-600 text-white font-bold rounded-lg shadow-md flex items-center gap-2"
+            title="Số từ vựng đã học"
+          >
+            <span className="text-lg">📚</span>
+            <span className="text-sm">{getTotalVocabulariesLearned(journal)} từ</span>
+          </div>
           
           <div className="flex items-center space-x-2">
             {isSaving && <span className="text-xs text-gray-500 animate-pulse">Đang lưu...</span>}

@@ -260,3 +260,85 @@ export function getAllReviewStatistics(journal: DailyChat[]): {
     averageInterval: Math.round(averageInterval * 10) / 10
   };
 }
+
+/**
+ * Get comprehensive vocabulary learning statistics
+ * - totalLearned: Total vocabularies that have been added to learning (have reviewSchedule)
+ * - totalReviewed: Vocabularies that have been reviewed at least once
+ * - mastered: Vocabularies with interval >= 30 days (considered mastered)
+ * - inProgress: Vocabularies being learned but not yet mastered
+ * - newToday: Vocabularies added today
+ */
+export function getVocabularyLearningStats(journal: DailyChat[]): {
+  totalLearned: number;
+  totalReviewed: number;
+  mastered: number;
+  inProgress: number;
+  newToday: number;
+  totalReviewSessions: number;
+} {
+  const todayStr = getVietnamDateString(new Date());
+  
+  let totalLearned = 0;
+  let totalReviewed = 0;
+  let mastered = 0;
+  let inProgress = 0;
+  let newToday = 0;
+  let totalReviewSessions = 0;
+  
+  for (const dailyChat of journal) {
+    if (!dailyChat.reviewSchedule) continue;
+    
+    for (const review of dailyChat.reviewSchedule) {
+      totalLearned++;
+      totalReviewSessions += review.totalReviews;
+      
+      // Check if reviewed at least once
+      if (review.totalReviews > 0) {
+        totalReviewed++;
+      }
+      
+      // Check if mastered (interval >= 30 days)
+      if (review.currentIntervalDays >= 30) {
+        mastered++;
+      } else {
+        inProgress++;
+      }
+      
+      // Check if added today (no review yet and nextReviewDate is tomorrow or today)
+      if (review.lastReviewDate === null) {
+        const nextDate = new Date(review.nextReviewDate);
+        const nextDateStr = getVietnamDateString(nextDate);
+        const tomorrow = new Date();
+        tomorrow.setDate(tomorrow.getDate() + 1);
+        const tomorrowStr = getVietnamDateString(tomorrow);
+        
+        if (nextDateStr === tomorrowStr || nextDateStr === todayStr) {
+          newToday++;
+        }
+      }
+    }
+  }
+  
+  return {
+    totalLearned,
+    totalReviewed,
+    mastered,
+    inProgress,
+    newToday,
+    totalReviewSessions
+  };
+}
+
+/**
+ * Get count of total vocabularies learned (simplified version)
+ */
+export function getTotalVocabulariesLearned(journal: DailyChat[]): number {
+  let count = 0;
+  for (const dailyChat of journal) {
+    if (dailyChat.reviewSchedule) {
+      count += dailyChat.reviewSchedule.length;
+    }
+  }
+  return count;
+}

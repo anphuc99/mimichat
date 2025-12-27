@@ -86,7 +86,7 @@ app.use(express.static(path.join(__dirname, "/public/dist"), {
 // JWT middleware
 app.use((req: Request, res: Response, next: NextFunction) => {
   // Skip JWT check for health, login, static files and root
-  startAudioCleanupScheduler();
+  // startAudioCleanupScheduler();
   if (!req.path.startsWith("/api")) {
     return next();
   }
