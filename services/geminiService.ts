@@ -178,6 +178,7 @@ Tạo một mảng các lượt đối thoại. Mỗi lượt:
 `;
 
   console.log(systemInstruction)
+  console.log(history)
 
   const chat: Chat = ai.chats.create({
     model: GEMINI_TEXT_MODEL,

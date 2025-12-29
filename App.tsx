@@ -196,10 +196,16 @@ const App: React.FC = () => {
           setChatReviewVocabularies(reviewVocabs);
         }
         
+        const currentChat = getCurrentChat();
+        const history: Content[] = currentChat ? currentChat.messages.map(msg => ({
+          role: msg.sender === 'user' ? 'user' : 'model',
+          parts: [{ text: msg.rawText || msg.text }],
+        })) : [];
+        
         chatRef.current = await initChat(
           activeChars, 
           context, 
-          [], 
+          history, 
           '', 
           relationshipSummary, 
           currentLevel,
@@ -434,7 +440,13 @@ const App: React.FC = () => {
     try {
       if (!chatRef.current) {
         const activeChars = getActiveCharacters();
-        chatRef.current = await initChat(activeChars, context, [], '', relationshipSummary, currentLevel, chatReviewVocabularies.map(rv => rv.vocabulary));
+        const currentChat = getCurrentChat();
+        const historyForGemini: Content[] = currentChat ? currentChat.messages.map(msg => ({
+          role: msg.sender === 'user' ? 'user' : 'model',
+          parts: [{ text: msg.rawText || msg.text }],
+        })) : [];
+        console.log(historyForGemini);
+        chatRef.current = await initChat(activeChars, context, historyForGemini, '', relationshipSummary, currentLevel, chatReviewVocabularies.map(rv => rv.vocabulary));
       }
       
       let botResponseText = await sendMessage(chatRef.current, text);
@@ -514,7 +526,12 @@ const App: React.FC = () => {
       // Initialize chat if needed
       if (!chatRef.current) {
         const activeChars = getActiveCharacters();
-        chatRef.current = await initChat(activeChars, context, [], '', relationshipSummary, currentLevel, chatReviewVocabularies.map(rv => rv.vocabulary));
+        const currentChat = getCurrentChat();
+        const history: Content[] = currentChat ? currentChat.messages.map(msg => ({
+          role: msg.sender === 'user' ? 'user' : 'model',
+          parts: [{ text: msg.rawText || msg.text }],
+        })) : [];
+        chatRef.current = await initChat(activeChars, context, history, '', relationshipSummary, currentLevel, chatReviewVocabularies.map(rv => rv.vocabulary));
       }
       
       // Send audio to Gemini
