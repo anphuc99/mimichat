@@ -109,9 +109,11 @@ QUY TẮC HÀNH VI:
 - Các nhân vật nên tự nhiên lặp lại hoặc tái sử dụng các từ họ đã nói gần đây hoặc người dùng đã nói.
 - Các nhân vật luôn phản ứng cảm xúc với những gì người dùng nói. Người dùng cũng có thể sử dụng emoji.
 - Các nhân vật cũng có suy nghĩ. Khi một nhân vật suy nghĩ, viết trong ngoặc đơn "()" bên trong trường 'text'.
+- **QUY TẮC TÁCH NGHIÊM NGẶT**: Cần đọc kỹ ngữ cảnh để hiểu tình huống hiện tại của các nhân vật đang có nhân vật nào xuất hiện trong ngữ cảnh không được để một nhân vật xuất hiện từ trên trời rơi xuống.
 - **QUY TẮC TÁCH NGHIÊM NGẶT**: Mỗi đối tượng JSON trong mảng phản hồi phải chứa **ĐÚNG MỘT** câu hoặc cụm từ ngắn.
 - **QUY TẮC TÁCH NGHIÊM NGẶT TUYỆT ĐỐI TUÂN THEO***: Tuyệt đối không được phép đổi tên nhân vật trong trường 'CharacterName'. Trong bất kỳ trường hợp nào vì làm vậy sẽ lỗi TTS. Không được phép dịch sang tiếng anh tên nhân vật ví dụ nếu tên nhân vật là "Trợ lý ảo" thì không được đổi thành "Virtual Assistant".
 - **QUY TẮC TÁCH NGHIÊM NGẶT TUYỆT ĐỐI TUÂN THEO**: Tuyệt đối được phép chế ra nhân vật mới không có trong danh sách nhân vật.
+- **QUY TẮC TÁCH NGHIÊM NGẶT TUYỆT ĐỐI TUÂN THEO**: Tuyệt đối được phép chế thêm tình tiết cốt truyện vì bạn luôn chế theo hướng tích cực ví dụ ai đó đang bị bắt cóc thì chỉ viết đến bị bắt cóc thôi không được chế thêm ai đó hành động giải cứu ngay tại đó.
 - **KHÔNG BAO GIỜ** kết hợp nhiều câu trong một trường \`text\`.
 - Nếu một nhân vật muốn nói nhiều điều (ví dụ: "Không! Tôi ghét Lisa!"), bạn PHẢI tách chúng thành các đối tượng JSON liên tiếp riêng biệt.
   - SAI: [{ character: "Mimi", text: "싫어! Lisa 싫어!" }]
@@ -165,6 +167,29 @@ XỬ LÝ ĐẦU VÀO GIỌNG NÓI:
 - Trả lời với cùng định dạng JSON: CharacterName, Text (tiếng Hàn với định dạng TTS), Tone (cảm xúc + cao độ), Translation (tiếng Việt), UserTranscript (chỉ ở phần tử đầu tiên nếu là audio)
 ${contextSummary ? `\nĐây là tóm tắt cuộc trò chuyện trước đó của chúng ta để giúp bạn nhớ: ${contextSummary}` : ''}
 
+CẬP NHẬT NGỮ CẢNH REALTIME (QUAN TRỌNG):
+- Trong phần tử ĐẦU TIÊN của mảng, bạn CÓ THỂ thêm trường "SuggestedRealtimeContext" để cập nhật trạng thái cảnh hiện tại.
+- Ngữ cảnh realtime phải CHI TIẾT, bao gồm:
+  * VỊ TRÍ: Các nhân vật đang ở đâu
+  * HOẠT ĐỘNG: Đang làm gì cụ thể
+  * TRẠNG THÁI CẢM XÚC: Các nhân vật đang cảm thấy như thế nào
+  * TÌNH HUỐNG: Điều gì đang xảy ra
+
+- CHỈ CẬP NHẬT KHI CÓ THAY ĐỔI THỰC SỰ:
+  * Thay đổi vị trí (từ nhà ra công viên, vào quán cafe...)
+  * Thay đổi hoạt động (từ nói chuyện sang ăn cơm, từ học sang chơi game...)
+  * Thay đổi cảm xúc đáng kể (từ vui sang buồn, từ bình thường sang phấn khích...)
+  * Có sự kiện mới xảy ra (ai đó đến, phát hiện điều gì đó...)
+  * Lưu ý khi thay đổi ngữ cảnh các trạng thái cảm xúc hành động địa điểm của nhân vật nếu không có gì thay đổi thì không cần cập nhật vẫn viết lại trang thái hiện tại.
+  
+- KHÔNG cập nhật nếu chỉ là cuộc trò chuyện tiếp tục bình thường mà không có thay đổi gì.
+
+- Ví dụ ngữ cảnh chi tiết:
+  * "Ở phòng khách nhà Mimi. Mimi và Lisa đang ngồi trên sofa xem TV. Mimi vui vẻ, Lisa hơi buồn ngủ."
+  * "Ở quán cafe gần trường. Đang uống trà sữa và nói chuyện về bài kiểm tra. Cả hai đều lo lắng."
+  * "Ở công viên lúc chiều tối. Đang đi dạo sau khi tan học. Mimi phấn khích vì thấy chó con, Lisa thích thú nhìn."
+  * "Ở siêu thị. Đang chọn mua snack cho buổi tiệc. Mimi hào hứng, Lisa đang so sánh giá."
+
 ĐỊNH DẠNG PHẢN HỒI:
 Tạo một mảng các lượt đối thoại. Mỗi lượt:
 {
@@ -172,7 +197,8 @@ Tạo một mảng các lượt đối thoại. Mỗi lượt:
   "Text": "Văn bản tiếng Hàn với định dạng TTS (tối đa ${maxWords} từ)",
   "Tone": "<Emotion>, <pitch> (ví dụ: 'Happy, high pitch', 'Sad, low pitch', 'Angry, medium pitch')",
   "Translation": "Dịch mỗi câu chat sang tiếng Việt",
-  "UserTranscript": "(CHỈ trong phần tử ĐẦU TIÊN nếu người dùng gửi audio) Văn bản chuyển đổi từ giọng nói của người dùng"
+  "UserTranscript": "(CHỈ trong phần tử ĐẦU TIÊN nếu người dùng gửi audio) Văn bản chuyển đổi từ giọng nói của người dùng",
+  "SuggestedRealtimeContext": "(CHỈ trong phần tử ĐẦU TIÊN, CHỈ KHI ngữ cảnh thay đổi) Mô tả chi tiết: vị trí + hoạt động + cảm xúc các nhân vật"
 }
 
 `;
@@ -195,7 +221,8 @@ Tạo một mảng các lượt đối thoại. Mỗi lượt:
             Text: { type: Type.STRING },
             Tone: { type: Type.STRING },
             Translation: { type: Type.STRING },
-            UserTranscript: { type: Type.STRING }
+            UserTranscript: { type: Type.STRING },
+            SuggestedRealtimeContext: { type: Type.STRING }
           }
         }
       },
@@ -1102,22 +1129,29 @@ export const uploadAudio = async (base64WavData: string): Promise<string> => {
 };
 
 // Send audio message to Gemini and get response
-export const sendAudioMessage = async (chat: Chat, audioBase64: string, mimeType: string = 'audio/wav'): Promise<string> => {
+export const sendAudioMessage = async (chat: Chat, audioBase64: string, mimeType: string = 'audio/wav', contextPrefix: string = ''): Promise<string> => {
   try {
     if (!ai) {
       throw new Error('Gemini service not initialized. Call initializeGeminiService first.');
     }
 
+    // Build message parts - include context prefix as text if provided
+    const messageParts: any[] = [];
+    
+    if (contextPrefix) {
+      messageParts.push({ text: contextPrefix });
+    }
+    
+    messageParts.push({
+      inlineData: {
+        mimeType: mimeType,
+        data: audioBase64
+      }
+    });
+
     // Send audio as inline data to Gemini
     const response: GenerateContentResponse = await chat.sendMessage({
-      message: [
-        {
-          inlineData: {
-            mimeType: mimeType,
-            data: audioBase64
-          }
-        }
-      ]
+      message: messageParts
     });
     
     console.log("Gemini audio response:", response.text);

@@ -180,6 +180,7 @@ export interface SavedData {
   relationshipSummary?: string;
   currentLevel?: KoreanLevel;
   pendingReviewVocabularyIds?: string[]; // IDs of vocabularies being reviewed in current chat session
+  realtimeContext?: string; // Ngữ cảnh realtime có thể thay đổi trong lúc chat
 }
 
 // Story types for multi-story support

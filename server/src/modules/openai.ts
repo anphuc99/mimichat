@@ -43,7 +43,6 @@ export async function textToSpeech(
     }
   }
   
-  // Đảm bảo kết thúc bằng dấu câu để tránh lỗi lặp audio
   if (!/[.!?。！？]$/.test(finalText)) {
     finalText += '.';
   }
@@ -54,7 +53,7 @@ export async function textToSpeech(
     voice: voice,
     response_format: format,
     instructions: instructions,
-    speed: 0.8,  // Tăng speed để giảm lỗi lặp
+    speed: 0.8, 
   });
 
   const buffer = Buffer.from(await response.arrayBuffer());

@@ -10,6 +10,7 @@ import { StreakDisplay } from './components/StreakDisplay';
 import { StreakCelebration } from './components/StreakCelebration';
 import { LevelSelector } from './components/LevelSelector';
 import { AutoChatModal } from './components/AutoChatModal';
+import { RealtimeContextEditor } from './components/RealtimeContextEditor';
 import type { Message, ChatJournal, DailyChat, Character, SavedData, CharacterThought, VocabularyItem, VocabularyReview, StreakData, KoreanLevel, StoryMeta, StoriesIndex } from './types';
 import { initializeGeminiService, initChat, sendMessage, textToSpeech, translateAndExplainText, translateWord, summarizeConversation, generateCharacterThoughts, generateToneDescription, generateRelationshipSummary, generateContextSuggestion, generateMessageSuggestions, generateVocabulary, generateSceneImage, initAutoChatSession, sendAutoChatMessage, uploadAudio, sendAudioMessage } from './services/geminiService';
 import { getVocabulariesDueForReview, updateReviewAfterQuiz, initializeVocabularyReview, getReviewDueCount, getRandomReviewVocabulariesForChat, getTotalVocabulariesLearned } from './utils/spacedRepetition';
@@ -119,6 +120,10 @@ const App: React.FC = () => {
   // Auto Chat state
   const [isAutoChatOpen, setIsAutoChatOpen] = useState(false);
   const [isAutoGenerating, setIsAutoGenerating] = useState(false);
+
+  // Realtime context state - context that can change during chat
+  const [realtimeContext, setRealtimeContext] = useState<string>('');
+  const [isEditingRealtimeContext, setIsEditingRealtimeContext] = useState(false);
 
   const [isGeminiInitialized, setIsGeminiInitialized] = useState(false);
   const [isDataLoaded, setIsDataLoaded] = useState(false);
@@ -432,10 +437,16 @@ const App: React.FC = () => {
     setMessageSuggestions([]);
     setMessageSuggestionsLocked(false);
 
+    // Only show the original text in the message bubble (without realtime context)
     const userMessage: Message = { id: Date.now().toString(), text, sender: 'user' };
     updateCurrentChatMessages(prev => [...prev, userMessage]);
     setIsLoading(true);
     userPromptRef.current = text;
+
+    // Build the actual message to send to AI (with realtime context if available)
+    const messageForAI = realtimeContext 
+      ? `(Ngữ cảnh hiện tại: ${realtimeContext})\n${text}`
+      : text;
 
     try {
       if (!chatRef.current) {
@@ -449,7 +460,7 @@ const App: React.FC = () => {
         chatRef.current = await initChat(activeChars, context, historyForGemini, '', relationshipSummary, currentLevel, chatReviewVocabularies.map(rv => rv.vocabulary));
       }
       
-      let botResponseText = await sendMessage(chatRef.current, text);
+      let botResponseText = await sendMessage(chatRef.current, messageForAI);
 
       const parseAndValidate = (jsonString: string) => {
         try {
@@ -487,6 +498,13 @@ const App: React.FC = () => {
         throw new Error("Failed to parse AI response.");
       }
 
+      // Check if AI suggested a new realtime context
+      const suggestedContext = botResponses[0]?.SuggestedRealtimeContext;
+      if (suggestedContext && suggestedContext.trim()) {
+        setRealtimeContext(suggestedContext.trim());
+        console.log("AI suggested new realtime context:", suggestedContext);
+      }
+
       await processBotResponsesSequentially(botResponses);
       
       // Update streak after successful chat
@@ -498,7 +516,7 @@ const App: React.FC = () => {
       updateCurrentChatMessages(prev => [...prev, errorMessage]);
       setIsLoading(false);
     }
-  }, [isLoading, getActiveCharacters, context, updateCurrentChatMessages, processBotResponsesSequentially, handleStreakUpdate]);
+  }, [isLoading, getActiveCharacters, context, updateCurrentChatMessages, processBotResponsesSequentially, handleStreakUpdate, realtimeContext]);
 
   // Handle sending voice message
   const handleSendAudio = useCallback(async (audioBase64: string, duration: number) => {
@@ -534,8 +552,11 @@ const App: React.FC = () => {
         chatRef.current = await initChat(activeChars, context, history, '', relationshipSummary, currentLevel, chatReviewVocabularies.map(rv => rv.vocabulary));
       }
       
-      // Send audio to Gemini
-      let botResponseText = await sendAudioMessage(chatRef.current, audioBase64, 'audio/wav');
+      // Build context prefix for voice messages if realtime context is available
+      const contextPrefix = realtimeContext ? `(Ngữ cảnh hiện tại: ${realtimeContext}) ` : '';
+      
+      // Send audio to Gemini (with optional context prefix in a separate text message if needed)
+      let botResponseText = await sendAudioMessage(chatRef.current, audioBase64, 'audio/wav', contextPrefix);
 
       const parseAndValidate = (jsonString: string) => {
         try {
@@ -583,6 +604,13 @@ const App: React.FC = () => {
         ));
       }
 
+      // Check if AI suggested a new realtime context
+      const suggestedContext = botResponses[0]?.SuggestedRealtimeContext;
+      if (suggestedContext && suggestedContext.trim()) {
+        setRealtimeContext(suggestedContext.trim());
+        console.log("AI suggested new realtime context:", suggestedContext);
+      }
+
       await processBotResponsesSequentially(botResponses);
       
       // Update streak after successful voice chat
@@ -594,7 +622,7 @@ const App: React.FC = () => {
       updateCurrentChatMessages(prev => [...prev, errorMessage]);
       setIsLoading(false);
     }
-  }, [isLoading, getActiveCharacters, context, updateCurrentChatMessages, processBotResponsesSequentially, handleStreakUpdate, relationshipSummary, currentLevel, chatReviewVocabularies]);
+  }, [isLoading, getActiveCharacters, context, updateCurrentChatMessages, processBotResponsesSequentially, handleStreakUpdate, relationshipSummary, currentLevel, chatReviewVocabularies, realtimeContext]);
 
   const handleUpdateMessage = useCallback(async (messageId: string, newText: string) => {
     if (isLoading) return;
@@ -1766,6 +1794,7 @@ const App: React.FC = () => {
     let loadedContext: string = "at Mimi's house";
     let loadedRelationshipSummary: string = '';
     let loadedLevel: KoreanLevel = 'A1';
+    let loadedRealtimeContext: string = '';
 
     if (Array.isArray(loadedData)) { // v1 format support
       loadedJournal = loadedData.map((chat, index) => ({ 
@@ -1801,6 +1830,7 @@ const App: React.FC = () => {
       loadedContext = loadedData.context;
       loadedRelationshipSummary = loadedData.relationshipSummary || '';
       loadedLevel = loadedData.currentLevel || 'A1';
+      loadedRealtimeContext = loadedData.realtimeContext || '';
     } else {
       throw new Error("Tệp nhật ký không hợp lệ hoặc phiên bản không được hỗ trợ.");
     }
@@ -1814,6 +1844,7 @@ const App: React.FC = () => {
     setRelationshipSummary(loadedRelationshipSummary);
     setCurrentLevel(loadedLevel);
     setCurrentStoryId(storyId);
+    setRealtimeContext(loadedRealtimeContext);
 
     const lastChat = loadedJournal[loadedJournal.length - 1];
     const previousSummary = loadedJournal.length > 1 ? loadedJournal[loadedJournal.length - 2].summary : '';
@@ -2151,6 +2182,7 @@ const App: React.FC = () => {
           relationshipSummary,
           currentLevel,
           pendingReviewVocabularyIds: chatReviewVocabularies.map(rv => rv.vocabulary.id),
+          realtimeContext,
         };
         
         if (currentStoryId) {
@@ -2168,7 +2200,7 @@ const App: React.FC = () => {
     const timeoutId = setTimeout(saveData, 3000); // Debounce 3s
 
     return () => clearTimeout(timeoutId);
-  }, [journal, characters, activeCharacterIds, context, relationshipSummary, currentLevel, isDataLoaded, currentStoryId, chatReviewVocabularies]);
+  }, [journal, characters, activeCharacterIds, context, relationshipSummary, currentLevel, isDataLoaded, currentStoryId, chatReviewVocabularies, realtimeContext]);
 
   const currentMessages = getCurrentChat()?.messages || [];
 
@@ -2553,6 +2585,18 @@ const App: React.FC = () => {
               </button>
             </div>
           </div>
+          
+          {/* Realtime Context Editor */}
+          <div className="px-4 pb-2">
+            <RealtimeContextEditor
+              realtimeContext={realtimeContext}
+              onContextChange={setRealtimeContext}
+              isEditing={isEditingRealtimeContext}
+              onEditingChange={setIsEditingRealtimeContext}
+              disabled={isLoading || isSummarizing}
+            />
+          </div>
+          
           <MessageInput 
             onSendMessage={handleSendMessage} 
             isLoading={isLoading || isSummarizing} 
