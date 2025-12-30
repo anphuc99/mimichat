@@ -29,7 +29,8 @@ export const initChat = async (
   contextSummary: string = '',
   relationshipSummary: string = '',
   level: string = 'A1',
-  reviewVocabularies: VocabularyItem[] = []
+  reviewVocabularies: VocabularyItem[] = [],
+  storyPlot: string = ''
 ): Promise<Chat> => {
   if (!ai) {
     throw new Error('Gemini service not initialized. Call initializeGeminiService first.');
@@ -83,6 +84,9 @@ Các nhân vật Hàn Quốc chỉ được nói tiếng Hàn. Họ phải dùng
 HƯỚNG DẪN CẤP ĐỘ NGÔN NGỮ (${level}):
 ${grammarGuideline}
 
+${storyPlot ? `CỐT TRUYỆN:
+${storyPlot}
+` : ''}
 BỐI CẢNH HỘI THOẠI:
 ${context}
 

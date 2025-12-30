@@ -125,6 +125,9 @@ const App: React.FC = () => {
   const [realtimeContext, setRealtimeContext] = useState<string>('');
   const [isEditingRealtimeContext, setIsEditingRealtimeContext] = useState(false);
 
+  // Story plot state - mô tả cốt truyện
+  const [storyPlot, setStoryPlot] = useState<string>('');
+
   const [isGeminiInitialized, setIsGeminiInitialized] = useState(false);
   const [isDataLoaded, setIsDataLoaded] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
@@ -214,7 +217,8 @@ const App: React.FC = () => {
           '', 
           relationshipSummary, 
           currentLevel,
-          reviewVocabs.map(rv => rv.vocabulary)
+          reviewVocabs.map(rv => rv.vocabulary),
+          storyPlot
         );
         
         if (reviewVocabs.length > 0) {
@@ -225,7 +229,7 @@ const App: React.FC = () => {
       }
     };
     initializeChatSession();
-  }, [context, activeCharacterIds, characters, relationshipSummary, getActiveCharacters, isGeminiInitialized, isDataLoaded]);
+  }, [context, activeCharacterIds, characters, relationshipSummary, getActiveCharacters, isGeminiInitialized, isDataLoaded, storyPlot]);
 
 
   useEffect(() => {
@@ -457,7 +461,7 @@ const App: React.FC = () => {
           parts: [{ text: msg.rawText || msg.text }],
         })) : [];
         console.log(historyForGemini);
-        chatRef.current = await initChat(activeChars, context, historyForGemini, '', relationshipSummary, currentLevel, chatReviewVocabularies.map(rv => rv.vocabulary));
+        chatRef.current = await initChat(activeChars, context, historyForGemini, '', relationshipSummary, currentLevel, chatReviewVocabularies.map(rv => rv.vocabulary), storyPlot);
       }
       
       let botResponseText = await sendMessage(chatRef.current, messageForAI);
@@ -549,7 +553,7 @@ const App: React.FC = () => {
           role: msg.sender === 'user' ? 'user' : 'model',
           parts: [{ text: msg.rawText || msg.text }],
         })) : [];
-        chatRef.current = await initChat(activeChars, context, history, '', relationshipSummary, currentLevel, chatReviewVocabularies.map(rv => rv.vocabulary));
+        chatRef.current = await initChat(activeChars, context, history, '', relationshipSummary, currentLevel, chatReviewVocabularies.map(rv => rv.vocabulary), storyPlot);
       }
       
       // Build context prefix for voice messages if realtime context is available
@@ -654,7 +658,7 @@ const App: React.FC = () => {
       }));
 
       const activeChars = getActiveCharacters();
-      chatRef.current = await initChat(activeChars, context, historyForGemini, '', relationshipSummary, currentLevel, chatReviewVocabularies.map(rv => rv.vocabulary));
+      chatRef.current = await initChat(activeChars, context, historyForGemini, '', relationshipSummary, currentLevel, chatReviewVocabularies.map(rv => rv.vocabulary), storyPlot);
 
       let botResponseText = await sendMessage(chatRef.current, newText);
 
@@ -825,7 +829,7 @@ const App: React.FC = () => {
       })).slice(0, -1);
 
       const activeChars = getActiveCharacters();
-      chatRef.current = await initChat(activeChars, context, historyForGemini, '', relationshipSummary, currentLevel, chatReviewVocabularies.map(rv => rv.vocabulary));
+      chatRef.current = await initChat(activeChars, context, historyForGemini, '', relationshipSummary, currentLevel, chatReviewVocabularies.map(rv => rv.vocabulary), storyPlot);
 
       let botResponseText = await sendMessage(chatRef.current, lastUserMessage.text);
 
@@ -1058,7 +1062,8 @@ const App: React.FC = () => {
         summary, 
         newRelationshipSummary, 
         currentLevel,
-        newReviewVocabs.map(rv => rv.vocabulary)
+        newReviewVocabs.map(rv => rv.vocabulary),
+        storyPlot
       );
       
       if (newReviewVocabs.length > 0) {
@@ -1536,9 +1541,9 @@ const App: React.FC = () => {
           parts: [{ text: msg.rawText || msg.text }],
         }));
         const previousSummary = journal.length > 1 ? journal[journal.length - 2]?.summary || '' : '';
-        chatRef.current = await initChat(activeChars, context, history, previousSummary, relationshipSummary, newLevel, chatReviewVocabularies.map(rv => rv.vocabulary));
+        chatRef.current = await initChat(activeChars, context, history, previousSummary, relationshipSummary, newLevel, chatReviewVocabularies.map(rv => rv.vocabulary), storyPlot);
       } else {
-        chatRef.current = await initChat(activeChars, context, [], '', relationshipSummary, newLevel, chatReviewVocabularies.map(rv => rv.vocabulary));
+        chatRef.current = await initChat(activeChars, context, [], '', relationshipSummary, newLevel, chatReviewVocabularies.map(rv => rv.vocabulary), storyPlot);
       }
     }
     
@@ -1553,6 +1558,7 @@ const App: React.FC = () => {
         relationshipSummary,
         currentLevel: newLevel,
         pendingReviewVocabularyIds: chatReviewVocabularies.map(rv => rv.vocabulary.id),
+        storyPlot,
       };
       if (currentStoryId) {
         await http.put(`${API_URL.API_STORY}/${currentStoryId}`, { data: dataToSave });
@@ -1562,7 +1568,7 @@ const App: React.FC = () => {
     } catch (error) {
       console.error("Failed to save level:", error);
     }
-  }, [currentLevel, journal, characters, activeCharacterIds, context, relationshipSummary, getActiveCharacters, getCurrentChat, currentStoryId, chatReviewVocabularies]);
+  }, [currentLevel, journal, characters, activeCharacterIds, context, relationshipSummary, getActiveCharacters, getCurrentChat, currentStoryId, chatReviewVocabularies, storyPlot]);
 
   const handleSaveJournal = async () => {
     try {
@@ -1575,6 +1581,7 @@ const App: React.FC = () => {
         relationshipSummary,
         currentLevel,
         pendingReviewVocabularyIds: chatReviewVocabularies.map(rv => rv.vocabulary.id),
+        storyPlot,
       };
       
       let rs;
@@ -1835,6 +1842,9 @@ const App: React.FC = () => {
       throw new Error("Tệp nhật ký không hợp lệ hoặc phiên bản không được hỗ trợ.");
     }
 
+    // Load storyPlot
+    const loadedStoryPlot = loadedData.storyPlot || '';
+
     if (!Array.isArray(loadedJournal) || loadedJournal.length === 0) throw new Error("Dữ liệu nhật ký không hợp lệ.");
 
     setJournal(loadedJournal);
@@ -1845,6 +1855,7 @@ const App: React.FC = () => {
     setCurrentLevel(loadedLevel);
     setCurrentStoryId(storyId);
     setRealtimeContext(loadedRealtimeContext);
+    setStoryPlot(loadedStoryPlot);
 
     const lastChat = loadedJournal[loadedJournal.length - 1];
     const previousSummary = loadedJournal.length > 1 ? loadedJournal[loadedJournal.length - 2].summary : '';
@@ -1866,7 +1877,7 @@ const App: React.FC = () => {
     }
     setChatReviewVocabularies(reviewVocabs);
     
-    chatRef.current = await initChat(activeChars, loadedContext, history, previousSummary, loadedRelationshipSummary, loadedLevel, reviewVocabs.map(rv => rv.vocabulary));
+    chatRef.current = await initChat(activeChars, loadedContext, history, previousSummary, loadedRelationshipSummary, loadedLevel, reviewVocabs.map(rv => rv.vocabulary), loadedStoryPlot);
 
     setView('journal');
     setIsDataLoaded(true);
@@ -2062,6 +2073,7 @@ const App: React.FC = () => {
       relationshipSummary,
       currentLevel,
       pendingReviewVocabularyIds: chatReviewVocabularies.map(rv => rv.vocabulary.id),
+      storyPlot,
     };
 
     try {
@@ -2089,6 +2101,7 @@ const App: React.FC = () => {
         let loadedRelationshipSummary: string = '';
         let loadedStreak: StreakData = initializeStreak();
         let loadedLevel: KoreanLevel = 'A1';
+        let loadedStoryPlot: string = '';
 
         if (Array.isArray(loadedData)) { // v1 format support
           loadedJournal = loadedData.map((chat, index) => ({ 
@@ -2125,6 +2138,7 @@ const App: React.FC = () => {
           loadedRelationshipSummary = loadedData.relationshipSummary || '';
           loadedStreak = loadedData.streak ? checkStreakStatus(loadedData.streak) : initializeStreak();
           loadedLevel = loadedData.currentLevel || 'A1';
+          loadedStoryPlot = loadedData.storyPlot || '';
         } else {
           throw new Error("Tệp nhật ký không hợp lệ hoặc phiên bản không được hỗ trợ.");
         }
@@ -2138,6 +2152,7 @@ const App: React.FC = () => {
         setRelationshipSummary(loadedRelationshipSummary);
         setStreak(loadedStreak);
         setCurrentLevel(loadedLevel);
+        setStoryPlot(loadedStoryPlot);
 
         const lastChat = loadedJournal[loadedJournal.length - 1];
         const previousSummary = loadedJournal.length > 1 ? loadedJournal[loadedJournal.length - 2].summary : '';
@@ -2153,7 +2168,7 @@ const App: React.FC = () => {
         const reviewVocabs = getRandomReviewVocabulariesForChat(loadedJournal);
         setChatReviewVocabularies(reviewVocabs);
         
-        chatRef.current = await initChat(activeChars, loadedContext, history, previousSummary, loadedRelationshipSummary, loadedLevel, reviewVocabs.map(rv => rv.vocabulary));
+        chatRef.current = await initChat(activeChars, loadedContext, history, previousSummary, loadedRelationshipSummary, loadedLevel, reviewVocabs.map(rv => rv.vocabulary), loadedStoryPlot);
 
         setView('journal');
 
@@ -2183,6 +2198,7 @@ const App: React.FC = () => {
           currentLevel,
           pendingReviewVocabularyIds: chatReviewVocabularies.map(rv => rv.vocabulary.id),
           realtimeContext,
+          storyPlot,
         };
         
         if (currentStoryId) {
@@ -2200,7 +2216,7 @@ const App: React.FC = () => {
     const timeoutId = setTimeout(saveData, 3000); // Debounce 3s
 
     return () => clearTimeout(timeoutId);
-  }, [journal, characters, activeCharacterIds, context, relationshipSummary, currentLevel, isDataLoaded, currentStoryId, chatReviewVocabularies, realtimeContext]);
+  }, [journal, characters, activeCharacterIds, context, relationshipSummary, currentLevel, isDataLoaded, currentStoryId, chatReviewVocabularies, realtimeContext, storyPlot]);
 
   const currentMessages = getCurrentChat()?.messages || [];
 
@@ -2298,6 +2314,8 @@ const App: React.FC = () => {
         setActiveCharacterIds={setActiveCharacterIds}
         textToSpeech={textToSpeech}
         playAudio={playAudio}
+        storyPlot={storyPlot}
+        setStoryPlot={setStoryPlot}
       />
 
       <LevelSelector

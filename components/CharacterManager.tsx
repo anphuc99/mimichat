@@ -12,6 +12,8 @@ interface CharacterManagerProps {
   setActiveCharacterIds: React.Dispatch<React.SetStateAction<string[]>>;
   textToSpeech: (text: string, tone: string, voiceName: string) => Promise<string | null>;
   playAudio: (audioData: string, speakingRate?: number, pitch?: number) => void;
+  storyPlot: string;
+  setStoryPlot: React.Dispatch<React.SetStateAction<string>>;
 }
 
 const AVAILABLE_VOICES = [
@@ -36,7 +38,9 @@ export const CharacterManager: React.FC<CharacterManagerProps> = ({
     activeCharacterIds, 
     setActiveCharacterIds,
     textToSpeech,
-    playAudio
+    playAudio,
+    storyPlot,
+    setStoryPlot
 }) => {
   const [newCharName, setNewCharName] = useState('');
   const [newCharPersonality, setNewCharPersonality] = useState('');
@@ -246,11 +250,26 @@ export const CharacterManager: React.FC<CharacterManagerProps> = ({
     <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
       <div className="bg-white rounded-lg shadow-xl p-6 w-full max-w-lg max-h-[90vh] flex flex-col">
         <div className="flex justify-between items-center mb-4">
-          <h2 className="text-2xl font-bold text-gray-800">Quản lý nhân vật</h2>
+          <h2 className="text-2xl font-bold text-gray-800">Quản lý nhân vật & Cốt truyện</h2>
           <button onClick={onClose} className="text-gray-500 hover:text-gray-800 text-3xl leading-none">&times;</button>
         </div>
 
         <div className="overflow-y-auto flex-1 pr-2">
+          {/* Story Plot Section */}
+          <div className="mb-6">
+            <h3 className="text-lg font-semibold text-gray-700 mb-2">📖 Mô tả cốt truyện</h3>
+            <textarea
+              value={storyPlot}
+              onChange={(e) => setStoryPlot(e.target.value)}
+              placeholder="Mô tả cốt truyện, bối cảnh câu chuyện, mục tiêu của các nhân vật... (VD: Mimi và bạn bè đang ở trường học, họ chuẩn bị cho buổi biểu diễn văn nghệ...)"
+              className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-purple-400 resize-none"
+              rows={4}
+            />
+            <p className="text-xs text-gray-500 mt-1">
+              💡 Cốt truyện sẽ giúp AI hiểu ngữ cảnh câu chuyện và điều khiển các nhân vật phù hợp hơn.
+            </p>
+          </div>
+
           <div className="mb-6">
             <h3 className="text-lg font-semibold text-gray-700 mb-2">Nhân vật trong cảnh</h3>
             <div className="space-y-2">

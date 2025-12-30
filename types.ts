@@ -181,6 +181,7 @@ export interface SavedData {
   currentLevel?: KoreanLevel;
   pendingReviewVocabularyIds?: string[]; // IDs of vocabularies being reviewed in current chat session
   realtimeContext?: string; // Ngữ cảnh realtime có thể thay đổi trong lúc chat
+  storyPlot?: string; // Mô tả cốt truyện
 }
 
 // Story types for multi-story support
