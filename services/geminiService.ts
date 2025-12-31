@@ -182,6 +182,7 @@ ${checkPronunciation ? `  2. CHẾ ĐỘ KIỂM TRA PHÁT ÂM ĐANG BẬT: Kiể
 - QUAN TRỌNG: Các nhân vật CHỈ nói tiếng Hàn trong trường Text. Tiếng Việt CHỈ xuất hiện trong trường Translation.
 - Trả lời với cùng định dạng JSON: CharacterName, Text (tiếng Hàn với định dạng TTS), Tone (cảm xúc + cao độ), Translation (tiếng Việt), UserTranscript (chỉ ở phần tử đầu tiên nếu là audio)
 ${contextSummary ? `\nĐây là tóm tắt cuộc trò chuyện trước đó của chúng ta để giúp bạn nhớ: ${contextSummary}` : ''}
+- **QUY TẮT NGHIÊM NGẶC TUYỆT ĐỐI TUÂN THEO**: Tuyệt đối không được điền vào UserTranscript nếu đầu vào không phải là audio.
 
 CẬP NHẬT NGỮ CẢNH REALTIME (QUAN TRỌNG):
 - Trong phần tử ĐẦU TIÊN của mảng, bạn CÓ THỂ thêm trường "SuggestedRealtimeContext" để cập nhật trạng thái cảnh hiện tại.

@@ -157,9 +157,8 @@ export function getVocabulariesDueForReview(
     }
   }
   
-  // Shuffle the array to randomize the order and limit to 20 words
-  const shuffled = shuffleArray(dueVocabularies);
-  return shuffled.slice(0, 1000);
+  // Sort by totalReviews (least reviewed first) and limit to 1000 words
+  return dueVocabularies.sort((a, b) => a.review.totalReviews - b.review.totalReviews).slice(0, 1000);
 }
 
 /**
@@ -220,9 +219,8 @@ export function getRandomReviewVocabulariesForChat(journal: DailyChat[]): {
     }
   }
   
-  // Shuffle and return up to 5
-  const shuffled = shuffleArray(dueVocabularies);
-  return shuffled.slice(0, 10);
+  // Sort by totalReviews (least reviewed first) and return up to 20
+  return dueVocabularies.sort((a, b) => a.review.totalReviews - b.review.totalReviews).slice(0, 20);
 }
 
 /**

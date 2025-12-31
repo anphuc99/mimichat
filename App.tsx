@@ -210,9 +210,9 @@ const App: React.FC = () => {
         // Only get new review vocabularies if we don't have any yet
         // This prevents re-randomizing when context changes
         let reviewVocabs = chatReviewVocabularies;
-        if (chatReviewVocabularies.length < 10) {
+        if (chatReviewVocabularies.length < 20) {
           reviewVocabs = getRandomReviewVocabulariesForChat(journal);
-          if(reviewVocabs.length < 10){
+          if(reviewVocabs.length < 20){
             reviewVocabs = [];
           }
           setChatReviewVocabularies(reviewVocabs);
