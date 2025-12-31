@@ -21,6 +21,7 @@ interface DailyEntryProps {
   characters: Character[];
   onTranslate: (text: string) => Promise<string>;
   onStoreTranslation: (messageId: string, translation: string, dailyChatId: string) => void;
+  onUpdateSummary?: (dailyChatId: string, newSummary: string) => void;
 }
 
 const DailyEntry: React.FC<DailyEntryProps> = ({ 
@@ -40,10 +41,13 @@ const DailyEntry: React.FC<DailyEntryProps> = ({
     characters,
     onTranslate,
     onStoreTranslation,
+    onUpdateSummary,
 }) => {
   const [isExpanded, setIsExpanded] = useState(false);
   const [isAutoPlaying, setIsAutoPlaying] = useState(false);
   const [isPreloading, setIsPreloading] = useState(false);
+  const [isEditingSummary, setIsEditingSummary] = useState(false);
+  const [editedSummary, setEditedSummary] = useState(dailyChat.summary || '');
   const [currentPlayingIndex, setCurrentPlayingIndex] = useState<number>(-1);
   const messageRefs = React.useRef<Map<number, HTMLDivElement>>(new Map());
   const autoPlayRef = React.useRef<boolean>(false);
@@ -153,12 +157,67 @@ const DailyEntry: React.FC<DailyEntryProps> = ({
                 className="h-5 w-5 text-blue-600 rounded focus:ring-blue-500 cursor-pointer"
             />
         </div>
-        <div className="flex-1 cursor-pointer" onClick={() => setIsExpanded(!isExpanded)}>
-            <p className="font-semibold text-gray-600">{formattedDate}</p>
-            <p className="text-gray-800 mt-2 italic">"{dailyChat.summary}"</p>
-            <div className="text-right text-sm text-blue-500 mt-2">
-            {isExpanded ? 'Thu gọn' : 'Xem chi tiết...'} ({dailyChat.messages.length} tin nhắn)
+        <div className="flex-1">
+            <div className="cursor-pointer" onClick={() => !isEditingSummary && setIsExpanded(!isExpanded)}>
+              <p className="font-semibold text-gray-600">{formattedDate}</p>
             </div>
+            {isEditingSummary ? (
+              <div className="mt-2" onClick={(e) => e.stopPropagation()}>
+                <textarea
+                  value={editedSummary}
+                  onChange={(e) => setEditedSummary(e.target.value)}
+                  className="w-full p-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-400 text-sm"
+                  rows={2}
+                  placeholder="Nhập tóm tắt..."
+                />
+                <div className="flex justify-end space-x-2 mt-2">
+                  <button
+                    onClick={() => {
+                      if (onUpdateSummary) {
+                        onUpdateSummary(dailyChat.id, editedSummary);
+                      }
+                      setIsEditingSummary(false);
+                    }}
+                    className="px-3 py-1 text-sm bg-green-500 text-white rounded-md hover:bg-green-600 transition-colors"
+                  >
+                    Lưu
+                  </button>
+                  <button
+                    onClick={() => {
+                      setEditedSummary(dailyChat.summary || '');
+                      setIsEditingSummary(false);
+                    }}
+                    className="px-3 py-1 text-sm bg-gray-500 text-white rounded-md hover:bg-gray-600 transition-colors"
+                  >
+                    Hủy
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <div className="cursor-pointer" onClick={() => setIsExpanded(!isExpanded)}>
+                <div className="flex items-center mt-2">
+                  <p className="text-gray-800 italic flex-1">"{dailyChat.summary}"</p>
+                  {onUpdateSummary && (
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setEditedSummary(dailyChat.summary || '');
+                        setIsEditingSummary(true);
+                      }}
+                      className="ml-2 p-1 text-gray-400 hover:text-blue-500 transition-colors"
+                      title="Sửa tóm tắt"
+                    >
+                      <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor">
+                        <path d="M13.586 3.586a2 2 0 112.828 2.828l-.793.793-2.828-2.828.793-.793zM11.379 5.793L3 14.172V17h2.828l8.38-8.379-2.83-2.828z" />
+                      </svg>
+                    </button>
+                  )}
+                </div>
+                <div className="text-right text-sm text-blue-500 mt-2">
+                  {isExpanded ? 'Thu gọn' : 'Xem chi tiết...'} ({dailyChat.messages.length} tin nhắn)
+                </div>
+              </div>
+            )}
         </div>
       </div>
       {isExpanded && (
@@ -367,6 +426,7 @@ interface JournalViewerProps {
   characters: Character[];
   onTranslate: (text: string) => Promise<string>;
   onStoreTranslation: (messageId: string, translation: string, dailyChatId: string) => void;
+  onUpdateDailySummary?: (dailyChatId: string, newSummary: string) => void;
 }
 
 export const JournalViewer: React.FC<JournalViewerProps> = ({ 
@@ -389,6 +449,7 @@ export const JournalViewer: React.FC<JournalViewerProps> = ({
     characters,
     onTranslate,
     onStoreTranslation,
+    onUpdateDailySummary,
 }) => {
     const [isViewingSummary, setIsViewingSummary] = useState(false);
     const [isEditingSummary, setIsEditingSummary] = useState(false);
@@ -773,6 +834,7 @@ export const JournalViewer: React.FC<JournalViewerProps> = ({
                             characters={characters}
                             onTranslate={onTranslate}
                             onStoreTranslation={onStoreTranslation}
+                            onUpdateSummary={onUpdateDailySummary}
                         />
                     ))}
                 </div>

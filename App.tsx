@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import type { Chat, Content } from '@google/genai';
 import { ChatWindow } from './components/ChatWindow';
 import { MessageInput } from './components/MessageInput';
@@ -15,6 +15,7 @@ import type { Message, ChatJournal, DailyChat, Character, SavedData, CharacterTh
 import { initializeGeminiService, initChat, sendMessage, textToSpeech, translateAndExplainText, translateWord, summarizeConversation, generateCharacterThoughts, generateToneDescription, generateRelationshipSummary, generateContextSuggestion, generateMessageSuggestions, generateVocabulary, generateSceneImage, initAutoChatSession, sendAutoChatMessage, uploadAudio, sendAudioMessage } from './services/geminiService';
 import { getVocabulariesDueForReview, updateReviewAfterQuiz, initializeVocabularyReview, getReviewDueCount, getRandomReviewVocabulariesForChat, getTotalVocabulariesLearned } from './utils/spacedRepetition';
 import { initializeStreak, updateStreak, checkStreakStatus } from './utils/streakManager';
+import { formatJournalForSearch, parseSystemCommand, executeSystemCommand, type FormattedJournal } from './utils/storySearch';
 import { KOREAN_LEVELS } from './types';
 import http, { API_URL } from './services/HTTPService';
 
@@ -128,6 +129,12 @@ const App: React.FC = () => {
   // Story plot state - mô tả cốt truyện
   const [storyPlot, setStoryPlot] = useState<string>('');
 
+  // Pronunciation check state - kiểm tra phát âm
+  const [checkPronunciation, setCheckPronunciation] = useState<boolean>(false);
+
+  // AI Search state - for story research
+  const [isAISearching, setIsAISearching] = useState(false);
+
   const [isGeminiInitialized, setIsGeminiInitialized] = useState(false);
   const [isDataLoaded, setIsDataLoaded] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
@@ -138,6 +145,13 @@ const App: React.FC = () => {
   const chatRef = useRef<Chat | null>(null);
   const audioContextRef = useRef<AudioContext | null>(null);
   const audioCacheRef = useRef<Map<string, AudioBuffer>>(new Map());
+
+  // Cache formatted journal for AI search (excludes current chat to avoid searching recent messages)
+  const formattedJournalForSearch = useMemo<FormattedJournal>(() => {
+    // Only format completed journals (exclude the last one which is current chat)
+    const completedJournals = journal.length > 1 ? journal.slice(0, -1) : [];
+    return formatJournalForSearch(completedJournals);
+  }, [journal]);
 
   const getActiveCharacters = useCallback(() => {
     return characters.filter(c => activeCharacterIds.includes(c.id));
@@ -196,9 +210,9 @@ const App: React.FC = () => {
         // Only get new review vocabularies if we don't have any yet
         // This prevents re-randomizing when context changes
         let reviewVocabs = chatReviewVocabularies;
-        if (chatReviewVocabularies.length < 20) {
+        if (chatReviewVocabularies.length < 10) {
           reviewVocabs = getRandomReviewVocabulariesForChat(journal);
-          if(reviewVocabs.length < 20){
+          if(reviewVocabs.length < 10){
             reviewVocabs = [];
           }
           setChatReviewVocabularies(reviewVocabs);
@@ -218,7 +232,8 @@ const App: React.FC = () => {
           relationshipSummary, 
           currentLevel,
           reviewVocabs.map(rv => rv.vocabulary),
-          storyPlot
+          storyPlot,
+          checkPronunciation
         );
         
         if (reviewVocabs.length > 0) {
@@ -229,7 +244,7 @@ const App: React.FC = () => {
       }
     };
     initializeChatSession();
-  }, [context, activeCharacterIds, characters, relationshipSummary, getActiveCharacters, isGeminiInitialized, isDataLoaded, storyPlot]);
+  }, [context, activeCharacterIds, characters, relationshipSummary, getActiveCharacters, isGeminiInitialized, isDataLoaded, storyPlot, checkPronunciation]);
 
 
   useEffect(() => {
@@ -355,6 +370,18 @@ const App: React.FC = () => {
     setJournal(updater);
   }, []);
 
+  // Handler to update daily chat summary
+  const handleUpdateDailySummary = useCallback((dailyChatId: string, newSummary: string) => {
+    setJournal(prevJournal => {
+      return prevJournal.map(dailyChat => {
+        if (dailyChat.id === dailyChatId) {
+          return { ...dailyChat, summary: newSummary };
+        }
+        return dailyChat;
+      });
+    });
+  }, []);
+
   // Helper function to update streak and show celebration
   const handleStreakUpdate = useCallback(async (activityType: 'chat' | 'review' | 'learn') => {
     const { updatedStreak, isNewStreak, streakIncreased } = updateStreak(streak, activityType);
@@ -385,6 +412,32 @@ const App: React.FC = () => {
       return updatedJournal;
     });
   }, []);
+
+  // Helper function to handle System commands from AI for story research
+  const handleSystemCommand = useCallback(async (
+    commandText: string,
+    searchCount: number
+  ): Promise<{ result: string; newSearchCount: number } | null> => {
+    const command = parseSystemCommand(commandText);
+    if (!command) return null;
+
+    // Check search limit
+    if (searchCount >= 3) {
+      return {
+        result: 'Đã đạt giới hạn 3 lần tìm kiếm. Vui lòng trả lời dựa trên thông tin đã có.',
+        newSearchCount: searchCount
+      };
+    }
+
+    // Execute command using completed journals only (exclude current chat)
+    const completedJournals = journal.length > 1 ? journal.slice(0, -1) : [];
+    const result = executeSystemCommand(command, completedJournals, formattedJournalForSearch);
+
+    return {
+      result,
+      newSearchCount: searchCount + 1
+    };
+  }, [journal, formattedJournalForSearch]);
 
   const processBotResponsesSequentially = useCallback(async (responses: any[]) => {
     if (!Array.isArray(responses) || responses.length === 0) {
@@ -461,25 +514,55 @@ const App: React.FC = () => {
           parts: [{ text: msg.rawText || msg.text }],
         })) : [];
         console.log(historyForGemini);
-        chatRef.current = await initChat(activeChars, context, historyForGemini, '', relationshipSummary, currentLevel, chatReviewVocabularies.map(rv => rv.vocabulary), storyPlot);
+        chatRef.current = await initChat(activeChars, context, historyForGemini, '', relationshipSummary, currentLevel, chatReviewVocabularies.map(rv => rv.vocabulary), storyPlot, checkPronunciation);
       }
       
       let botResponseText = await sendMessage(chatRef.current, messageForAI);
 
+      const activeChars = getActiveCharacters();
+      const validCharacterNames = activeChars.map(c => c.name);
+      
       const parseAndValidate = (jsonString: string) => {
         try {
           let parsed = JSON.parse(jsonString);
           if (!Array.isArray(parsed)) parsed = [parsed];
           
+          // Check if this is a System command (allow it through)
+          if (parsed.length === 1 && parsed[0].CharacterName === 'System') {
+            const command = parseSystemCommand(parsed[0].Text);
+            if (command) {
+              return parsed; // Valid System command
+            }
+          }
+          
           // Validate required fields
-          const isValid = parsed.every((item: any) => 
+          const hasRequiredFields = parsed.every((item: any) => 
             item && 
             typeof item.CharacterName === 'string' && 
             typeof item.Text === 'string' && 
             typeof item.Tone === 'string'
           );
           
-          return isValid ? parsed : null;
+          if (!hasRequiredFields) return null;
+          
+          // Validate CharacterName exists in active characters
+          const hasValidCharacters = parsed.every((item: any) => 
+            validCharacterNames.includes(item.CharacterName)
+          );
+          
+          if (!hasValidCharacters) {
+            console.warn('Invalid CharacterName detected. AI created non-existent character.');
+            return null;
+          }
+          
+          // Validate UserTranscript is not too long (AI sometimes puts thoughts here)
+          const firstItem = parsed[0];
+          if (firstItem?.UserTranscript && firstItem.UserTranscript.length > 50) {
+            console.warn('UserTranscript too long. AI may have included thoughts.');
+            return null;
+          }
+          
+          return parsed;
         } catch (e) {
           return null;
         }
@@ -487,11 +570,14 @@ const App: React.FC = () => {
 
       let botResponses = parseAndValidate(botResponseText);
       let retryCount = 0;
-      const maxRetries = 2;
+      const maxRetries = 20;
 
       while (!botResponses && retryCount < maxRetries) {
         console.warn(`Invalid response format. Retrying (${retryCount + 1}/${maxRetries})...`);
-        const retryPrompt = "SYSTEM: The last response was not in the correct JSON format. Please strictly output a JSON array where each object has 'CharacterName', 'Text', and 'Tone' fields.";
+        const retryPrompt = `SYSTEM: The last response was invalid. Rules:
+1. CharacterName MUST be exactly one of: ${validCharacterNames.join(', ')}
+2. UserTranscript must be SHORT (max 50 characters) - just the transcription, no thoughts
+3. Output a valid JSON array with 'CharacterName', 'Text', and 'Tone' fields.`;
         botResponseText = await sendMessage(chatRef.current, retryPrompt);
         botResponses = parseAndValidate(botResponseText);
         retryCount++;
@@ -502,6 +588,67 @@ const App: React.FC = () => {
         throw new Error("Failed to parse AI response.");
       }
 
+      // Handle System commands (AI story research) - max 3 searches
+      // Also handle mixed responses (character messages + System command)
+      let searchCount = 0;
+      
+      const hasSystemCommand = (responses: any[]) => 
+        responses.some((r: any) => r.CharacterName === 'System' && parseSystemCommand(r.Text));
+      
+      const getSystemCommand = (responses: any[]) => 
+        responses.find((r: any) => r.CharacterName === 'System' && parseSystemCommand(r.Text));
+      
+      const getCharacterResponses = (responses: any[]) => 
+        responses.filter((r: any) => r.CharacterName !== 'System');
+
+      while (hasSystemCommand(botResponses) && searchCount < 3) {
+        // First, process any character responses before the search
+        const charResponses = getCharacterResponses(botResponses);
+        if (charResponses.length > 0) {
+          // Check for realtime context in first response
+          const suggestedCtx = botResponses[0]?.SuggestedRealtimeContext;
+          if (suggestedCtx && suggestedCtx.trim()) {
+            setRealtimeContext(suggestedCtx.trim());
+          }
+          await processBotResponsesSequentially(charResponses);
+        }
+        
+        // Now execute the System command
+        const systemResponse = getSystemCommand(botResponses);
+        const commandText = systemResponse.Text;
+        console.log('AI System command:', commandText);
+        
+        setIsAISearching(true);
+        const commandResult = await handleSystemCommand(commandText, searchCount);
+        
+        if (commandResult) {
+          searchCount = commandResult.newSearchCount;
+          console.log(`Search result (${searchCount}/3):`, commandResult.result);
+          
+          // Send search result back to AI
+          const searchResultMessage = `SEARCH_RESULT:\n${commandResult.result}\n\nBây giờ hãy tiếp tục trả lời người dùng dựa trên thông tin tìm được.`;
+          botResponseText = await sendMessage(chatRef.current, searchResultMessage);
+          botResponses = parseAndValidate(botResponseText);
+          
+          if (!botResponses) {
+            // If parsing fails, force AI to respond normally
+            botResponseText = await sendMessage(chatRef.current, `SYSTEM: Hãy trả lời bằng các nhân vật (${validCharacterNames.join(', ')}), không dùng System command nữa.`);
+            botResponses = parseAndValidate(botResponseText);
+          }
+        } else {
+          break;
+        }
+      }
+      
+      setIsAISearching(false);
+
+      if (!botResponses) {
+        throw new Error("Failed to get valid response after search.");
+      }
+
+      // Filter out any remaining System commands before final processing
+      const characterResponses = getCharacterResponses(botResponses);
+
       // Check if AI suggested a new realtime context
       const suggestedContext = botResponses[0]?.SuggestedRealtimeContext;
       if (suggestedContext && suggestedContext.trim()) {
@@ -509,7 +656,10 @@ const App: React.FC = () => {
         console.log("AI suggested new realtime context:", suggestedContext);
       }
 
-      await processBotResponsesSequentially(botResponses);
+      // Process only character responses (not System commands)
+      if (characterResponses.length > 0) {
+        await processBotResponsesSequentially(characterResponses);
+      }
       
       // Update streak after successful chat
       await handleStreakUpdate('chat');
@@ -519,8 +669,9 @@ const App: React.FC = () => {
       const errorMessage: Message = { id: (Date.now() + 1).toString(), text: 'Xin lỗi, đã xảy ra lỗi. Vui lòng thử lại.', sender: 'bot', isError: true };
       updateCurrentChatMessages(prev => [...prev, errorMessage]);
       setIsLoading(false);
+      setIsAISearching(false);
     }
-  }, [isLoading, getActiveCharacters, context, updateCurrentChatMessages, processBotResponsesSequentially, handleStreakUpdate, realtimeContext]);
+  }, [isLoading, getActiveCharacters, context, updateCurrentChatMessages, processBotResponsesSequentially, handleStreakUpdate, realtimeContext, handleSystemCommand]);
 
   // Handle sending voice message
   const handleSendAudio = useCallback(async (audioBase64: string, duration: number) => {
@@ -545,36 +696,66 @@ const App: React.FC = () => {
       };
       updateCurrentChatMessages(prev => [...prev, userMessage]);
 
+      const activeChars = getActiveCharacters();
+      
       // Initialize chat if needed
       if (!chatRef.current) {
-        const activeChars = getActiveCharacters();
         const currentChat = getCurrentChat();
         const history: Content[] = currentChat ? currentChat.messages.map(msg => ({
           role: msg.sender === 'user' ? 'user' : 'model',
           parts: [{ text: msg.rawText || msg.text }],
         })) : [];
-        chatRef.current = await initChat(activeChars, context, history, '', relationshipSummary, currentLevel, chatReviewVocabularies.map(rv => rv.vocabulary), storyPlot);
+        chatRef.current = await initChat(activeChars, context, history, '', relationshipSummary, currentLevel, chatReviewVocabularies.map(rv => rv.vocabulary), storyPlot, checkPronunciation);
       }
       
       // Build context prefix for voice messages if realtime context is available
       const contextPrefix = realtimeContext ? `(Ngữ cảnh hiện tại: ${realtimeContext}) ` : '';
       
-      // Send audio to Gemini (with optional context prefix in a separate text message if needed)
-      let botResponseText = await sendAudioMessage(chatRef.current, audioBase64, 'audio/wav', contextPrefix);
+      // Send audio to Gemini - using webm format (browser's native recording format)
+      let botResponseText = await sendAudioMessage(chatRef.current, audioBase64, 'audio/webm', contextPrefix);
 
+      const validCharacterNames = activeChars.map(c => c.name);
+      
       const parseAndValidate = (jsonString: string) => {
         try {
           let parsed = JSON.parse(jsonString);
           if (!Array.isArray(parsed)) parsed = [parsed];
           
-          const isValid = parsed.every((item: any) => 
+          // Check if this is a System command (allow it through)
+          if (parsed.length === 1 && parsed[0].CharacterName === 'System') {
+            const command = parseSystemCommand(parsed[0].Text);
+            if (command) {
+              return parsed; // Valid System command
+            }
+          }
+          
+          const hasRequiredFields = parsed.every((item: any) => 
             item && 
             typeof item.CharacterName === 'string' && 
             typeof item.Text === 'string' && 
             typeof item.Tone === 'string'
           );
           
-          return isValid ? parsed : null;
+          if (!hasRequiredFields) return null;
+          
+          // Validate CharacterName exists in active characters
+          const hasValidCharacters = parsed.every((item: any) => 
+            validCharacterNames.includes(item.CharacterName)
+          );
+          
+          if (!hasValidCharacters) {
+            console.warn('Invalid CharacterName detected in audio response. AI created non-existent character.');
+            return null;
+          }
+          
+          // Validate UserTranscript is not too long (AI sometimes puts thoughts here)
+          const firstItem = parsed[0];
+          if (firstItem?.UserTranscript && firstItem.UserTranscript.length > 50) {
+            console.warn('UserTranscript too long in audio response. AI may have included thoughts.');
+            return null;
+          }
+          
+          return parsed;
         } catch (e) {
           return null;
         }
@@ -586,7 +767,10 @@ const App: React.FC = () => {
 
       while (!botResponses && retryCount < maxRetries) {
         console.warn(`Invalid response format. Retrying (${retryCount + 1}/${maxRetries})...`);
-        const retryPrompt = "SYSTEM: The last response was not in the correct JSON format. Please strictly output a JSON array where each object has 'CharacterName', 'Text', and 'Tone' fields.";
+        const retryPrompt = `SYSTEM: The last response was invalid. Rules:
+1. CharacterName MUST be exactly one of: ${validCharacterNames.join(', ')}
+2. UserTranscript must be SHORT (max 50 characters) - just the transcription of the audio, NO thoughts or analysis
+3. Output a valid JSON array with 'CharacterName', 'Text', and 'Tone' fields.`;
         botResponseText = await sendMessage(chatRef.current, retryPrompt);
         botResponses = parseAndValidate(botResponseText);
         retryCount++;
@@ -597,16 +781,77 @@ const App: React.FC = () => {
         throw new Error("Failed to parse AI response.");
       }
 
-      // Extract UserTranscript from the first response if available
+      // Handle System commands (AI story research) - max 3 searches
+      // Also handle mixed responses (character messages + System command)
+      let searchCount = 0;
+      
+      const hasSystemCommand = (responses: any[]) => 
+        responses.some((r: any) => r.CharacterName === 'System' && parseSystemCommand(r.Text));
+      
+      const getSystemCommand = (responses: any[]) => 
+        responses.find((r: any) => r.CharacterName === 'System' && parseSystemCommand(r.Text));
+      
+      const getCharacterResponses = (responses: any[]) => 
+        responses.filter((r: any) => r.CharacterName !== 'System');
+
+      // Extract UserTranscript early (before processing loop) from first response
       const userTranscript = botResponses[0]?.UserTranscript;
       if (userTranscript) {
-        // Update the user message with the transcript
         updateCurrentChatMessages(prev => prev.map(msg => 
           msg.id === userMessageId 
             ? { ...msg, text: userTranscript, transcript: userTranscript }
             : msg
         ));
       }
+
+      while (hasSystemCommand(botResponses) && searchCount < 3) {
+        // First, process any character responses before the search
+        const charResponses = getCharacterResponses(botResponses);
+        if (charResponses.length > 0) {
+          const suggestedCtx = botResponses[0]?.SuggestedRealtimeContext;
+          if (suggestedCtx && suggestedCtx.trim()) {
+            setRealtimeContext(suggestedCtx.trim());
+          }
+          await processBotResponsesSequentially(charResponses);
+        }
+        
+        // Now execute the System command
+        const systemResponse = getSystemCommand(botResponses);
+        const commandText = systemResponse.Text;
+        console.log('AI System command (audio):', commandText);
+        
+        setIsAISearching(true);
+        const commandResult = await handleSystemCommand(commandText, searchCount);
+        
+        if (commandResult) {
+          searchCount = commandResult.newSearchCount;
+          console.log(`Search result (${searchCount}/3):`, commandResult.result);
+          
+          // Send search result back to AI
+          const searchResultMessage = `SEARCH_RESULT:\n${commandResult.result}\n\nBây giờ hãy trả lời người dùng dựa trên thông tin tìm được.`;
+          botResponseText = await sendMessage(chatRef.current, searchResultMessage);
+          botResponses = parseAndValidate(botResponseText);
+          
+          if (!botResponses) {
+            // If parsing fails, force AI to respond normally
+            botResponseText = await sendMessage(chatRef.current, `SYSTEM: Hãy trả lời bằng các nhân vật (${validCharacterNames.join(', ')}), không dùng System command nữa.`);
+            botResponses = parseAndValidate(botResponseText);
+          }
+        } else {
+          break;
+        }
+      }
+      
+      setIsAISearching(false);
+
+      if (!botResponses) {
+        throw new Error("Failed to get valid response after search.");
+      }
+
+      // Filter out any remaining System commands before processing
+      const finalCharacterResponses = botResponses.filter(
+        (r: any) => r.CharacterName !== 'System'
+      );
 
       // Check if AI suggested a new realtime context
       const suggestedContext = botResponses[0]?.SuggestedRealtimeContext;
@@ -615,7 +860,10 @@ const App: React.FC = () => {
         console.log("AI suggested new realtime context:", suggestedContext);
       }
 
-      await processBotResponsesSequentially(botResponses);
+      // Process only character responses (not System commands)
+      if (finalCharacterResponses.length > 0) {
+        await processBotResponsesSequentially(finalCharacterResponses);
+      }
       
       // Update streak after successful voice chat
       await handleStreakUpdate('chat');
@@ -625,8 +873,9 @@ const App: React.FC = () => {
       const errorMessage: Message = { id: (Date.now() + 1).toString(), text: 'Xin lỗi, đã xảy ra lỗi khi xử lý giọng nói. Vui lòng thử lại.', sender: 'bot', isError: true };
       updateCurrentChatMessages(prev => [...prev, errorMessage]);
       setIsLoading(false);
+      setIsAISearching(false);
     }
-  }, [isLoading, getActiveCharacters, context, updateCurrentChatMessages, processBotResponsesSequentially, handleStreakUpdate, relationshipSummary, currentLevel, chatReviewVocabularies, realtimeContext]);
+  }, [isLoading, getActiveCharacters, context, updateCurrentChatMessages, processBotResponsesSequentially, handleStreakUpdate, relationshipSummary, currentLevel, chatReviewVocabularies, realtimeContext, handleSystemCommand]);
 
   const handleUpdateMessage = useCallback(async (messageId: string, newText: string) => {
     if (isLoading) return;
@@ -658,24 +907,58 @@ const App: React.FC = () => {
       }));
 
       const activeChars = getActiveCharacters();
-      chatRef.current = await initChat(activeChars, context, historyForGemini, '', relationshipSummary, currentLevel, chatReviewVocabularies.map(rv => rv.vocabulary), storyPlot);
+      chatRef.current = await initChat(activeChars, context, historyForGemini, '', relationshipSummary, currentLevel, chatReviewVocabularies.map(rv => rv.vocabulary), storyPlot, checkPronunciation);
 
       let botResponseText = await sendMessage(chatRef.current, newText);
 
+      const validCharacterNames = activeChars.map(c => c.name);
+      
       const parseAndValidate = (jsonString: string) => {
         try {
           let parsed = JSON.parse(jsonString);
           if (!Array.isArray(parsed)) parsed = [parsed];
           
-          // Validate required fields
-          const isValid = parsed.every((item: any) => 
-            item && 
-            typeof item.CharacterName === 'string' && 
-            typeof item.Text === 'string' && 
-            typeof item.Tone === 'string'
+          // Separate character responses and system commands
+          const characterResponses = parsed.filter((item: any) => item.CharacterName !== 'System');
+          const systemCommands = parsed.filter((item: any) => item.CharacterName === 'System');
+          
+          // Validate System commands if any
+          const validSystemCommands = systemCommands.filter((item: any) => 
+            parseSystemCommand(item.Text)
           );
           
-          return isValid ? parsed : null;
+          // If there's only a System command (no character responses), allow it
+          if (characterResponses.length === 0 && validSystemCommands.length > 0) {
+            return parsed;
+          }
+          
+          // If there are character responses, validate them
+          if (characterResponses.length > 0) {
+            // Validate required fields for character responses
+            const hasRequiredFields = characterResponses.every((item: any) => 
+              item && 
+              typeof item.CharacterName === 'string' && 
+              typeof item.Text === 'string' && 
+              typeof item.Tone === 'string'
+            );
+            
+            if (!hasRequiredFields) return null;
+            
+            // Validate CharacterName exists in active characters
+            const hasValidCharacters = characterResponses.every((item: any) => 
+              validCharacterNames.includes(item.CharacterName)
+            );
+            
+            if (!hasValidCharacters) {
+              console.warn('Invalid CharacterName detected on update. AI created non-existent character.');
+              return null;
+            }
+            
+            // Return the full array (including valid System commands if any)
+            return [...characterResponses, ...validSystemCommands];
+          }
+          
+          return null;
         } catch (e) {
           return null;
         }
@@ -687,7 +970,7 @@ const App: React.FC = () => {
 
       while (!botResponses && retryCount < maxRetries) {
         console.warn(`Invalid response format on update. Retrying (${retryCount + 1}/${maxRetries})...`);
-        const retryPrompt = "SYSTEM: The last response was not in the correct JSON format. Please strictly output a JSON array where each object has 'CharacterName', 'Text', and 'Tone' fields.";
+        const retryPrompt = `SYSTEM: The last response was invalid. CharacterName MUST be exactly one of: ${validCharacterNames.join(', ')}. Output a valid JSON array.`;
         botResponseText = await sendMessage(chatRef.current, retryPrompt);
         botResponses = parseAndValidate(botResponseText);
         retryCount++;
@@ -697,13 +980,84 @@ const App: React.FC = () => {
         throw new Error("Failed to parse AI response on update.");
       }
 
-      await processBotResponsesSequentially(botResponses);
+      // Handle System commands (AI story research) - max 3 searches
+      // Also handle mixed responses (character messages + System command)
+      let searchCount = 0;
+      
+      const hasSystemCommand = (responses: any[]) => 
+        responses.some((r: any) => r.CharacterName === 'System' && parseSystemCommand(r.Text));
+      
+      const getSystemCommand = (responses: any[]) => 
+        responses.find((r: any) => r.CharacterName === 'System' && parseSystemCommand(r.Text));
+      
+      const getCharacterResponses = (responses: any[]) => 
+        responses.filter((r: any) => r.CharacterName !== 'System');
+
+      while (hasSystemCommand(botResponses) && searchCount < 3) {
+        // First, process any character responses before the search
+        const charResponses = getCharacterResponses(botResponses);
+        if (charResponses.length > 0) {
+          const suggestedCtx = botResponses[0]?.SuggestedRealtimeContext;
+          if (suggestedCtx && suggestedCtx.trim()) {
+            setRealtimeContext(suggestedCtx.trim());
+          }
+          await processBotResponsesSequentially(charResponses);
+        }
+        
+        // Now execute the System command
+        const systemResponse = getSystemCommand(botResponses);
+        const commandText = systemResponse.Text;
+        console.log('AI System command (update):', commandText);
+        
+        setIsAISearching(true);
+        const commandResult = await handleSystemCommand(commandText, searchCount);
+        
+        if (commandResult) {
+          searchCount = commandResult.newSearchCount;
+          console.log(`Search result (${searchCount}/3):`, commandResult.result);
+          
+          // Send search result back to AI
+          const searchResultMessage = `SEARCH_RESULT:\n${commandResult.result}\n\nBây giờ hãy tiếp tục trả lời người dùng dựa trên thông tin tìm được.`;
+          botResponseText = await sendMessage(chatRef.current, searchResultMessage);
+          botResponses = parseAndValidate(botResponseText);
+          
+          if (!botResponses) {
+            // If parsing fails, force AI to respond normally
+            botResponseText = await sendMessage(chatRef.current, `SYSTEM: Hãy trả lời bằng các nhân vật (${validCharacterNames.join(', ')}), không dùng System command nữa.`);
+            botResponses = parseAndValidate(botResponseText);
+          }
+        } else {
+          break;
+        }
+      }
+      
+      setIsAISearching(false);
+
+      if (!botResponses) {
+        throw new Error("Failed to get valid response after search on update.");
+      }
+
+      // Filter out any remaining System commands before final processing
+      const characterResponses = getCharacterResponses(botResponses);
+
+      // Check if AI suggested a new realtime context
+      const suggestedContext = botResponses[0]?.SuggestedRealtimeContext;
+      if (suggestedContext && suggestedContext.trim()) {
+        setRealtimeContext(suggestedContext.trim());
+        console.log("AI suggested new realtime context:", suggestedContext);
+      }
+
+      // Process only character responses (not System commands)
+      if (characterResponses.length > 0) {
+        await processBotResponsesSequentially(characterResponses);
+      }
     } catch (error) {
       console.error("Failed to update message and regenerate response:", error);
       updateCurrentChatMessages(() => currentMessages); // Restore previous messages on error
       setIsLoading(false);
+      setIsAISearching(false);
     }
-  }, [isLoading, journal, getActiveCharacters, context, updateCurrentChatMessages, processBotResponsesSequentially]);
+  }, [isLoading, journal, getActiveCharacters, context, updateCurrentChatMessages, processBotResponsesSequentially, handleSystemCommand]);
 
   const handleUpdateBotMessage = useCallback(async (messageId: string, newText: string, newTone: string) => {
     const currentChat = getCurrentChat();
@@ -829,24 +1183,58 @@ const App: React.FC = () => {
       })).slice(0, -1);
 
       const activeChars = getActiveCharacters();
-      chatRef.current = await initChat(activeChars, context, historyForGemini, '', relationshipSummary, currentLevel, chatReviewVocabularies.map(rv => rv.vocabulary), storyPlot);
+      chatRef.current = await initChat(activeChars, context, historyForGemini, '', relationshipSummary, currentLevel, chatReviewVocabularies.map(rv => rv.vocabulary), storyPlot, checkPronunciation);
 
       let botResponseText = await sendMessage(chatRef.current, lastUserMessage.text);
 
+      const validCharacterNames = activeChars.map(c => c.name);
+      
       const parseAndValidate = (jsonString: string) => {
         try {
           let parsed = JSON.parse(jsonString);
           if (!Array.isArray(parsed)) parsed = [parsed];
           
-          // Validate required fields
-          const isValid = parsed.every((item: any) => 
-            item && 
-            typeof item.CharacterName === 'string' && 
-            typeof item.Text === 'string' && 
-            typeof item.Tone === 'string'
+          // Separate character responses and system commands
+          const characterResponses = parsed.filter((item: any) => item.CharacterName !== 'System');
+          const systemCommands = parsed.filter((item: any) => item.CharacterName === 'System');
+          
+          // Validate System commands if any
+          const validSystemCommands = systemCommands.filter((item: any) => 
+            parseSystemCommand(item.Text)
           );
           
-          return isValid ? parsed : null;
+          // If there's only a System command (no character responses), allow it
+          if (characterResponses.length === 0 && validSystemCommands.length > 0) {
+            return parsed;
+          }
+          
+          // If there are character responses, validate them
+          if (characterResponses.length > 0) {
+            // Validate required fields for character responses
+            const hasRequiredFields = characterResponses.every((item: any) => 
+              item && 
+              typeof item.CharacterName === 'string' && 
+              typeof item.Text === 'string' && 
+              typeof item.Tone === 'string'
+            );
+            
+            if (!hasRequiredFields) return null;
+            
+            // Validate CharacterName exists in active characters
+            const hasValidCharacters = characterResponses.every((item: any) => 
+              validCharacterNames.includes(item.CharacterName)
+            );
+            
+            if (!hasValidCharacters) {
+              console.warn('Invalid CharacterName detected on retry. AI created non-existent character.');
+              return null;
+            }
+            
+            // Return the full array (including valid System commands if any)
+            return [...characterResponses, ...validSystemCommands];
+          }
+          
+          return null;
         } catch (e) {
           return null;
         }
@@ -858,7 +1246,7 @@ const App: React.FC = () => {
 
       while (!botResponses && retryCount < maxRetries) {
         console.warn(`Invalid response format on retry. Retrying (${retryCount + 1}/${maxRetries})...`);
-        const retryPrompt = "SYSTEM: The last response was not in the correct JSON format. Please strictly output a JSON array where each object has 'CharacterName', 'Text', and 'Tone' fields.";
+        const retryPrompt = `SYSTEM: The last response was invalid. CharacterName MUST be exactly one of: ${validCharacterNames.join(', ')}. Output a valid JSON array.`;
         botResponseText = await sendMessage(chatRef.current, retryPrompt);
         botResponses = parseAndValidate(botResponseText);
         retryCount++;
@@ -868,15 +1256,86 @@ const App: React.FC = () => {
         throw new Error("Failed to parse AI response on retry.");
       }
 
-      await processBotResponsesSequentially(botResponses);
+      // Handle System commands (AI story research) - max 3 searches
+      // Also handle mixed responses (character messages + System command)
+      let searchCount = 0;
+      
+      const hasSystemCommand = (responses: any[]) => 
+        responses.some((r: any) => r.CharacterName === 'System' && parseSystemCommand(r.Text));
+      
+      const getSystemCommand = (responses: any[]) => 
+        responses.find((r: any) => r.CharacterName === 'System' && parseSystemCommand(r.Text));
+      
+      const getCharacterResponses = (responses: any[]) => 
+        responses.filter((r: any) => r.CharacterName !== 'System');
+
+      while (hasSystemCommand(botResponses) && searchCount < 3) {
+        // First, process any character responses before the search
+        const charResponses = getCharacterResponses(botResponses);
+        if (charResponses.length > 0) {
+          const suggestedCtx = botResponses[0]?.SuggestedRealtimeContext;
+          if (suggestedCtx && suggestedCtx.trim()) {
+            setRealtimeContext(suggestedCtx.trim());
+          }
+          await processBotResponsesSequentially(charResponses);
+        }
+        
+        // Now execute the System command
+        const systemResponse = getSystemCommand(botResponses);
+        const commandText = systemResponse.Text;
+        console.log('AI System command (retry):', commandText);
+        
+        setIsAISearching(true);
+        const commandResult = await handleSystemCommand(commandText, searchCount);
+        
+        if (commandResult) {
+          searchCount = commandResult.newSearchCount;
+          console.log(`Search result (${searchCount}/3):`, commandResult.result);
+          
+          // Send search result back to AI
+          const searchResultMessage = `SEARCH_RESULT:\n${commandResult.result}\n\nBây giờ hãy tiếp tục trả lời người dùng dựa trên thông tin tìm được.`;
+          botResponseText = await sendMessage(chatRef.current, searchResultMessage);
+          botResponses = parseAndValidate(botResponseText);
+          
+          if (!botResponses) {
+            // If parsing fails, force AI to respond normally
+            botResponseText = await sendMessage(chatRef.current, `SYSTEM: Hãy trả lời bằng các nhân vật (${validCharacterNames.join(', ')}), không dùng System command nữa.`);
+            botResponses = parseAndValidate(botResponseText);
+          }
+        } else {
+          break;
+        }
+      }
+      
+      setIsAISearching(false);
+
+      if (!botResponses) {
+        throw new Error("Failed to get valid response after search on retry.");
+      }
+
+      // Filter out any remaining System commands before final processing
+      const characterResponses = getCharacterResponses(botResponses);
+
+      // Check if AI suggested a new realtime context
+      const suggestedContext = botResponses[0]?.SuggestedRealtimeContext;
+      if (suggestedContext && suggestedContext.trim()) {
+        setRealtimeContext(suggestedContext.trim());
+        console.log("AI suggested new realtime context:", suggestedContext);
+      }
+
+      // Process only character responses (not System commands)
+      if (characterResponses.length > 0) {
+        await processBotResponsesSequentially(characterResponses);
+      }
 
     } catch (error) {
       console.error("Không thể thử lại:", error);
       const errorMessage: Message = { id: (Date.now() + 1).toString(), text: 'Xin lỗi, đã xảy ra lỗi. Vui lòng thử lại.', sender: 'bot', isError: true };
       updateCurrentChatMessages(prev => [...prev, errorMessage]);
       setIsLoading(false);
+      setIsAISearching(false);
     }
-  }, [journal, isLoading, updateCurrentChatMessages, getActiveCharacters, context, processBotResponsesSequentially]);
+  }, [journal, isLoading, updateCurrentChatMessages, getActiveCharacters, context, processBotResponsesSequentially, handleSystemCommand]);
 
   const handleGenerateAudio = useCallback(async (messageId: string, force: boolean = false) => {
     const currentChat = getCurrentChat();
@@ -925,6 +1384,13 @@ const App: React.FC = () => {
       )
     );
   };
+
+  // Delete message handler
+  const handleDeleteMessage = useCallback((messageId: string) => {
+    updateCurrentChatMessages(prevMessages =>
+      prevMessages.filter(msg => msg.id !== messageId)
+    );
+  }, [updateCurrentChatMessages]);
 
   // Store translation for journal messages
   const handleStoreTranslationJournal = (messageId: string, translation: string, dailyChatId: string) => {
@@ -1063,7 +1529,8 @@ const App: React.FC = () => {
         newRelationshipSummary, 
         currentLevel,
         newReviewVocabs.map(rv => rv.vocabulary),
-        storyPlot
+        storyPlot,
+        checkPronunciation
       );
       
       if (newReviewVocabs.length > 0) {
@@ -1541,9 +2008,9 @@ const App: React.FC = () => {
           parts: [{ text: msg.rawText || msg.text }],
         }));
         const previousSummary = journal.length > 1 ? journal[journal.length - 2]?.summary || '' : '';
-        chatRef.current = await initChat(activeChars, context, history, previousSummary, relationshipSummary, newLevel, chatReviewVocabularies.map(rv => rv.vocabulary), storyPlot);
+        chatRef.current = await initChat(activeChars, context, history, previousSummary, relationshipSummary, newLevel, chatReviewVocabularies.map(rv => rv.vocabulary), storyPlot, checkPronunciation);
       } else {
-        chatRef.current = await initChat(activeChars, context, [], '', relationshipSummary, newLevel, chatReviewVocabularies.map(rv => rv.vocabulary), storyPlot);
+        chatRef.current = await initChat(activeChars, context, [], '', relationshipSummary, newLevel, chatReviewVocabularies.map(rv => rv.vocabulary), storyPlot, checkPronunciation);
       }
     }
     
@@ -1877,7 +2344,7 @@ const App: React.FC = () => {
     }
     setChatReviewVocabularies(reviewVocabs);
     
-    chatRef.current = await initChat(activeChars, loadedContext, history, previousSummary, loadedRelationshipSummary, loadedLevel, reviewVocabs.map(rv => rv.vocabulary), loadedStoryPlot);
+    chatRef.current = await initChat(activeChars, loadedContext, history, previousSummary, loadedRelationshipSummary, loadedLevel, reviewVocabs.map(rv => rv.vocabulary), loadedStoryPlot, checkPronunciation);
 
     setView('journal');
     setIsDataLoaded(true);
@@ -2168,7 +2635,7 @@ const App: React.FC = () => {
         const reviewVocabs = getRandomReviewVocabulariesForChat(loadedJournal);
         setChatReviewVocabularies(reviewVocabs);
         
-        chatRef.current = await initChat(activeChars, loadedContext, history, previousSummary, loadedRelationshipSummary, loadedLevel, reviewVocabs.map(rv => rv.vocabulary), loadedStoryPlot);
+        chatRef.current = await initChat(activeChars, loadedContext, history, previousSummary, loadedRelationshipSummary, loadedLevel, reviewVocabs.map(rv => rv.vocabulary), loadedStoryPlot, checkPronunciation);
 
         setView('journal');
 
@@ -2506,6 +2973,7 @@ const App: React.FC = () => {
           <ChatWindow
             messages={currentMessages}
             isLoading={isLoading || isAutoGenerating}
+            isAISearching={isAISearching}
             onReplayAudio={handleReplayAudio}
             onTranslate={getTranslationAndExplanation}
             onStoreTranslation={handleStoreTranslation}
@@ -2518,6 +2986,7 @@ const App: React.FC = () => {
             onRegenerateTone={handleRegenerateTone}
             onCollectVocabulary={(korean, messageId) => handleCollectVocabulary(korean, messageId, getCurrentDailyChatId())}
             onRegenerateImage={handleRegenerateImage}
+            onDeleteMessage={handleDeleteMessage}
             characters={characters}
             reviewVocabularies={chatReviewVocabularies.map(rv => rv.vocabulary)}
             onSuggestWithVocabulary={handleSuggestWithVocabulary}
@@ -2615,6 +3084,20 @@ const App: React.FC = () => {
             />
           </div>
           
+          {/* Pronunciation Check Toggle */}
+          <div className="px-4 pb-2 flex items-center justify-center">
+            <label className="flex items-center space-x-2 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={checkPronunciation}
+                onChange={(e) => setCheckPronunciation(e.target.checked)}
+                className="w-4 h-4 text-blue-600 bg-gray-100 border-gray-300 rounded focus:ring-blue-500"
+                disabled={isLoading || isSummarizing}
+              />
+              <span className="text-sm text-gray-600">🎙️ Kiểm tra phát âm</span>
+            </label>
+          </div>
+          
           <MessageInput 
             onSendMessage={handleSendMessage} 
             isLoading={isLoading || isSummarizing} 
@@ -2637,6 +3120,8 @@ const App: React.FC = () => {
           isReviewMode={false}
           reviewSchedule={journal.find(dc => dc.id === selectedDailyChatId)?.reviewSchedule || []}
           relationshipSummary={relationshipSummary}
+          formattedJournalForSearch={formattedJournalForSearch}
+          journal={journal}
         />
       ) : view === 'context' && contextViewState ? (
         <ChatContextViewer
@@ -2660,6 +3145,8 @@ const App: React.FC = () => {
           isReviewMode={true}
           reviewSchedule={currentReviewItems.map(item => item.review)}
           relationshipSummary={relationshipSummary}
+          formattedJournalForSearch={formattedJournalForSearch}
+          journal={journal}
         />
       ) : (
         <JournalViewer
@@ -2682,6 +3169,7 @@ const App: React.FC = () => {
           characters={characters}
           onTranslate={getTranslationAndExplanation}
           onStoreTranslation={handleStoreTranslationJournal}
+          onUpdateDailySummary={handleUpdateDailySummary}
         />
       )}
 

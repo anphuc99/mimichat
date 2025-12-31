@@ -30,7 +30,8 @@ export const initChat = async (
   relationshipSummary: string = '',
   level: string = 'A1',
   reviewVocabularies: VocabularyItem[] = [],
-  storyPlot: string = ''
+  storyPlot: string = '',
+  checkPronunciation: boolean = false
 ): Promise<Chat> => {
   if (!ai) {
     throw new Error('Gemini service not initialized. Call initializeGeminiService first.');
@@ -46,14 +47,20 @@ export const initChat = async (
             level === 'C1' ? 'Dùng ngữ pháp nâng cao, thành ngữ, diễn đạt tinh tế.' :
               'Nói tự nhiên như người bản ngữ với thành ngữ, ngữ pháp nâng cao, phong cách đa dạng.';
 
-  const characterDescriptions = activeCharacters.map(c => {
-    let desc = `- ${c.name} (${c.gender === 'female' ? 'girl' : 'boy'}): ${c.personality}`;
+  // Danh sách TÊN nhân vật (để AI biết chính xác tên nào được phép dùng)
+  const characterNames = activeCharacters.map(c => 
+    `- ${c.name}`
+  ).join('\n      ');
+
+  // Thông tin CHI TIẾT về từng nhân vật (tính cách, quan hệ)
+  const characterDetails = activeCharacters.map(c => {
+    let detail = `[${c.name}]\n  - Personality: ${c.personality}\n  - Gender: ${c.gender === 'female' ? 'girl' : 'boy'}`;
 
     // Add user opinion if exists
     if (c.userOpinion && c.userOpinion.opinion) {
       const sentiment = c.userOpinion.sentiment === 'positive' ? '(positive)' :
         c.userOpinion.sentiment === 'negative' ? '(negative)' : '(neutral)';
-      desc += `\n    * Opinion about the user ${sentiment}: ${c.userOpinion.opinion}`;
+      detail += `\n  - Opinion about the user ${sentiment}: ${c.userOpinion.opinion}`;
     }
 
     // Add relations if exist
@@ -65,17 +72,17 @@ export const initChat = async (
           if (!targetChar) return null;
           const sentiment = rel.sentiment === 'positive' ? '(positive)' :
             rel.sentiment === 'negative' ? '(negative)' : '(neutral)';
-          return `      - About ${targetChar.name} ${sentiment}: ${rel.opinion}`;
+          return `    * About ${targetChar.name} ${sentiment}: ${rel.opinion}`;
         })
         .filter(r => r !== null);
 
       if (relationsList.length > 0) {
-        desc += '\n    * Relationships:\n' + relationsList.join('\n');
+        detail += '\n  - Relationships:\n' + relationsList.join('\n');
       }
     }
 
-    return desc;
-  }).join('\n      ');
+    return detail;
+  }).join('\n\n');
 
   const systemInstruction = `
 Bạn là biên kịch cho cuộc hội thoại giữa người dùng Việt Nam và các nhân vật Hàn Quốc trẻ tuổi. Tôi sẽ nói chuyện với bạn bằng tiếng Việt.
@@ -103,8 +110,11 @@ Hãy cố gắng sử dụng ít nhất một số từ này một cách tự nh
 - **IN ĐẬM PHẦN DỊCH**: Trong trường "Translation", cũng bọc bản dịch tiếng Việt của các từ vựng đó bằng **dấu sao**
 - Ví dụ: Nếu từ vựng là "사랑", Text: "나는 **사랑**해요", Translation: "Tôi **yêu** bạn"
 ` : ''}
-CÁC NHÂN VẬT TRONG CẢNh NÀY:
-${characterDescriptions}
+DANH SÁCH TÊN NHÂN VẬT (CHỈ ĐƯỢC DÙNG CÁC TÊN NÀY):
+${characterNames}
+
+THÔNG TIN CHI TIẾT CÁC NHÂN VẬT:
+${characterDetails}
 
 QUY TẮC HÀNH VI:
 - Sau khi người dùng nói, tạo một cuộc hội thoại ngắn giữa các nhân vật AI. Đây phải là một mảng từ 1 đến 10 lượt.
@@ -115,7 +125,9 @@ QUY TẮC HÀNH VI:
 - Các nhân vật cũng có suy nghĩ. Khi một nhân vật suy nghĩ, viết trong ngoặc đơn "()" bên trong trường 'text'.
 - **QUY TẮC TÁCH NGHIÊM NGẶT**: Cần đọc kỹ ngữ cảnh để hiểu tình huống hiện tại của các nhân vật đang có nhân vật nào xuất hiện trong ngữ cảnh không được để một nhân vật xuất hiện từ trên trời rơi xuống.
 - **QUY TẮC TÁCH NGHIÊM NGẶT**: Mỗi đối tượng JSON trong mảng phản hồi phải chứa **ĐÚNG MỘT** câu hoặc cụm từ ngắn.
-- **QUY TẮC TÁCH NGHIÊM NGẶT TUYỆT ĐỐI TUÂN THEO***: Tuyệt đối không được phép đổi tên nhân vật trong trường 'CharacterName'. Trong bất kỳ trường hợp nào vì làm vậy sẽ lỗi TTS. Không được phép dịch sang tiếng anh tên nhân vật ví dụ nếu tên nhân vật là "Trợ lý ảo" thì không được đổi thành "Virtual Assistant".
+- **QUY TẮC TÁCH NGHIÊM NGẶT TUYỆT ĐỐI TUÂN THEO***: Tuyệt đối không được phép đổi tên nhân vật trong trường 'CharacterName'. **BỞI VÌ NÓ SẼ GÂY LỖI LOẠN TOÀN BỘ HỆ THỐNG CỰC KỲ NGHIÊM TRỌNG**.
+- **QUY TẮC TÁCH NGHIÊM NGẶT TUYỆT ĐỐI TUÂN THEO***: Tuyệt đối không được phép đổi tên nhân vật trong trường 'CharacterName'. **BỞI VÌ NÓ SẼ GÂY LỖI LOẠN TOÀN BỘ HỆ THỐNG CỰC KỲ NGHIÊM TRỌNG**.
+- **QUY TẮC TÁCH NGHIÊM NGẶT TUYỆT ĐỐI TUÂN THEO***: Tuyệt đối không được phép đổi tên nhân vật trong trường 'CharacterName'. **BỞI VÌ NÓ SẼ GÂY LỖI LOẠN TOÀN BỘ HỆ THỐNG CỰC KỲ NGHIÊM TRỌNG**.
 - **QUY TẮC TÁCH NGHIÊM NGẶT TUYỆT ĐỐI TUÂN THEO**: Tuyệt đối được phép chế ra nhân vật mới không có trong danh sách nhân vật.
 - **QUY TẮC TÁCH NGHIÊM NGẶT TUYỆT ĐỐI TUÂN THEO**: Tuyệt đối được phép chế thêm tình tiết cốt truyện vì bạn luôn chế theo hướng tích cực ví dụ ai đó đang bị bắt cóc thì chỉ viết đến bị bắt cóc thôi không được chế thêm ai đó hành động giải cứu ngay tại đó.
 - **KHÔNG BAO GIỜ** kết hợp nhiều câu trong một trường \`text\`.
@@ -160,10 +172,10 @@ MÔ TẢ GIỌNG ĐIỆU:
 XỬ LÝ ĐẦU VÀO GIỌNG NÓI:
 - Người dùng có thể gửi tin nhắn thoại (audio), CHỦ YẾU bằng tiếng Hàn (đôi khi tiếng Việt để làm rõ)
 - Khi nhận được audio từ người dùng, bạn PHẢI:
-  1. Chuyển đổi audio thành văn bản (transcribe) dựa trên ngữ cảnh cuộc trò chuyện và tiên đoán của bạn vì người dùng có thể phát âm sai và ưu tiên nhận dạng tiếng Hàn.
-  2. Đối với bối cảnh kiểm tra phát âm ví dụ trong trò chơi nếu phát âm đúng thì cho đi qua. Thì bạn kiểm tra phát âm từ nào sai thì viết từ phát âm sat đó trong trường "UserTranscript" và viết trong ngoặc kép "" ví dụ: từ 사랑 người dùng phát âm thành 사람 thì đóng ngoặc từ "람" thành 사"람" trong trường UserTranscript.
-  3. Điền văn bản đã chuyển đổi vào trường "UserTranscript" trong phản hồi ĐẦU TIÊN của mảng
-  4. Chỉ phần tử ĐẦU TIÊN của mảng cần có trường "UserTranscript", các phần tử sau KHÔNG cần
+  1. Chuyển đổi audio thành văn bản (transcribe) dựa trên ngữ cảnh cuộc trò chuyện và tiên đoán của bạn vì người dùng có thể phát âm sai và ưu tiên nhận dạng tiếng Hàn. **Lưu ý nghiêm ngặt** transcribe chỉ là transcribe không phải nguyên một tràn suy nghĩ của bạn.
+${checkPronunciation ? `  2. CHẾ ĐỘ KIỂM TRA PHÁT ÂM ĐANG BẬT: Kiểm tra phát âm từ nào sai thì viết từ phát âm sai đó trong trường "UserTranscript" và viết trong ngoặc kép "" ví dụ: từ 사랑 người dùng phát âm thành 사람 thì đóng ngoặc từ "람" thành 사"람" trong trường UserTranscript. Nếu phát âm đúng thì không cần đóng ngoặc.
+` : ''}  ${checkPronunciation ? '3' : '2'}. Điền văn bản đã chuyển đổi vào trường "UserTranscript" trong phản hồi ĐẦU TIÊN của mảng
+  ${checkPronunciation ? '4' : '3'}. Chỉ phần tử ĐẦU TIÊN của mảng cần có trường "UserTranscript", các phần tử sau KHÔNG cần
 - Khi xử lý đầu vào giọng nói, ƯU TIÊN nhận dạng tiếng Hàn
 - Nếu âm thanh không rõ hoặc bạn không chắc chắn về những gì được nói, hãy yêu cầu xác nhận CHỈ bằng tiếng Hàn
 - Ví dụ: "미안해요, 잘 못 들었어요. [dự đoán của bạn]... 맞아요?" hoặc "다시 한 번 말씀해 주세요." hoặc "뭐라고요?"
@@ -204,6 +216,40 @@ Tạo một mảng các lượt đối thoại. Mỗi lượt:
   "UserTranscript": "(CHỈ trong phần tử ĐẦU TIÊN nếu người dùng gửi audio) Văn bản chuyển đổi từ giọng nói của người dùng",
   "SuggestedRealtimeContext": "(CHỈ trong phần tử ĐẦU TIÊN, CHỈ KHI ngữ cảnh thay đổi) Mô tả chi tiết: vị trí + hoạt động + cảm xúc các nhân vật"
 }
+
+HỆ THỐNG TÌM KIẾM CỐT TRUYỆN (RESEARCH SYSTEM):
+Khi bạn cần tìm kiếm thông tin trong lịch sử hội thoại để nhớ lại các sự kiện, chi tiết cốt truyện, hoặc những gì đã xảy ra trước đó, bạn có thể sử dụng System commands.
+
+CÁCH SỬ DỤNG:
+- Trả về một phần tử với CharacterName = "System" và Text chứa command
+- Hệ thống sẽ thực thi command và gửi kết quả cho bạn
+- Sau khi nhận kết quả, bạn tiếp tục trả lời như bình thường
+- Khi có nhắc đến nhân vật trong quá khứ thì tốt nhất tìm kiếm tên nhân vật đó để lấy thông tin chính xác
+- Tìm kiểm bằng cả tiếng việt lẫn tiếng hàn để có thể có thông tin chính xác nhất
+
+CÁC COMMANDS:
+1. SEARCH:<pattern> - Tìm kiếm trong tất cả hội thoại
+   - Hỗ trợ regex với | để tìm nhiều từ: SEARCH:재미있|좋아|싫어
+   - Ví dụ: {"CharacterName": "System", "Text": "SEARCH:공원|놀이터", "Tone": "", "Translation": ""}
+   - Kết quả trả về có dạng: [Message 379] Nahida: text...
+   
+2. GET_JOURNAL:<số> - Lấy toàn bộ hội thoại theo số thứ tự journal (1-based)
+   - Ví dụ: {"CharacterName": "System", "Text": "GET_JOURNAL:3", "Tone": "", "Translation": ""}
+
+3. GET_MESSAGE:<số> - Lấy ngữ cảnh xung quanh một message cụ thể (5 tin trước + 5 tin sau)
+   - Dùng khi bạn tìm thấy message qua SEARCH và muốn đọc thêm context xung quanh
+   - Số message là global index (đếm liên tục qua tất cả journals)
+   - Ví dụ: {"CharacterName": "System", "Text": "GET_MESSAGE:379", "Tone": "", "Translation": ""}
+
+QUY TẮC QUAN TRỌNG:
+- Chỉ sử dụng tối đa 3 lần search trong một lượt phản hồi
+- Khi sử dụng System command, chỉ trả về MỘT phần tử duy nhất với command đó
+- Sau khi nhận kết quả search, trả lời bằng các nhân vật như bình thường
+- Sử dụng search khi cần nhớ lại chi tiết cụ thể từ quá khứ
+- KHÔNG sử dụng search cho các cuộc hội thoại gần đây (đã có trong context)
+- Workflow điển hình: SEARCH -> tìm thấy message thú vị -> GET_MESSAGE để đọc context
+
+**NGHIÊM CẤM HÀNH ĐỘNG TỰ CHẾ TÌNH TIẾT TRONG QUÁ KHỨ KHI CHƯA RESEARCH!**
 
 `;
 
@@ -269,8 +315,14 @@ export const initAutoChatSession = async (
             level === 'C1' ? 'Dùng ngữ pháp nâng cao, thành ngữ, diễn đạt tinh tế.' :
               'Nói tự nhiên như người bản ngữ với thành ngữ, ngữ pháp nâng cao, phong cách đa dạng.';
 
-  const characterDescriptions = characters.map(c => {
-    let desc = `- ${c.name} (${c.gender === 'female' ? 'girl' : 'boy'}): ${c.personality}`;
+  // Danh sách TÊN nhân vật (để AI biết chính xác tên nào được phép dùng)
+  const characterNames = characters.map(c => 
+    `- ${c.name} (${c.gender === 'female' ? 'girl' : 'boy'})`
+  ).join('\n      ');
+
+  // Thông tin CHI TIẾT về từng nhân vật (tính cách, quan hệ)
+  const characterDetails = characters.map(c => {
+    let detail = `[${c.name}]\n  - Personality: ${c.personality}`;
 
     // Add relations if exist
     if (c.relations && Object.keys(c.relations).length > 0) {
@@ -281,17 +333,17 @@ export const initAutoChatSession = async (
           if (!targetChar) return null;
           const sentiment = rel.sentiment === 'positive' ? '(positive)' :
             rel.sentiment === 'negative' ? '(negative)' : '(neutral)';
-          return `      - About ${targetChar.name} ${sentiment}: ${rel.opinion}`;
+          return `    * About ${targetChar.name} ${sentiment}: ${rel.opinion}`;
         })
         .filter(r => r !== null);
 
       if (relationsList.length > 0) {
-        desc += '\n    * Relationships:\n' + relationsList.join('\n');
+        detail += '\n  - Relationships:\n' + relationsList.join('\n');
       }
     }
 
-    return desc;
-  }).join('\n      ');
+    return detail;
+  }).join('\n\n');
 
   // Vocabulary instruction
   const vocabularyInstruction = vocabulary.length > 0
@@ -320,8 +372,11 @@ BỐI CẢNH HỘI THOẠI: ${context}
 
 CHỦ ĐỀ THẢO LUẬN: ${topic}
 
-CÁC NHÂN VẬT:
-${characterDescriptions}
+DANH SÁCH TÊN NHÂN VẬT (CHỈ ĐƯỢC DÙNG CÁC TÊN NÀY):
+${characterNames}
+
+THÔNG TIN CHI TIẾT CÁC NHÂN VẬT:
+${characterDetails}
 ${vocabularyInstruction}
 
 QUY TẮC:

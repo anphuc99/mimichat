@@ -1,9 +1,10 @@
 import React, { useState, useRef, useEffect, useMemo, useCallback } from 'react';
-import type { Character, Message, VocabularyItem, VocabularyReview } from '../types';
+import type { Character, Message, VocabularyItem, VocabularyReview, DailyChat } from '../types';
 import type { Chat, Content } from '@google/genai';
 import { initAutoChatSession, sendAutoChatMessage, textToSpeech, suggestConversationTopic, initChat, sendMessage, sendAudioMessage, uploadAudio } from '../services/geminiService';
 import { MessageBubble } from './MessageBubble';
 import { MessageInput } from './MessageInput';
+import { parseSystemCommand, executeSystemCommand, FormattedJournal } from '../utils/storySearch';
 
 type LearningMode = 'passive' | 'active';
 
@@ -18,6 +19,8 @@ interface VocabularyConversationProps {
   isReviewMode?: boolean; // Đang ôn tập hay học mới
   reviewSchedule?: VocabularyReview[]; // Danh sách từ đã học
   relationshipSummary?: string; // Needed for active learning chat
+  formattedJournalForSearch?: FormattedJournal; // For AI story research
+  journal?: DailyChat[]; // For AI story research (full journal for GET_JOURNAL)
 }
 
 export const VocabularyConversation: React.FC<VocabularyConversationProps> = ({
@@ -31,6 +34,8 @@ export const VocabularyConversation: React.FC<VocabularyConversationProps> = ({
   isReviewMode = false,
   reviewSchedule = [],
   relationshipSummary = '',
+  formattedJournalForSearch,
+  journal = [],
 }) => {
   const [messages, setMessages] = useState<Message[]>([]);
   // Learning mode: passive (AI talks to each other) or active (user interacts)
@@ -79,11 +84,25 @@ export const VocabularyConversation: React.FC<VocabularyConversationProps> = ({
 
   // Active learning states
   const [isActiveLoading, setIsActiveLoading] = useState(false);
+  const [isAISearching, setIsAISearching] = useState(false); // For AI story research
   const userPromptRef = useRef<string>('');
   const activeChatRef = useRef<Chat | null>(null);
 
   // Tính số tin nhắn mục tiêu dựa trên số từ vựng đã chọn
   const targetCount = useMemo(() => Math.max(20, selectedVocabIds.size * 5), [selectedVocabIds.size]);
+
+  // Handle System command (AI story research)
+  const handleSystemCommand = useCallback(async (commandText: string, currentSearchCount: number): Promise<{ result: string; newSearchCount: number } | null> => {
+    if (!formattedJournalForSearch || journal.length === 0) {
+      return { result: 'Không có dữ liệu journal để tìm kiếm.', newSearchCount: currentSearchCount };
+    }
+    
+    const command = parseSystemCommand(commandText);
+    if (!command) return null;
+    
+    const result = executeSystemCommand(command, journal, formattedJournalForSearch);
+    return { result, newSearchCount: currentSearchCount + 1 };
+  }, [formattedJournalForSearch, journal]);
 
   // Lấy danh sách nhân vật đã chọn
   const selectedCharacters = characters.filter(c => selectedCharacterIds.includes(c.id));
@@ -574,19 +593,51 @@ export const VocabularyConversation: React.FC<VocabularyConversationProps> = ({
       
       let botResponseText = await sendMessage(activeChatRef.current, text);
 
+      const validCharacterNames = selectedCharacters.map(c => c.name);
+      
       const parseAndValidate = (jsonString: string) => {
         try {
           let parsed = JSON.parse(jsonString);
           if (!Array.isArray(parsed)) parsed = [parsed];
           
-          const isValid = parsed.every((item: any) => 
-            item && 
-            typeof item.CharacterName === 'string' && 
-            typeof item.Text === 'string' && 
-            typeof item.Tone === 'string'
+          // Separate character responses and system commands
+          const characterResponses = parsed.filter((item: any) => item.CharacterName !== 'System');
+          const systemCommands = parsed.filter((item: any) => item.CharacterName === 'System');
+          
+          // Validate System commands if any
+          const validSystemCommands = systemCommands.filter((item: any) => 
+            parseSystemCommand(item.Text)
           );
           
-          return isValid ? parsed : null;
+          // If there's only a System command (no character responses), allow it
+          if (characterResponses.length === 0 && validSystemCommands.length > 0) {
+            return parsed;
+          }
+          
+          // If there are character responses, validate them
+          if (characterResponses.length > 0) {
+            const hasRequiredFields = characterResponses.every((item: any) => 
+              item && 
+              typeof item.CharacterName === 'string' && 
+              typeof item.Text === 'string' && 
+              typeof item.Tone === 'string'
+            );
+            
+            if (!hasRequiredFields) return null;
+            
+            const hasValidCharacters = characterResponses.every((item: any) => 
+              validCharacterNames.includes(item.CharacterName)
+            );
+            
+            if (!hasValidCharacters) {
+              console.warn('Invalid CharacterName in vocab conversation.');
+              return null;
+            }
+            
+            return [...characterResponses, ...validSystemCommands];
+          }
+          
+          return null;
         } catch (e) {
           return null;
         }
@@ -609,15 +660,75 @@ export const VocabularyConversation: React.FC<VocabularyConversationProps> = ({
         throw new Error("Failed to parse AI response.");
       }
 
-      await processActiveBotResponses(botResponses);
+      // Handle System commands (AI story research) - max 3 searches
+      // Also handle mixed responses (character messages + System command)
+      let searchCount = 0;
+      
+      const hasSystemCommand = (responses: any[]) => 
+        responses.some((r: any) => r.CharacterName === 'System' && parseSystemCommand(r.Text));
+      
+      const getSystemCommand = (responses: any[]) => 
+        responses.find((r: any) => r.CharacterName === 'System' && parseSystemCommand(r.Text));
+      
+      const getCharacterResponses = (responses: any[]) => 
+        responses.filter((r: any) => r.CharacterName !== 'System');
+
+      while (hasSystemCommand(botResponses) && searchCount < 3) {
+        // First, process any character responses before the search
+        const charResponses = getCharacterResponses(botResponses);
+        if (charResponses.length > 0) {
+          await processActiveBotResponses(charResponses);
+        }
+        
+        // Now execute the System command
+        const systemResponse = getSystemCommand(botResponses);
+        const commandText = systemResponse.Text;
+        console.log('AI System command (vocab active):', commandText);
+        
+        setIsAISearching(true);
+        const commandResult = await handleSystemCommand(commandText, searchCount);
+        
+        if (commandResult) {
+          searchCount = commandResult.newSearchCount;
+          console.log(`Search result (${searchCount}/3):`, commandResult.result);
+          
+          // Send search result back to AI
+          const searchResultMessage = `SEARCH_RESULT:\n${commandResult.result}\n\nBây giờ hãy tiếp tục trả lời người dùng dựa trên thông tin tìm được.`;
+          botResponseText = await sendMessage(activeChatRef.current, searchResultMessage);
+          botResponses = parseAndValidate(botResponseText);
+          
+          if (!botResponses) {
+            // If parsing fails, force AI to respond normally
+            botResponseText = await sendMessage(activeChatRef.current, `SYSTEM: Hãy trả lời bằng các nhân vật (${validCharacterNames.join(', ')}), không dùng System command nữa.`);
+            botResponses = parseAndValidate(botResponseText);
+          }
+        } else {
+          break;
+        }
+      }
+      
+      setIsAISearching(false);
+
+      if (!botResponses) {
+        throw new Error("Failed to get valid response after search.");
+      }
+
+      // Filter out any remaining System commands before final processing
+      const finalCharacterResponses = getCharacterResponses(botResponses);
+
+      // Process only character responses (not System commands)
+      if (finalCharacterResponses.length > 0) {
+        await processActiveBotResponses(finalCharacterResponses);
+      }
 
     } catch (error) {
       console.error("Không thể gửi tin nhắn:", error);
       const errorMessage: Message = { id: (Date.now() + 1).toString(), text: 'Xin lỗi, đã xảy ra lỗi. Vui lòng thử lại.', sender: 'bot', isError: true };
       setMessages(prev => [...prev, errorMessage]);
       setIsActiveLoading(false);
+      setIsAISearching(false);
     }
-  }, [isActiveLoading, selectedCharacters, context, relationshipSummary, currentLevel, selectedVocabularies, processActiveBotResponses]);
+  }, [isActiveLoading, selectedCharacters, context, relationshipSummary, currentLevel, selectedVocabularies, processActiveBotResponses, handleSystemCommand]);
 
   // Handle send audio in active learning mode
   const handleActiveSendAudio = useCallback(async (audioBase64: string, duration: number) => {
@@ -658,19 +769,51 @@ export const VocabularyConversation: React.FC<VocabularyConversationProps> = ({
       // Send audio to Gemini
       let botResponseText = await sendAudioMessage(activeChatRef.current, audioBase64, 'audio/wav');
 
+      const validCharacterNames = selectedCharacters.map(c => c.name);
+      
       const parseAndValidate = (jsonString: string) => {
         try {
           let parsed = JSON.parse(jsonString);
           if (!Array.isArray(parsed)) parsed = [parsed];
           
-          const isValid = parsed.every((item: any) => 
-            item && 
-            typeof item.CharacterName === 'string' && 
-            typeof item.Text === 'string' && 
-            typeof item.Tone === 'string'
+          // Separate character responses and system commands
+          const characterResponses = parsed.filter((item: any) => item.CharacterName !== 'System');
+          const systemCommands = parsed.filter((item: any) => item.CharacterName === 'System');
+          
+          // Validate System commands if any
+          const validSystemCommands = systemCommands.filter((item: any) => 
+            parseSystemCommand(item.Text)
           );
           
-          return isValid ? parsed : null;
+          // If there's only a System command (no character responses), allow it
+          if (characterResponses.length === 0 && validSystemCommands.length > 0) {
+            return parsed;
+          }
+          
+          // If there are character responses, validate them
+          if (characterResponses.length > 0) {
+            const hasRequiredFields = characterResponses.every((item: any) => 
+              item && 
+              typeof item.CharacterName === 'string' && 
+              typeof item.Text === 'string' && 
+              typeof item.Tone === 'string'
+            );
+            
+            if (!hasRequiredFields) return null;
+            
+            const hasValidCharacters = characterResponses.every((item: any) => 
+              validCharacterNames.includes(item.CharacterName)
+            );
+            
+            if (!hasValidCharacters) {
+              console.warn('Invalid CharacterName in vocab audio.');
+              return null;
+            }
+            
+            return [...characterResponses, ...validSystemCommands];
+          }
+          
+          return null;
         } catch (e) {
           return null;
         }
@@ -693,10 +836,22 @@ export const VocabularyConversation: React.FC<VocabularyConversationProps> = ({
         throw new Error("Failed to parse AI response.");
       }
 
-      // Extract UserTranscript from the first response if available
+      // Handle System commands (AI story research) - max 3 searches
+      // Also handle mixed responses (character messages + System command)
+      let searchCount = 0;
+      
+      const hasSystemCommand = (responses: any[]) => 
+        responses.some((r: any) => r.CharacterName === 'System' && parseSystemCommand(r.Text));
+      
+      const getSystemCommand = (responses: any[]) => 
+        responses.find((r: any) => r.CharacterName === 'System' && parseSystemCommand(r.Text));
+      
+      const getCharacterResponses = (responses: any[]) => 
+        responses.filter((r: any) => r.CharacterName !== 'System');
+
+      // Extract UserTranscript early (before processing loop) from first response
       const userTranscript = botResponses[0]?.UserTranscript;
       if (userTranscript) {
-        // Update the user message with the transcript
         setMessages(prev => prev.map(msg => 
           msg.id === userMessageId 
             ? { ...msg, text: userTranscript, transcript: userTranscript }
@@ -704,15 +859,62 @@ export const VocabularyConversation: React.FC<VocabularyConversationProps> = ({
         ));
       }
 
-      await processActiveBotResponses(botResponses);
+      while (hasSystemCommand(botResponses) && searchCount < 3) {
+        // First, process any character responses before the search
+        const charResponses = getCharacterResponses(botResponses);
+        if (charResponses.length > 0) {
+          await processActiveBotResponses(charResponses);
+        }
+        
+        // Now execute the System command
+        const systemResponse = getSystemCommand(botResponses);
+        const commandText = systemResponse.Text;
+        console.log('AI System command (vocab audio):', commandText);
+        
+        setIsAISearching(true);
+        const commandResult = await handleSystemCommand(commandText, searchCount);
+        
+        if (commandResult) {
+          searchCount = commandResult.newSearchCount;
+          console.log(`Search result (${searchCount}/3):`, commandResult.result);
+          
+          // Send search result back to AI
+          const searchResultMessage = `SEARCH_RESULT:\n${commandResult.result}\n\nBây giờ hãy tiếp tục trả lời người dùng dựa trên thông tin tìm được.`;
+          botResponseText = await sendMessage(activeChatRef.current, searchResultMessage);
+          botResponses = parseAndValidate(botResponseText);
+          
+          if (!botResponses) {
+            // If parsing fails, force AI to respond normally
+            botResponseText = await sendMessage(activeChatRef.current, `SYSTEM: Hãy trả lời bằng các nhân vật (${validCharacterNames.join(', ')}), không dùng System command nữa.`);
+            botResponses = parseAndValidate(botResponseText);
+          }
+        } else {
+          break;
+        }
+      }
+      
+      setIsAISearching(false);
+
+      if (!botResponses) {
+        throw new Error("Failed to get valid response after search.");
+      }
+
+      // Filter out any remaining System commands before final processing
+      const finalCharacterResponses = getCharacterResponses(botResponses);
+
+      // Process only character responses (not System commands)
+      if (finalCharacterResponses.length > 0) {
+        await processActiveBotResponses(finalCharacterResponses);
+      }
 
     } catch (error) {
       console.error("Không thể gửi tin nhắn giọng nói:", error);
       const errorMessage: Message = { id: (Date.now() + 1).toString(), text: 'Xin lỗi, đã xảy ra lỗi khi xử lý giọng nói. Vui lòng thử lại.', sender: 'bot', isError: true };
       setMessages(prev => [...prev, errorMessage]);
       setIsActiveLoading(false);
+      setIsAISearching(false);
     }
-  }, [isActiveLoading, selectedCharacters, context, relationshipSummary, currentLevel, selectedVocabularies, processActiveBotResponses]);
+  }, [isActiveLoading, selectedCharacters, context, relationshipSummary, currentLevel, selectedVocabularies, processActiveBotResponses, handleSystemCommand]);
 
   // Handle complete active learning
   const handleActiveComplete = () => {
@@ -898,7 +1100,16 @@ export const VocabularyConversation: React.FC<VocabularyConversationProps> = ({
                 </div>
               );
             })}
-            {isActiveLoading && (
+            {isAISearching && (
+              <div className="flex items-center space-x-2 text-blue-600 bg-blue-50 px-4 py-2 rounded-lg">
+                <svg className="w-5 h-5 animate-spin" fill="none" viewBox="0 0 24 24">
+                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                </svg>
+                <span className="text-sm font-medium">🔍 AI đang tìm kiếm thông tin...</span>
+              </div>
+            )}
+            {isActiveLoading && !isAISearching && (
               <div className="flex items-center space-x-2 text-gray-500">
                 <div className="flex space-x-1">
                   <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: '0ms' }}></div>

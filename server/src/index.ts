@@ -16,6 +16,13 @@ import { textToSpeech } from "./modules/openai.js";
 import GeminiService from "./modules/geminiService";
 import AdmZip from "adm-zip";
 
+import { google } from 'googleapis';
+import { pipeline } from 'stream/promises';
+
+
+const DRIVE_FOLDER_ID = process.env.GOOGLE_DRIVE_FOLDER_ID || '';
+const GOOGLE_API_KEY = process.env.GOOGLE_API_KEY || ''; 
+
 // ---------------------------
 // FIX __dirname trong ESM
 // ---------------------------
@@ -538,42 +545,136 @@ app.put("/api/story/:id/name", (req: Request, res: Response) => {
 
 // ---------------------------
 // Serve audio files
-app.get("/api/audio/:filename",async (req: Request, res: Response) => {  
-  GetAudioMimeType(req, res);
+
+// Tạo thư mục tạm để chứa file đang tải dở
+const TEMP_DIR = path.join(__dirname, "temp_audio");
+if (!fs.existsSync(TEMP_DIR)) {
+  fs.mkdirSync(TEMP_DIR, { recursive: true });
+}
+
+const drive = google.drive({
+  version: 'v3',
+  auth: GOOGLE_API_KEY
 });
 
-const GetAudioMimeType = (req: Request, res: Response)  => {
-  const requested = req.params.filename;
-  if (!requested) return res.status(400).json({ error: "Filename required" });
 
-  const safeName = path.basename(requested);
-  const baseDir = path.join(__dirname, "data/audio");
+app.get("/api/audio/:filename", async (req: Request, res: Response) => {
+  const filename = req.params.filename;
+  if (!filename) return res.status(400).json({ error: "Filename required" });
+
+  const safeName = path.basename(filename);
+  const audioDir = path.join(__dirname, "data", "audio");
   
-  // Try to find file with .mp3 or .wav extension
-  let filePath = path.join(baseDir, safeName + ".mp3");
-  if (!fs.existsSync(filePath)) {
-    filePath = path.join(baseDir, safeName + ".wav");
-    if (!fs.existsSync(filePath)) {
-      return res.status(404).json({ error: "Audio file not found" }); 
+  try {
+    // --- BƯỚC 1: KIỂM TRA FILE TRÊN SERVER TRƯỚC ---
+    let localFilePath = path.join(audioDir, safeName + ".mp3");
+    if (fs.existsSync(localFilePath)) {
+      console.log(`Found audio on server: ${safeName}.mp3`);
+      const ext = path.extname(localFilePath).toLowerCase();
+      const mimeMap: Record<string, string> = {
+        ".mp3": "audio/mpeg",
+        ".wav": "audio/wav",
+        ".ogg": "audio/ogg",
+        ".m4a": "audio/mp4",
+        ".webm": "audio/webm",
+      };
+      res.setHeader("Content-Type", mimeMap[ext] || "application/octet-stream");
+      res.setHeader("Content-Disposition", `inline; filename="${path.basename(localFilePath)}"`);
+      const stream = fs.createReadStream(localFilePath);
+      stream.on("error", () => res.status(500).end());
+      return stream.pipe(res);
+    }
+
+    // Kiểm tra .wav
+    localFilePath = path.join(audioDir, safeName + ".wav");
+    if (fs.existsSync(localFilePath)) {
+      console.log(`Found audio on server: ${safeName}.wav`);
+      const ext = path.extname(localFilePath).toLowerCase();
+      const mimeMap: Record<string, string> = {
+        ".mp3": "audio/mpeg",
+        ".wav": "audio/wav",
+        ".ogg": "audio/ogg",
+        ".m4a": "audio/mp4",
+        ".webm": "audio/webm",
+      };
+      res.setHeader("Content-Type", mimeMap[ext] || "application/octet-stream");
+      res.setHeader("Content-Disposition", `inline; filename="${path.basename(localFilePath)}"`);
+      const stream = fs.createReadStream(localFilePath);
+      stream.on("error", () => res.status(500).end());
+      return stream.pipe(res);
+    }
+
+    // --- BƯỚC 2: NẾU KHÔNG CÓ TRÊN SERVER THÌ TÌM TRÊN GOOGLE DRIVE ---
+    console.log(`Audio not found on server, searching on Google Drive: ${safeName}`);
+
+    const uniqueTempName = `${safeName}-${Date.now()}`;
+    let tempFilePath = "";
+
+    // Tìm file tên gốc (bỏ cái đuôi timestamp đi)
+    const query = `'${DRIVE_FOLDER_ID}' in parents and (name = '${safeName}.mp3' or name = '${safeName}.wav') and trashed = false`;
+    const driveRes = await drive.files.list({
+      q: query,
+      fields: 'files(id, name, mimeType)',
+      pageSize: 1
+    });
+
+    const files = driveRes.data.files;
+    if (!files || files.length === 0) {
+      return res.status(404).json({ error: "File not found on server or Google Drive" });
+    }
+
+    const file = files[0];
+    const fileExt = path.extname(file.name!).toLowerCase();
+    
+    // Cập nhật đường dẫn file tạm với đuôi file chính xác
+    tempFilePath = path.join(TEMP_DIR, uniqueTempName + fileExt);
+
+    console.log(`Downloading from Google Drive to Temp: ${tempFilePath}...`);
+
+    // --- BƯỚC 3: TẢI VỀ SERVER (CHỜ 100%) ---
+    await downloadFileToTemp(file.id!, tempFilePath);
+
+    // --- BƯỚC 4: GỬI FILE CHO CLIENT VÀ XÓA SAU KHI GỬI ---
+    res.download(tempFilePath, safeName + fileExt, (err) => {
+      if (err) {
+        console.error("Client download error:", err);
+      } else {
+        console.log("Client finished downloading.");
+      }
+
+      // Dù thành công hay thất bại, đều xóa file tạm
+      cleanupFile(tempFilePath);
+    });
+
+  } catch (error) {
+    console.error("Process Error:", error);
+    
+    if (!res.headersSent) {
+      return res.status(500).json({ error: "Server Error" });
     }
   }
+});
 
-  const ext = path.extname(filePath).toLowerCase();
-  const mimeMap: Record<string, string> = {
-    ".mp3": "audio/mpeg",
-    ".wav": "audio/wav",
-    ".ogg": "audio/ogg",
-    ".m4a": "audio/mp4",
-    ".webm": "audio/webm",
-  };
+// Hàm hỗ trợ: Tải file từ Drive vào thư mục Temp
+const downloadFileToTemp = async (fileId: string, destPath: string): Promise<void> => {
+  const res = await drive.files.get(
+    { fileId: fileId, alt: 'media' },
+    { responseType: 'stream' }
+  );
 
-  res.setHeader("Content-Type", mimeMap[ext] || "application/octet-stream");
-  res.setHeader("Content-Disposition", `inline; filename="${path.basename(filePath)}"`);
+  const dest = fs.createWriteStream(destPath);
+  await pipeline(res.data, dest);
+};
 
-  const stream = fs.createReadStream(filePath);
-  stream.on("error", () => res.status(500).end());
-  stream.pipe(res);
-}
+// Hàm hỗ trợ: Xóa file an toàn
+const cleanupFile = (filePath: string) => {
+  if (fs.existsSync(filePath)) {
+    fs.unlink(filePath, (unlinkErr) => {
+      if (unlinkErr) console.error(`Failed to delete temp file: ${filePath}`, unlinkErr);
+      else console.log(`Deleted temp file: ${filePath}`);
+    });
+  }
+};
 
 // ---------------------------
 // Serve avatar files
@@ -709,16 +810,36 @@ app.post("/api/upload-image-message", (req: Request, res: Response) => {
 app.post("/api/upload-audio", async (req: Request, res: Response) => {
   const { base64WavData } = req.body;
 
+  if (!base64WavData) {
+    return res.status(400).json({ error: "Missing base64WavData" });
+  }
+
   try {
     const outputName = crypto.randomUUID();
-    // await convertBase64WavToMp3(base64WavData, outputName);
+    
+    // Ensure audio directory exists
+    const audioDir = path.join(__dirname, "data", "audio");
+    if (!fs.existsSync(audioDir)) {
+      fs.mkdirSync(audioDir, { recursive: true });
+    }
+
+    // Clean base64 string (remove data URL prefix if present)
+    const cleanBase64 = base64WavData.replace(/^data:audio\/\w+;base64,/, '');
+    
+    // Convert base64 to buffer and save as WAV file
+    const buffer = Buffer.from(cleanBase64, 'base64');
+    const wavPath = path.join(audioDir, `${outputName}.wav`);
+    
+    fs.writeFileSync(wavPath, buffer);
+    console.log(`Audio saved: ${wavPath}`);
 
     res.json({
       success: true,
       data: outputName,
-      message: "Audio converted successfully",
+      message: "Audio uploaded successfully",
     });
   } catch (e: any) {
+    console.error("Upload audio error:", e);
     res.status(500).json({ error: e.message });
   }
 });

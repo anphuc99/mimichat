@@ -222,7 +222,7 @@ export function getRandomReviewVocabulariesForChat(journal: DailyChat[]): {
   
   // Shuffle and return up to 5
   const shuffled = shuffleArray(dueVocabularies);
-  return shuffled.slice(0, 20);
+  return shuffled.slice(0, 10);
 }
 
 /**

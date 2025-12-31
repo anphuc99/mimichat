@@ -80,6 +80,7 @@ interface MessageBubbleProps {
   onRegenerateTone?: (text: string, characterName: string) => Promise<string>;
   onCollectVocabulary?: (korean: string, messageId: string) => void | Promise<void>;
   onRegenerateImage?: (messageId: string) => Promise<void>;
+  onDeleteMessage?: (messageId: string) => void;
   avatarUrl?: string;
 }
 
@@ -98,6 +99,7 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({
     onRegenerateTone,
     onCollectVocabulary,
     onRegenerateImage,
+    onDeleteMessage,
     avatarUrl,
 }) => {
   const isUser = message.sender === 'user';
@@ -284,6 +286,27 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({
 
   const translationContent = message.translation;
 
+  const handleDeleteClick = () => {
+    if (onDeleteMessage && window.confirm('Bạn có chắc muốn xóa tin nhắn này?')) {
+      onDeleteMessage(message.id);
+    }
+  };
+
+  // Delete button only (for cases where edit is not available)
+  const deleteOnlyButton = !isJournalView && onDeleteMessage && !setEditingMessageId && (
+    <div className={`flex items-center self-center mx-2 opacity-0 group-hover:opacity-100 transition-opacity ${isUser ? 'order-first' : 'order-last'}`}>
+      <button
+        onClick={handleDeleteClick}
+        className="p-1 rounded-full text-gray-400 hover:text-red-500 hover:bg-gray-100"
+        title="Xóa tin nhắn"
+      >
+        <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+          <path strokeLinecap="round" strokeLinejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+        </svg>
+      </button>
+    </div>
+  );
+
   const editButton = !isJournalView && setEditingMessageId && (
     <div className={`flex items-center self-center mx-2 opacity-0 group-hover:opacity-100 transition-opacity ${isUser ? 'order-first' : 'order-last'}`}>
       <button
@@ -295,6 +318,17 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({
           <path strokeLinecap="round" strokeLinejoin="round" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.536L15.232 5.232z" />
         </svg>
       </button>
+      {onDeleteMessage && (
+        <button
+          onClick={handleDeleteClick}
+          className="p-1 rounded-full text-gray-400 hover:text-red-500 hover:bg-gray-100"
+          title="Xóa tin nhắn"
+        >
+          <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+            <path strokeLinecap="round" strokeLinejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+          </svg>
+        </button>
+      )}
     </div>
   );
 
@@ -380,7 +414,7 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({
     if (message.kind === 'voice' && message.audioId) {
       return (
         <div className="group flex justify-end items-center">
-          {editButton}
+          {editButton || deleteOnlyButton}
           <div className={`max-w-xs md:max-w-md lg:max-w-lg px-4 py-3 break-words ${bubbleClasses}`}>
             <div className="flex items-center gap-3">
               <button
@@ -424,7 +458,7 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({
     // Regular text message
     return (
       <div className="group flex justify-end items-center">
-        {editButton}
+        {editButton || deleteOnlyButton}
         <div className={`max-w-xs md:max-w-md lg:max-w-lg px-4 py-2 break-words ${bubbleClasses}`}>
           <p className="whitespace-pre-wrap">{message.text}</p>
         </div>
@@ -619,6 +653,18 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({
               >
                 <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
                   <path fillRule="evenodd" d="M4 2a1 1 0 011 1v2.101a7.002 7.002 0 0111.601 2.566 1 1 0 11-1.885.666A5.002 5.002 0 005.999 7H9a1 1 0 110 2H4a1 1 0 01-1-1V3a1 1 0 011-1zm.008 9.057a1 1 0 011.276.61A5.002 5.002 0 0014.001 13H11a1 1 0 110-2h5a1 1 0 011 1v5a1 1 0 11-2 0v-2.101a7.002 7.002 0 01-11.601-2.566 1 1 0 01.61-1.276z" clipRule="evenodd" />
+                </svg>
+              </button>
+            )}
+            {onDeleteMessage && (
+              <button
+                onClick={handleDeleteClick}
+                className="text-gray-400 hover:text-red-500 transition-colors p-1 rounded-full focus:outline-none focus:ring-2 focus:ring-red-300"
+                aria-label="Xóa tin nhắn"
+                title="Xóa tin nhắn"
+              >
+                <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
                 </svg>
               </button>
             )}

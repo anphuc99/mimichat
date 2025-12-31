@@ -14,88 +14,19 @@ interface MessageInputProps {
 
 const EMOJIS = ['😊', '😂', '❤️', '👍', '😢', '😠', '🎉', '🤔', '👋', '🎨', '⚽', '🍰'];
 
-// Helper function to convert audio blob to WAV format
-const blobToWavBase64 = async (blob: Blob): Promise<string> => {
+// Helper function to convert audio blob to base64 (keep original format, server will convert to WAV if needed)
+const blobToBase64 = async (blob: Blob): Promise<string> => {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
-    reader.onload = async () => {
-      try {
-        const arrayBuffer = reader.result as ArrayBuffer;
-        const audioContext = new (window.AudioContext || (window as any).webkitAudioContext)();
-        const audioBuffer = await audioContext.decodeAudioData(arrayBuffer);
-        
-        // Convert to WAV
-        const wavBuffer = audioBufferToWav(audioBuffer);
-        const wavBlob = new Blob([wavBuffer], { type: 'audio/wav' });
-        
-        // Convert to base64
-        const wavReader = new FileReader();
-        wavReader.onloadend = () => {
-          const base64 = wavReader.result as string;
-          // Remove data:audio/wav;base64, prefix
-          const base64Data = base64.split(',')[1];
-          resolve(base64Data);
-        };
-        wavReader.onerror = reject;
-        wavReader.readAsDataURL(wavBlob);
-      } catch (e) {
-        reject(e);
-      }
+    reader.onloadend = () => {
+      const base64 = reader.result as string;
+      // Remove data:audio/xxx;base64, prefix
+      const base64Data = base64.split(',')[1];
+      resolve(base64Data);
     };
     reader.onerror = reject;
-    reader.readAsArrayBuffer(blob);
+    reader.readAsDataURL(blob);
   });
-};
-
-// Convert AudioBuffer to WAV ArrayBuffer
-const audioBufferToWav = (buffer: AudioBuffer): ArrayBuffer => {
-  const numOfChan = 1; // Mono
-  const sampleRate = 16000; // 16kHz for better compatibility
-  
-  // Resample to target sample rate
-  const offlineContext = new OfflineAudioContext(numOfChan, buffer.duration * sampleRate, sampleRate);
-  const source = offlineContext.createBufferSource();
-  source.buffer = buffer;
-  source.connect(offlineContext.destination);
-  source.start();
-  
-  // For simplicity, we'll use the original buffer data
-  // In production, you'd want to properly resample
-  const length = buffer.length * numOfChan * 2;
-  const arrayBuffer = new ArrayBuffer(44 + length);
-  const view = new DataView(arrayBuffer);
-  
-  // Write WAV header
-  const writeString = (view: DataView, offset: number, string: string) => {
-    for (let i = 0; i < string.length; i++) {
-      view.setUint8(offset + i, string.charCodeAt(i));
-    }
-  };
-  
-  writeString(view, 0, 'RIFF');
-  view.setUint32(4, 36 + length, true);
-  writeString(view, 8, 'WAVE');
-  writeString(view, 12, 'fmt ');
-  view.setUint32(16, 16, true); // fmt chunk size
-  view.setUint16(20, 1, true); // PCM
-  view.setUint16(22, numOfChan, true);
-  view.setUint32(24, buffer.sampleRate, true);
-  view.setUint32(28, buffer.sampleRate * numOfChan * 2, true);
-  view.setUint16(32, numOfChan * 2, true);
-  view.setUint16(34, 16, true); // bits per sample
-  writeString(view, 36, 'data');
-  view.setUint32(40, length, true);
-  
-  // Write audio data
-  const channelData = buffer.getChannelData(0);
-  let offset = 44;
-  for (let i = 0; i < channelData.length; i++) {
-    const sample = Math.max(-1, Math.min(1, channelData[i]));
-    view.setInt16(offset, sample < 0 ? sample * 0x8000 : sample * 0x7FFF, true);
-    offset += 2;
-  }
-  
-  return arrayBuffer;
 };
 
 export const MessageInput: React.FC<MessageInputProps> = ({ 
@@ -158,10 +89,10 @@ export const MessageInput: React.FC<MessageInputProps> = ({
           const duration = (Date.now() - recordingStartTimeRef.current) / 1000;
           
           try {
-            const wavBase64 = await blobToWavBase64(audioBlob);
-            onSendAudio(wavBase64, duration);
+            const audioBase64 = await blobToBase64(audioBlob);
+            onSendAudio(audioBase64, duration);
           } catch (error) {
-            console.error('Failed to convert audio to WAV:', error);
+            console.error('Failed to process audio:', error);
             alert('Không thể xử lý audio. Vui lòng thử lại.');
           }
         }
