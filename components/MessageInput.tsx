@@ -49,6 +49,7 @@ export const MessageInput: React.FC<MessageInputProps> = ({
   const audioChunksRef = useRef<Blob[]>([]);
   const recordingStartTimeRef = useRef<number>(0);
   const recordingIntervalRef = useRef<NodeJS.Timeout | null>(null);
+  const isCancelledRef = useRef<boolean>(false);
 
   // Cleanup on unmount
   useEffect(() => {
@@ -73,6 +74,7 @@ export const MessageInput: React.FC<MessageInputProps> = ({
       mediaRecorderRef.current = mediaRecorder;
       audioChunksRef.current = [];
       recordingStartTimeRef.current = Date.now();
+      isCancelledRef.current = false;
       
       mediaRecorder.ondataavailable = (event) => {
         if (event.data.size > 0) {
@@ -84,7 +86,7 @@ export const MessageInput: React.FC<MessageInputProps> = ({
         // Stop all tracks
         stream.getTracks().forEach(track => track.stop());
         
-        if (audioChunksRef.current.length > 0 && onSendAudio) {
+        if (audioChunksRef.current.length > 0 && onSendAudio && !isCancelledRef.current) {
           const audioBlob = new Blob(audioChunksRef.current, { type: mediaRecorder.mimeType });
           const duration = (Date.now() - recordingStartTimeRef.current) / 1000;
           
@@ -126,6 +128,7 @@ export const MessageInput: React.FC<MessageInputProps> = ({
   }, []);
 
   const cancelRecording = useCallback(() => {
+    isCancelledRef.current = true; // Mark as cancelled before stopping
     if (mediaRecorderRef.current) {
       audioChunksRef.current = []; // Clear chunks so nothing is sent
       if (mediaRecorderRef.current.state === 'recording') {

@@ -739,7 +739,6 @@ export const VocabularyConversation: React.FC<VocabularyConversationProps> = ({
 
     try {
       // Upload audio to server
-      const audioId = await uploadAudio(audioBase64);
       
       // Create user voice message (transcript will be updated after AI response)
       const userMessageId = Date.now().toString();
@@ -748,7 +747,7 @@ export const VocabularyConversation: React.FC<VocabularyConversationProps> = ({
         text: '🎤 Tin nhắn giọng nói', 
         sender: 'user',
         kind: 'voice',
-        audioId: audioId,
+        audioId: audioBase64,
         audioDuration: duration
       };
       setMessages(prev => [...prev, userMessage]);

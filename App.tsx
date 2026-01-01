@@ -312,9 +312,24 @@ const App: React.FC = () => {
       let audioBuffer = audioCacheRef.current.get(audioData);
 
       if (!audioBuffer) {
-        const response = await http.downloadFile(API_URL.API_AUDIO + `/${audioData}`);
-        const arrayBuffer = await response.arrayBuffer();
-        audioBuffer = await context.decodeAudioData(arrayBuffer);
+        // Kiểm tra nếu audioData là ID (≤50 ký tự) hoặc base64 (>50 ký tự)
+        const isAudioId = audioData.length <= 50;
+        
+        if (isAudioId) {
+          // Download từ server bằng ID
+          const response = await http.downloadFile(API_URL.API_AUDIO + `/${audioData}`);
+          const arrayBuffer = await response.arrayBuffer();
+          audioBuffer = await context.decodeAudioData(arrayBuffer);
+        } else {
+          // Phát trực tiếp từ base64
+          const binaryString = atob(audioData);
+          const len = binaryString.length;
+          const bytes = new Uint8Array(len);
+          for (let i = 0; i < len; i++) {
+            bytes[i] = binaryString.charCodeAt(i);
+          }
+          audioBuffer = await context.decodeAudioData(bytes.buffer);
+        }
         audioCacheRef.current.set(audioData, audioBuffer);
       }
 
