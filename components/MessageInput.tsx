@@ -7,7 +7,7 @@ interface MessageInputProps {
   suggestions?: string[];
   onGenerateSuggestions?: () => void;
   isGeneratingSuggestions?: boolean;
-  onSendAudio?: (audioBase64: string, duration: number) => void;
+  onSendAudio?: (audioBase64: string, duration: number, mimeType: string) => void;
   // Optional footer content to render below the input bar
   footerChildren?: React.ReactNode;
 }
@@ -92,7 +92,7 @@ export const MessageInput: React.FC<MessageInputProps> = ({
           
           try {
             const audioBase64 = await blobToBase64(audioBlob);
-            onSendAudio(audioBase64, duration);
+            onSendAudio(audioBase64, duration, mediaRecorder.mimeType);
           } catch (error) {
             console.error('Failed to process audio:', error);
             alert('Không thể xử lý audio. Vui lòng thử lại.');

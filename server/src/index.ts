@@ -565,43 +565,29 @@ app.get("/api/audio/:filename", async (req: Request, res: Response) => {
   const safeName = path.basename(filename);
   const audioDir = path.join(__dirname, "data", "audio");
   
+  const mimeMap: Record<string, string> = {
+    ".mp3": "audio/mpeg",
+    ".wav": "audio/wav",
+    ".ogg": "audio/ogg",
+    ".m4a": "audio/mp4",
+    ".webm": "audio/webm",
+  };
+  
+  // List of extensions to check
+  const extensions = ['.mp3', '.wav', '.webm', '.m4a', '.ogg'];
+  
   try {
     // --- BƯỚC 1: KIỂM TRA FILE TRÊN SERVER TRƯỚC ---
-    let localFilePath = path.join(audioDir, safeName + ".mp3");
-    if (fs.existsSync(localFilePath)) {
-      console.log(`Found audio on server: ${safeName}.mp3`);
-      const ext = path.extname(localFilePath).toLowerCase();
-      const mimeMap: Record<string, string> = {
-        ".mp3": "audio/mpeg",
-        ".wav": "audio/wav",
-        ".ogg": "audio/ogg",
-        ".m4a": "audio/mp4",
-        ".webm": "audio/webm",
-      };
-      res.setHeader("Content-Type", mimeMap[ext] || "application/octet-stream");
-      res.setHeader("Content-Disposition", `inline; filename="${path.basename(localFilePath)}"`);
-      const stream = fs.createReadStream(localFilePath);
-      stream.on("error", () => res.status(500).end());
-      return stream.pipe(res);
-    }
-
-    // Kiểm tra .wav
-    localFilePath = path.join(audioDir, safeName + ".wav");
-    if (fs.existsSync(localFilePath)) {
-      console.log(`Found audio on server: ${safeName}.wav`);
-      const ext = path.extname(localFilePath).toLowerCase();
-      const mimeMap: Record<string, string> = {
-        ".mp3": "audio/mpeg",
-        ".wav": "audio/wav",
-        ".ogg": "audio/ogg",
-        ".m4a": "audio/mp4",
-        ".webm": "audio/webm",
-      };
-      res.setHeader("Content-Type", mimeMap[ext] || "application/octet-stream");
-      res.setHeader("Content-Disposition", `inline; filename="${path.basename(localFilePath)}"`);
-      const stream = fs.createReadStream(localFilePath);
-      stream.on("error", () => res.status(500).end());
-      return stream.pipe(res);
+    for (const ext of extensions) {
+      const localFilePath = path.join(audioDir, safeName + ext);
+      if (fs.existsSync(localFilePath)) {
+        console.log(`Found audio on server: ${safeName}${ext}`);
+        res.setHeader("Content-Type", mimeMap[ext] || "application/octet-stream");
+        res.setHeader("Content-Disposition", `inline; filename="${path.basename(localFilePath)}"`);
+        const stream = fs.createReadStream(localFilePath);
+        stream.on("error", () => res.status(500).end());
+        return stream.pipe(res);
+      }
     }
 
     // --- BƯỚC 2: NẾU KHÔNG CÓ TRÊN SERVER THÌ TÌM TRÊN GOOGLE DRIVE ---
@@ -611,7 +597,7 @@ app.get("/api/audio/:filename", async (req: Request, res: Response) => {
     let tempFilePath = "";
 
     // Tìm file tên gốc (bỏ cái đuôi timestamp đi)
-    const query = `'${DRIVE_FOLDER_ID}' in parents and (name = '${safeName}.mp3' or name = '${safeName}.wav') and trashed = false`;
+    const query = `'${DRIVE_FOLDER_ID}' in parents and (name = '${safeName}.mp3' or name = '${safeName}.wav' or name = '${safeName}.webm') and trashed = false`;
     const driveRes = await drive.files.list({
       q: query,
       fields: 'files(id, name, mimeType)',
@@ -808,7 +794,7 @@ app.post("/api/upload-image-message", (req: Request, res: Response) => {
 // }
 
 app.post("/api/upload-audio", async (req: Request, res: Response) => {
-  const { base64WavData } = req.body;
+  const { base64WavData, mimeType } = req.body;
 
   if (!base64WavData) {
     return res.status(400).json({ error: "Missing base64WavData" });
@@ -826,12 +812,22 @@ app.post("/api/upload-audio", async (req: Request, res: Response) => {
     // Clean base64 string (remove data URL prefix if present)
     const cleanBase64 = base64WavData.replace(/^data:audio\/\w+;base64,/, '');
     
-    // Convert base64 to buffer and save as WAV file
-    const buffer = Buffer.from(cleanBase64, 'base64');
-    const wavPath = path.join(audioDir, `${outputName}.wav`);
+    // Determine file extension based on mimeType or default to webm
+    let ext = 'webm';
+    if (mimeType) {
+      if (mimeType.includes('webm')) ext = 'webm';
+      else if (mimeType.includes('mp4') || mimeType.includes('m4a')) ext = 'm4a';
+      else if (mimeType.includes('wav')) ext = 'wav';
+      else if (mimeType.includes('ogg')) ext = 'ogg';
+      else if (mimeType.includes('mpeg') || mimeType.includes('mp3')) ext = 'mp3';
+    }
     
-    fs.writeFileSync(wavPath, buffer);
-    console.log(`Audio saved: ${wavPath}`);
+    // Convert base64 to buffer and save
+    const buffer = Buffer.from(cleanBase64, 'base64');
+    const audioPath = path.join(audioDir, `${outputName}.${ext}`);
+    
+    fs.writeFileSync(audioPath, buffer);
+    console.log(`Audio saved: ${audioPath}`);
 
     res.json({
       success: true,
@@ -1384,6 +1380,32 @@ app.post("/api/save-data", (req: Request, res: Response) => {
   );
 });
 
+// Load audio list từ file vào Set để kiểm tra nhanh
+const AUDIO_LIST_PATH = path.join(__dirname, "audio-list.txt");
+
+function loadAudioList(): Set<string> {
+  try {
+    if (fs.existsSync(AUDIO_LIST_PATH)) {
+      const content = fs.readFileSync(AUDIO_LIST_PATH, "utf-8");
+      return new Set(content.split("\n").map(id => id.trim()).filter(id => id.length > 0));
+    }
+  } catch (e) {
+    console.error("Failed to load audio list:", e);
+  }
+  return new Set();
+}
+
+function addToAudioList(audioId: string): void {
+  try {
+    const audioListSet = loadAudioList();
+    if (!audioListSet.has(audioId)) {
+      fs.appendFileSync(AUDIO_LIST_PATH, audioId + "\n", "utf-8");
+    }
+  } catch (e) {
+    console.error("Failed to add to audio list:", e);
+  }
+}
+
 app.get("/api/text-to-speech", async (req: Request, res: Response) => {
   const text = req.query.text as string;
   const voice = (req.query.voice as string) || "echo";  
@@ -1391,7 +1413,19 @@ app.get("/api/text-to-speech", async (req: Request, res: Response) => {
   const instructions = (req.query.instructions as string) || undefined;  
   const force = req.query.force === 'true';
   const output = crypto.createHash("md5").update(normalizeText(text) + voice + normalizeText(instructions)).digest("hex");
+  
+  // Load audio list mỗi lần gọi API để đảm bảo dữ liệu luôn mới nhất
+  const audioListSet = loadAudioList();
+  
+  // Kiểm tra trong audio-list trước (nhanh hơn kiểm tra file)
+  if (!force && audioListSet.has(output)) {
+    return res.json({ success: true, output });
+  }
+  
+  // Fallback: kiểm tra file thực tế nếu không có trong list
   if(!force && fs.existsSync(path.join(__dirname, "data/audio", output + "." + format))) {
+    // Thêm vào list nếu chưa có
+    addToAudioList(output);
     return res.json({ success: true, output });
   }
   else if (fs.existsSync(path.join(__dirname, "data/audio", output + "." + format))){
@@ -1399,6 +1433,8 @@ app.get("/api/text-to-speech", async (req: Request, res: Response) => {
   }
   try {    
     const result = await textToSpeech(text, voice, format, output, instructions);
+    // Thêm audio mới vào list
+    addToAudioList(output);
     // await convertWavToMp3(path.join(__dirname, "data/audio", output + ".wav"))
     // unlink(path.join(__dirname, "data/audio", output + ".wav"), () => {});
     res.json(result);

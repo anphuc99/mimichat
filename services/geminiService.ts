@@ -5,7 +5,7 @@ import http, { API_URL } from './HTTPService';
 let API_KEY: string | null = null;
 let ai: GoogleGenAI | null = null;
 
-const GEMINI_TEXT_MODEL = 'gemini-3-pro-preview';
+const GEMINI_TEXT_MODEL = 'gemini-3-flash-preview';
 const GEMINI_IMAGE_MODEL = 'gemini-3-pro-image-preview';
 
 // Initialize Gemini service with API key
@@ -1175,10 +1175,10 @@ Chỉ trả về bối cảnh ngắn gọn bằng tiếng Việt, không giải 
 };
 
 // Upload audio to server and return audioId
-export const uploadAudio = async (base64WavData: string): Promise<string> => {
+export const uploadAudio = async (base64WavData: string, mimeType?: string): Promise<string> => {
   const res = await http.post<{ success: boolean; data: string; message: string }>(
     API_URL.API_UPLOAD_AUDIO,
-    { base64WavData }
+    { base64WavData, mimeType }
   );
   
   if (!res.ok || !res.data?.data) {

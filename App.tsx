@@ -689,7 +689,7 @@ const App: React.FC = () => {
   }, [isLoading, getActiveCharacters, context, updateCurrentChatMessages, processBotResponsesSequentially, handleStreakUpdate, realtimeContext, handleSystemCommand]);
 
   // Handle sending voice message
-  const handleSendAudio = useCallback(async (audioBase64: string, duration: number) => {
+  const handleSendAudio = useCallback(async (audioBase64: string, duration: number, mimeType: string = 'audio/webm') => {
     if (isLoading) return;
 
     setIsLoading(true);
@@ -697,7 +697,7 @@ const App: React.FC = () => {
 
     try {
       // Upload audio to server
-      const audioId = await uploadAudio(audioBase64);
+      const audioId = await uploadAudio(audioBase64, mimeType);
       
       // Create user voice message (transcript will be updated after AI response)
       const userMessageId = Date.now().toString();
