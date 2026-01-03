@@ -11,7 +11,9 @@ import { StreakCelebration } from './components/StreakCelebration';
 import { LevelSelector } from './components/LevelSelector';
 import { AutoChatModal } from './components/AutoChatModal';
 import { RealtimeContextEditor } from './components/RealtimeContextEditor';
-import type { Message, ChatJournal, DailyChat, Character, SavedData, CharacterThought, VocabularyItem, VocabularyReview, StreakData, KoreanLevel, StoryMeta, StoriesIndex } from './types';
+import { VocabularyMemoryScene } from './components/VocabularyMemoryScene';
+import type { Message, ChatJournal, DailyChat, Character, SavedData, CharacterThought, VocabularyItem, VocabularyReview, StreakData, KoreanLevel, StoryMeta, StoriesIndex, FSRSSettings } from './types';
+import { DEFAULT_FSRS_SETTINGS } from './types';
 import { initializeGeminiService, initChat, sendMessage, textToSpeech, translateAndExplainText, translateWord, summarizeConversation, generateCharacterThoughts, generateToneDescription, generateRelationshipSummary, generateContextSuggestion, generateMessageSuggestions, generateVocabulary, generateSceneImage, initAutoChatSession, sendAutoChatMessage, uploadAudio, sendAudioMessage } from './services/geminiService';
 import { getVocabulariesDueForReview, updateReviewAfterQuiz, initializeVocabularyReview, getReviewDueCount, getRandomReviewVocabulariesForChat, getTotalVocabulariesLearned } from './utils/spacedRepetition';
 import { initializeStreak, updateStreak, checkStreakStatus } from './utils/streakManager';
@@ -59,7 +61,7 @@ const App: React.FC = () => {
   const [journal, setJournal] = useState<ChatJournal>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [isSummarizing, setIsSummarizing] = useState(false);
-  const [view, setView] = useState<'chat' | 'journal' | 'vocabulary' | 'context' | 'review'>('chat');
+  const [view, setView] = useState<'chat' | 'journal' | 'vocabulary' | 'context' | 'review' | 'memory'>('chat');
 
   const [characters, setCharacters] = useState<Character[]>(initialCharacters);
   const [activeCharacterIds, setActiveCharacterIds] = useState<string[]>(['mimi']);
@@ -134,6 +136,20 @@ const App: React.FC = () => {
 
   // AI Search state - for story research
   const [isAISearching, setIsAISearching] = useState(false);
+
+  // FSRS settings state - for vocabulary memory system
+  const [fsrsSettings, setFsrsSettings] = useState<FSRSSettings>(() => {
+    // Try to load from localStorage
+    const saved = localStorage.getItem('fsrsSettings');
+    if (saved) {
+      try {
+        return JSON.parse(saved);
+      } catch {
+        return DEFAULT_FSRS_SETTINGS;
+      }
+    }
+    return DEFAULT_FSRS_SETTINGS;
+  });
 
   const [isGeminiInitialized, setIsGeminiInitialized] = useState(false);
   const [isDataLoaded, setIsDataLoaded] = useState(false);
@@ -1901,6 +1917,44 @@ const App: React.FC = () => {
     setSelectedDailyChatId(null);
   }, []);
 
+  // FSRS Settings handlers
+  const handleUpdateFsrsSettings = useCallback((settings: FSRSSettings) => {
+    setFsrsSettings(settings);
+    localStorage.setItem('fsrsSettings', JSON.stringify(settings));
+  }, []);
+
+  // Memory Scene handler
+  const handleStartMemory = useCallback(() => {
+    setView('memory');
+  }, []);
+
+  const handleBackFromMemory = useCallback(() => {
+    setView('journal');
+  }, []);
+
+  const handleUpdateJournalFromMemory = useCallback((updatedJournal: ChatJournal) => {
+    setJournal(updatedJournal);
+    // Auto-save
+    if (currentStoryId) {
+      const savedData: SavedData = {
+        version: 5,
+        journal: updatedJournal,
+        characters,
+        activeCharacterIds,
+        context,
+        relationshipSummary,
+        currentLevel,
+        pendingReviewVocabularyIds: chatReviewVocabularies.map(rv => rv.vocabulary.id),
+        realtimeContext,
+        storyPlot,
+        fsrsSettings
+      };
+      http.put(`${API_URL.API_STORY}/${currentStoryId}`, savedData).catch(err => {
+        console.error("Failed to auto-save from memory scene:", err);
+      });
+    }
+  }, [currentStoryId, characters, activeCharacterIds, context, relationshipSummary, currentLevel, chatReviewVocabularies, realtimeContext, storyPlot, fsrsSettings]);
+
   // Review mode handlers
   const handleStartReview = useCallback(() => {
     // Exclude vocabularies currently pending in chat review hints
@@ -3163,6 +3217,14 @@ const App: React.FC = () => {
           formattedJournalForSearch={formattedJournalForSearch}
           journal={journal}
         />
+      ) : view === 'memory' ? (
+        <VocabularyMemoryScene
+          journal={journal}
+          fsrsSettings={fsrsSettings}
+          onUpdateJournal={handleUpdateJournalFromMemory}
+          onUpdateSettings={handleUpdateFsrsSettings}
+          onBack={handleBackFromMemory}
+        />
       ) : (
         <JournalViewer
           journal={journal}
@@ -3177,6 +3239,7 @@ const App: React.FC = () => {
           onGenerateVocabulary={handleGenerateVocabulary}
           onStartVocabulary={handleStartVocabulary}
           onStartReview={handleStartReview}
+          onStartMemory={handleStartMemory}
           reviewDueCount={getReviewDueCount(journal)}
           streak={streak}
           onCollectVocabulary={handleCollectVocabulary}

@@ -418,6 +418,7 @@ interface JournalViewerProps {
   relationshipSummary: string;
   onUpdateRelationshipSummary: (newSummary: string) => void;
   onStartReview: () => void;
+  onStartMemory?: () => void;
   reviewDueCount: number;
   streak: StreakData;
   onCollectVocabulary?: (korean: string, messageId: string, dailyChatId: string) => void;
@@ -442,6 +443,7 @@ export const JournalViewer: React.FC<JournalViewerProps> = ({
     relationshipSummary,
     onUpdateRelationshipSummary,
     onStartReview,
+    onStartMemory,
     reviewDueCount,
     streak,
     onCollectVocabulary,
@@ -632,6 +634,16 @@ export const JournalViewer: React.FC<JournalViewerProps> = ({
             <div className="flex justify-between items-center mb-4">
                 <h2 className="text-xl font-bold text-gray-700">Nhật ký trò chuyện</h2>
                 <div className="flex items-center space-x-2">
+                    {onStartMemory && (
+                        <button 
+                            onClick={onStartMemory}
+                            className="px-4 py-2 bg-purple-500 text-white rounded-lg hover:bg-purple-600 transition-colors flex items-center space-x-2"
+                            title="Ký ức từ vựng - Học & ôn tập với ký ức cá nhân"
+                        >
+                            <span>🧠</span>
+                            <span>Ký ức</span>
+                        </button>
+                    )}
                     <button 
                         onClick={onStartReview}
                         className="relative px-4 py-2 bg-orange-500 text-white rounded-lg hover:bg-orange-600 transition-colors flex items-center space-x-2"

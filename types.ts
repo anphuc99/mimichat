@@ -51,10 +51,30 @@ export interface VocabularyItem {
   vietnamese: string;
 }
 
+// FSRS Rating: 1=Again (Quên), 2=Hard (Nhớ qua ký ức), 3=Good (Nhớ ngay)
+export type FSRSRating = 1 | 2 | 3;
+
+export interface FSRSSettings {
+  maxReviewsPerDay: number; // Default: 50
+  desiredRetention: number; // Default: 0.9 (90%)
+}
+
+export const DEFAULT_FSRS_SETTINGS: FSRSSettings = {
+  maxReviewsPerDay: 50,
+  desiredRetention: 0.9
+};
+
+// FSRS Default Parameters (v4)
+export const FSRS_PARAMS = {
+  w: [0.4872, 1.4003, 3.7145, 13.8206, 5.1618, 1.2298, 0.8975, 0.031, 1.6474, 0.1367, 1.0461, 2.1072, 0.0793, 0.3246, 1.587, 0.2272, 2.8755],
+  DECAY: -0.5,
+  FACTOR: 0.9 ** (1 / -0.5) - 1 // ≈ 19/81
+};
+
 export interface VocabularyReview {
   vocabularyId: string;
   dailyChatId: string;
-  currentIntervalDays: number; // 0 = chưa ôn lần nào, sau đó là 4, 8, 16... (có thể bị giảm nếu incorrect)
+  currentIntervalDays: number; // Legacy - kept for backward compatibility
   nextReviewDate: string; // ISO date
   lastReviewDate: string | null; // null nếu chưa ôn lần nào
   reviewHistory: {
@@ -63,8 +83,18 @@ export interface VocabularyReview {
     incorrectCount: number;
     intervalBefore: number;
     intervalAfter: number;
+    // FSRS fields (optional for backward compatibility)
+    rating?: FSRSRating;
+    stabilityBefore?: number;
+    stabilityAfter?: number;
+    difficultyBefore?: number;
+    difficultyAfter?: number;
+    retrievability?: number;
   }[];
-  totalReviews: number;
+  // FSRS fields
+  stability?: number; // S: Days until R drops to 90%. Higher = better retention
+  difficulty?: number; // D: [1, 10]. Higher = harder to remember
+  lapses?: number; // Number of times rated "Again"
 }
 
 export interface VocabularyProgress {
@@ -74,6 +104,16 @@ export interface VocabularyProgress {
   lastPracticed: string;
   needsReview: boolean;
   reviewAttempts: number;
+}
+
+// Vocabulary Memory Entry - User's personal memory associated with a vocabulary
+export interface VocabularyMemoryEntry {
+  vocabularyId: string;
+  userMemory: string; // User's personal memory/association with this word
+  linkedMessageIds: string[]; // Message IDs where this word appears
+  linkedDailyChatId: string; // Daily chat ID where the memory was created
+  createdDate: string; // ISO date when memory was created
+  updatedDate?: string; // ISO date when memory was last updated
 }
 
 export interface QuizState {
@@ -99,6 +139,7 @@ export interface DailyChat {
   vocabularies?: VocabularyItem[];
   vocabularyProgress?: VocabularyProgress[];
   reviewSchedule?: VocabularyReview[];
+  vocabularyMemories?: VocabularyMemoryEntry[]; // User's personal memories for vocabulary
 }
 
 export type ChatJournal = DailyChat[];
@@ -182,6 +223,7 @@ export interface SavedData {
   pendingReviewVocabularyIds?: string[]; // IDs of vocabularies being reviewed in current chat session
   realtimeContext?: string; // Ngữ cảnh realtime có thể thay đổi trong lúc chat
   storyPlot?: string; // Mô tả cốt truyện
+  fsrsSettings?: FSRSSettings; // FSRS algorithm settings
 }
 
 // Story types for multi-story support

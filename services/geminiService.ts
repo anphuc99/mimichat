@@ -1221,3 +1221,82 @@ export const sendAudioMessage = async (chat: Chat, audioBase64: string, mimeType
     return "Đã xảy ra sự cố khi xử lý audio. Vui lòng thử lại sau.";
   }
 };
+
+/**
+ * Search for vocabulary variants in journal using AI
+ * AI generates a regex pattern that includes all grammatical variants of the word
+ * @param koreanWord The Korean word to search for
+ * @param journalText Formatted journal text to provide context
+ * @returns Regex pattern string or null if failed
+ */
+export const searchVocabularyInJournal = async (
+  koreanWord: string,
+  journalText: string
+): Promise<string | null> => {
+  try {
+    if (!ai) {
+      await initializeGeminiService();
+    }
+
+    // Truncate journal text if too long (max 50k chars)
+    const maxLength = 50000;
+    const truncatedJournal = journalText.length > maxLength 
+      ? journalText.slice(-maxLength) 
+      : journalText;
+
+    const prompt = `Bạn là trợ lý tìm kiếm từ vựng tiếng Hàn. Nhiệm vụ: tìm TẤT CẢ các lần xuất hiện của từ "${koreanWord}" trong lịch sử hội thoại.
+
+Lưu ý quan trọng về ngữ pháp tiếng Hàn:
+- Động từ/Tính từ biến đổi theo thì và ngữ pháp (chia động từ, thêm 조사, etc.)
+- Ví dụ: 먹다 có thể xuất hiện dưới dạng: 먹어요, 먹었어요, 먹고, 먹는, 먹을, 먹자, 먹으면, 먹어, 먹었, 먹니...
+- Ví dụ: 가다 có thể xuất hiện: 가요, 갔어요, 가고, 가는, 갈, 가자, 가면, 가서...
+- Ví dụ: 학교 có thể xuất hiện: 학교에, 학교를, 학교가, 학교에서, 학교도, 학교는...
+- Tính từ như 예쁘다 có thể: 예뻐요, 예쁜, 예쁘고, 예뻤어요...
+
+Từ cần tìm: "${koreanWord}"
+
+Hãy phân tích từ này và tạo regex pattern bao gồm:
+1. Gốc từ (어간/語幹)
+2. Tất cả các biến thể ngữ pháp phổ biến
+3. Các dạng chia theo thì (hiện tại, quá khứ, tương lai)
+4. Các dạng có 조사 (에, 를, 가, 는, 도, 에서...)
+
+QUAN TRỌNG: Chỉ trả lời ĐÚNG MỘT DÒNG với format:
+SEARCH:<regex_pattern>
+
+Ví dụ:
+- Nếu tìm "가다", trả lời: SEARCH:가다|가요|갔|가고|가는|가면|갈|가서|가니|가자
+- Nếu tìm "학교", trả lời: SEARCH:학교
+- Nếu tìm "예쁘다", trả lời: SEARCH:예쁘|예뻐|예쁜|예뻤
+
+Đây là lịch sử hội thoại để tham khảo (có thể từ đã xuất hiện với dạng nào):
+${truncatedJournal.slice(0, 10000)}
+
+Trả lời:`;
+
+    const model = ai!.models.generateContent({
+      model: GEMINI_TEXT_MODEL,
+      contents: prompt,
+      config: {
+        temperature: 0.1, // Low temperature for consistent output
+        maxOutputTokens: 200,
+      }
+    });
+
+    const response = await model;
+    const text = response.text?.trim() || '';
+    
+    // Parse SEARCH command from response
+    const match = text.match(/^SEARCH:(.+)$/im);
+    if (match) {
+      return match[1].trim();
+    }
+
+    // Fallback: return the original word
+    return koreanWord;
+  } catch (error) {
+    console.error('AI vocabulary search error:', error);
+    return null;
+  }
+};
+
