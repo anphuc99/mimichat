@@ -3056,10 +3056,13 @@ const App: React.FC = () => {
       ) : view === 'memory' ? (
         <VocabularyMemoryScene
           journal={journal}
+          characters={characters}
           fsrsSettings={fsrsSettings}
           onUpdateJournal={handleUpdateJournalFromMemory}
           onUpdateSettings={handleUpdateFsrsSettings}
           onBack={handleBackFromMemory}
+          onPlayAudio={handleReplayAudio}
+          onTranslate={getTranslationAndExplanation}
         />
       ) : (
         <JournalViewer

@@ -8,13 +8,15 @@ interface VocabularyMemorySearchProps {
   vocabulary: VocabularyItem;
   onSelectMessage: (result: SearchResult, contextText: string) => void;
   onClose: () => void;
+  onPlayAudio?: (audioData: string, characterName?: string) => void;
 }
 
 export const VocabularyMemorySearch: React.FC<VocabularyMemorySearchProps> = ({
   journal,
   vocabulary,
   onSelectMessage,
-  onClose
+  onClose,
+  onPlayAudio
 }) => {
   const [searchResults, setSearchResults] = useState<SearchResult[]>([]);
   const [isSearching, setIsSearching] = useState(false);
@@ -22,6 +24,15 @@ export const VocabularyMemorySearch: React.FC<VocabularyMemorySearchProps> = ({
   const [expandedResult, setExpandedResult] = useState<number | null>(null);
   const [contextTexts, setContextTexts] = useState<Map<number, string>>(new Map());
   const [hasSearched, setHasSearched] = useState(false);
+  const [playingIndex, setPlayingIndex] = useState<number | null>(null);
+
+  // Get audio data from the original message
+  const getAudioForResult = useCallback((result: SearchResult): string | null => {
+    const dailyChat = journal[result.journalIndex];
+    if (!dailyChat) return null;
+    const message = dailyChat.messages[result.messageIndex];
+    return message?.audioData || null;
+  }, [journal]);
 
   // Search using AI to find word variants
   const handleAISearch = useCallback(async () => {
@@ -96,6 +107,17 @@ export const VocabularyMemorySearch: React.FC<VocabularyMemorySearchProps> = ({
     onSelectMessage(result, context.found ? context.text : result.text);
   }, [journal, onSelectMessage]);
 
+  // Handle playing audio for a result
+  const handlePlayAudio = useCallback((index: number, result: SearchResult) => {
+    const audioData = getAudioForResult(result);
+    if (audioData && onPlayAudio) {
+      setPlayingIndex(index);
+      onPlayAudio(audioData, result.characterName);
+      // Reset playing state after a short delay (audio playback is async)
+      setTimeout(() => setPlayingIndex(null), 500);
+    }
+  }, [getAudioForResult, onPlayAudio]);
+
   return (
     <div className="vocabulary-memory-search">
       {/* Header */}
@@ -141,41 +163,56 @@ export const VocabularyMemorySearch: React.FC<VocabularyMemorySearchProps> = ({
           </div>
           
           <div className="results-list">
-            {searchResults.map((result, index) => (
-              <div key={`${result.dailyChatId}-${result.messageIndex}`} className="result-item">
-                <div 
-                  className="result-main"
-                  onClick={() => handleExpandResult(index, result)}
-                >
-                  <div className="result-meta">
-                    <span className="result-date">📅 {result.date}</span>
-                    <span className="result-character">👤 {result.characterName}</span>
+            {searchResults.map((result, index) => {
+              const hasAudio = !!getAudioForResult(result);
+              return (
+                <div key={`${result.dailyChatId}-${result.messageIndex}`} className="result-item">
+                  <div 
+                    className="result-main"
+                    onClick={() => handleExpandResult(index, result)}
+                  >
+                    <div className="result-meta">
+                      <span className="result-date">📅 {result.date}</span>
+                      <span className="result-character">👤 {result.characterName}</span>
+                      {hasAudio && (
+                        <button
+                          className={`audio-btn ${playingIndex === index ? 'playing' : ''}`}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handlePlayAudio(index, result);
+                          }}
+                          title="Nghe âm thanh"
+                        >
+                          🔊
+                        </button>
+                      )}
+                    </div>
+                    <div className="result-text">{result.text}</div>
+                    <div className="result-actions">
+                      <button 
+                        className="expand-btn"
+                        title={expandedResult === index ? "Thu gọn" : "Xem ngữ cảnh"}
+                      >
+                        {expandedResult === index ? '▲' : '▼'}
+                      </button>
+                    </div>
                   </div>
-                  <div className="result-text">{result.text}</div>
-                  <div className="result-actions">
-                    <button 
-                      className="expand-btn"
-                      title={expandedResult === index ? "Thu gọn" : "Xem ngữ cảnh"}
-                    >
-                      {expandedResult === index ? '▲' : '▼'}
-                    </button>
-                  </div>
-                </div>
 
-                {/* Expanded Context */}
-                {expandedResult === index && contextTexts.has(index) && (
-                  <div className="result-context">
-                    <pre>{contextTexts.get(index)}</pre>
-                    <button 
-                      className="select-btn"
-                      onClick={() => handleSelectResult(result)}
-                    >
-                      ✓ Chọn tin nhắn này để gắn ký ức
-                    </button>
-                  </div>
-                )}
-              </div>
-            ))}
+                  {/* Expanded Context */}
+                  {expandedResult === index && contextTexts.has(index) && (
+                    <div className="result-context">
+                      <pre>{contextTexts.get(index)}</pre>
+                      <button 
+                        className="select-btn"
+                        onClick={() => handleSelectResult(result)}
+                      >
+                        ✓ Chọn tin nhắn này để gắn ký ức
+                      </button>
+                    </div>
+                  )}
+                </div>
+              );
+            })}
           </div>
         </div>
       )}
@@ -327,10 +364,34 @@ export const VocabularyMemorySearch: React.FC<VocabularyMemorySearchProps> = ({
 
         .result-meta {
           display: flex;
+          align-items: center;
           gap: 12px;
           margin-bottom: 8px;
           font-size: 12px;
           color: #888;
+        }
+
+        .audio-btn {
+          background: none;
+          border: none;
+          cursor: pointer;
+          padding: 2px 6px;
+          font-size: 14px;
+          border-radius: 4px;
+          transition: all 0.2s;
+        }
+
+        .audio-btn:hover {
+          background: rgba(102, 126, 234, 0.3);
+        }
+
+        .audio-btn.playing {
+          animation: pulse 0.5s ease-in-out;
+        }
+
+        @keyframes pulse {
+          0%, 100% { transform: scale(1); }
+          50% { transform: scale(1.2); }
         }
 
         .result-text {

@@ -1,12 +1,21 @@
-import React, { useState, useCallback } from 'react';
-import type { VocabularyItem, VocabularyReview, VocabularyMemoryEntry, FSRSRating, FSRSSettings } from '../types';
+import React, { useState, useCallback, useMemo } from 'react';
+import type { VocabularyItem, VocabularyReview, VocabularyMemoryEntry, FSRSRating, FSRSSettings, DailyChat } from '../types';
 import { DEFAULT_FSRS_SETTINGS } from '../types';
 import { updateFSRSAfterReview, calculateRetrievability } from '../utils/spacedRepetition';
+import HTTPService from '../services/HTTPService';
+
+// Helper function to escape HTML
+const escapeHtml = (text: string): string => {
+  const div = document.createElement('div');
+  div.textContent = text;
+  return div.innerHTML;
+};
 
 interface VocabularyMemoryFlashcardProps {
   vocabulary: VocabularyItem;
   review: VocabularyReview;
   memory?: VocabularyMemoryEntry;
+  dailyChat?: DailyChat;
   settings?: FSRSSettings;
   onReviewComplete: (updatedReview: VocabularyReview, rating: FSRSRating) => void;
   onSkip: () => void;
@@ -20,6 +29,7 @@ export const VocabularyMemoryFlashcard: React.FC<VocabularyMemoryFlashcardProps>
   vocabulary,
   review,
   memory,
+  dailyChat,
   settings = DEFAULT_FSRS_SETTINGS,
   onReviewComplete,
   onSkip,
@@ -28,6 +38,83 @@ export const VocabularyMemoryFlashcard: React.FC<VocabularyMemoryFlashcardProps>
 }) => {
   const [state, setState] = useState<FlashcardState>('word');
   const [isAnimating, setIsAnimating] = useState(false);
+  const [showMemoryPopup, setShowMemoryPopup] = useState(false);
+
+  // Convert memory format [MSG:id][IMG:url] to HTML
+  const processedMemoryHtml = useMemo(() => {
+    if (!memory?.userMemory) return '';
+    
+    const baseUrl = HTTPService.getBaseUrl();
+    let html = '';
+    const userMemory = memory.userMemory;
+    
+    // Build message lookup map from dailyChat
+    const messagesMap = new Map<string, { text: string; characterName: string; date: string }>();
+    if (dailyChat) {
+      for (const msg of dailyChat.messages) {
+        messagesMap.set(msg.id, {
+          text: msg.text,
+          characterName: msg.sender === 'user' ? 'Bạn' : (msg.characterName || 'Bot'),
+          date: dailyChat.date
+        });
+      }
+    }
+    
+    // Parse [MSG:id] and [IMG:url] patterns
+    const regex = /\[(MSG|IMG):([^\]]+)\]/g;
+    let lastIndex = 0;
+    let match;
+
+    while ((match = regex.exec(userMemory)) !== null) {
+      // Add text before this match
+      if (match.index > lastIndex) {
+        const textContent = userMemory.slice(lastIndex, match.index).trim();
+        if (textContent) {
+          html += `<p>${escapeHtml(textContent)}</p>`;
+        }
+      }
+
+      const type = match[1];
+      const value = match[2];
+
+      if (type === 'MSG') {
+        const linkedMsg = messagesMap.get(value);
+        if (linkedMsg) {
+          html += `
+            <div class="message-block">
+              <div class="message-block-header">
+                <span class="character-badge">👤 ${escapeHtml(linkedMsg.characterName)}</span>
+                <span class="date-badge">📅 ${escapeHtml(linkedMsg.date)}</span>
+              </div>
+              <div class="message-text">${escapeHtml(linkedMsg.text)}</div>
+            </div>
+          `;
+        }
+      } else if (type === 'IMG') {
+        // Fix URL for dev mode
+        let imgSrc = value;
+        if (imgSrc.startsWith('/')) {
+          imgSrc = baseUrl + imgSrc;
+        } else if (imgSrc.startsWith('http://localhost')) {
+          // Replace localhost URL with current baseUrl
+          imgSrc = imgSrc.replace(/http:\/\/localhost:\d+/, baseUrl);
+        }
+        html += `<div class="memory-image"><img src="${imgSrc}" alt="Memory image" /></div>`;
+      }
+
+      lastIndex = regex.lastIndex;
+    }
+
+    // Add remaining text after last match
+    if (lastIndex < userMemory.length) {
+      const textContent = userMemory.slice(lastIndex).trim();
+      if (textContent) {
+        html += `<p>${escapeHtml(textContent)}</p>`;
+      }
+    }
+
+    return html || '<p class="empty-memory">Chưa có nội dung</p>';
+  }, [memory?.userMemory, dailyChat]);
 
   // Calculate current retrievability for display
   const getRetrievabilityInfo = useCallback(() => {
@@ -158,8 +245,20 @@ export const VocabularyMemoryFlashcard: React.FC<VocabularyMemoryFlashcardProps>
             <div className="memory-section">
               {memory ? (
                 <>
-                  <div className="section-label">💭 Ký ức của bạn:</div>
-                  <div className="memory-text">{memory.userMemory}</div>
+                  <div className="section-header">
+                    <div className="section-label">💭 Ký ức của bạn:</div>
+                    <button 
+                      className="expand-memory-btn"
+                      onClick={() => setShowMemoryPopup(true)}
+                      title="Xem đầy đủ"
+                    >
+                      🔍 Xem đầy đủ
+                    </button>
+                  </div>
+                  <div 
+                    className="memory-text memory-preview"
+                    dangerouslySetInnerHTML={{ __html: processedMemoryHtml }}
+                  />
                 </>
               ) : (
                 <div className="no-memory">
@@ -251,6 +350,26 @@ export const VocabularyMemoryFlashcard: React.FC<VocabularyMemoryFlashcardProps>
           <span className="stat-value">{review.lapses || 0}</span>
         </div>
       </div>
+
+      {/* Memory Popup Modal */}
+      {showMemoryPopup && memory && (
+        <div className="memory-popup-overlay" onClick={() => setShowMemoryPopup(false)}>
+          <div className="memory-popup" onClick={e => e.stopPropagation()}>
+            <div className="memory-popup-header">
+              <div className="memory-popup-title">
+                <span className="popup-word">{vocabulary.korean}</span>
+              </div>
+              <button className="popup-close-btn" onClick={() => setShowMemoryPopup(false)}>✕</button>
+            </div>
+            <div className="memory-popup-content">
+              <div 
+                className="memory-full-content"
+                dangerouslySetInnerHTML={{ __html: processedMemoryHtml }}
+              />
+            </div>
+          </div>
+        </div>
+      )}
 
       <style>{`
         .vocabulary-memory-flashcard {
@@ -352,16 +471,204 @@ export const VocabularyMemoryFlashcard: React.FC<VocabularyMemoryFlashcardProps>
           border-left: 3px solid #667eea;
         }
 
+        .section-header {
+          display: flex;
+          justify-content: space-between;
+          align-items: center;
+          margin-bottom: 8px;
+        }
+
         .section-label {
           font-size: 12px;
           color: #888;
-          margin-bottom: 8px;
+        }
+
+        .expand-memory-btn {
+          background: rgba(102, 126, 234, 0.3);
+          border: none;
+          border-radius: 6px;
+          padding: 4px 10px;
+          font-size: 12px;
+          color: #aaa;
+          cursor: pointer;
+          transition: all 0.2s;
+        }
+
+        .expand-memory-btn:hover {
+          background: rgba(102, 126, 234, 0.5);
+          color: #fff;
         }
 
         .memory-text {
           color: #ddd;
           font-size: 15px;
           line-height: 1.6;
+        }
+
+        .memory-preview {
+          max-height: 120px;
+          overflow: hidden;
+          position: relative;
+        }
+
+        .memory-preview::after {
+          content: '';
+          position: absolute;
+          bottom: 0;
+          left: 0;
+          right: 0;
+          height: 40px;
+          background: linear-gradient(transparent, rgba(22, 33, 62, 0.95));
+          pointer-events: none;
+        }
+
+        /* Memory content styles for both preview and popup */
+        .memory-text p,
+        .memory-full-content p {
+          margin: 0 0 8px 0;
+        }
+
+        .memory-text img,
+        .memory-full-content img {
+          max-width: 100%;
+          border-radius: 8px;
+          margin: 8px 0;
+        }
+
+        .memory-text .message-block,
+        .memory-full-content .message-block {
+          background: rgba(255, 255, 255, 0.05);
+          border-radius: 8px;
+          padding: 12px;
+          margin: 8px 0;
+          border-left: 3px solid #667eea;
+        }
+
+        .memory-text .message-block .character-badge,
+        .memory-full-content .message-block .character-badge {
+          color: #667eea;
+          font-size: 12px;
+          margin-right: 8px;
+        }
+
+        .memory-text .message-block .date-badge,
+        .memory-full-content .message-block .date-badge {
+          color: #888;
+          font-size: 11px;
+        }
+
+        .memory-text .message-block .message-text,
+        .memory-full-content .message-block .message-text {
+          margin-top: 8px;
+          color: #ccc;
+        }
+
+        /* Memory Popup Modal */
+        .memory-popup-overlay {
+          position: fixed;
+          top: 0;
+          left: 0;
+          right: 0;
+          bottom: 0;
+          background: rgba(0, 0, 0, 0.8);
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          z-index: 1000;
+          padding: 20px;
+          animation: fadeIn 0.2s ease;
+        }
+
+        @keyframes fadeIn {
+          from { opacity: 0; }
+          to { opacity: 1; }
+        }
+
+        .memory-popup {
+          background: #1a1a2e;
+          border-radius: 16px;
+          width: 100%;
+          max-width: 600px;
+          max-height: 80vh;
+          display: flex;
+          flex-direction: column;
+          box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
+          animation: slideUp 0.3s ease;
+        }
+
+        @keyframes slideUp {
+          from { 
+            opacity: 0;
+            transform: translateY(20px);
+          }
+          to { 
+            opacity: 1;
+            transform: translateY(0);
+          }
+        }
+
+        .memory-popup-header {
+          display: flex;
+          justify-content: space-between;
+          align-items: center;
+          padding: 20px;
+          border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+        }
+
+        .memory-popup-title {
+          display: flex;
+          flex-direction: column;
+          gap: 4px;
+        }
+
+        .popup-word {
+          font-size: 28px;
+          font-weight: bold;
+          color: #fff;
+        }
+
+        .popup-meaning {
+          font-size: 16px;
+          color: #4ade80;
+        }
+
+        .popup-close-btn {
+          width: 36px;
+          height: 36px;
+          border-radius: 50%;
+          background: rgba(255, 255, 255, 0.1);
+          border: none;
+          color: #888;
+          font-size: 18px;
+          cursor: pointer;
+          transition: all 0.2s;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+        }
+
+        .popup-close-btn:hover {
+          background: rgba(255, 255, 255, 0.2);
+          color: #fff;
+        }
+
+        .memory-popup-content {
+          padding: 20px;
+          overflow-y: auto;
+          flex: 1;
+        }
+
+        .memory-full-content {
+          color: #ddd;
+          font-size: 16px;
+          line-height: 1.7;
+        }
+
+        .memory-full-content img {
+          max-width: 100%;
+          border-radius: 12px;
+          margin: 12px 0;
+          box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
         }
 
         .no-memory {

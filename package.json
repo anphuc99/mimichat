@@ -11,6 +11,11 @@
   },
   "dependencies": {
     "@google/genai": "^1.29.0",
+    "@tiptap/extension-image": "^3.14.0",
+    "@tiptap/extension-placeholder": "^3.14.0",
+    "@tiptap/pm": "^3.14.0",
+    "@tiptap/react": "^3.14.0",
+    "@tiptap/starter-kit": "^3.14.0",
     "adm-zip": "^0.5.16",
     "fuse.js": "^7.1.0",
     "node-fetch": "^3.3.2",

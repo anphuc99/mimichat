@@ -6,7 +6,8 @@ import type {
   VocabularyMemoryEntry, 
   DailyChat,
   FSRSRating,
-  FSRSSettings 
+  FSRSSettings,
+  Character
 } from '../types';
 import { DEFAULT_FSRS_SETTINGS } from '../types';
 import { 
@@ -21,18 +22,24 @@ type Tab = 'learn' | 'review';
 
 interface VocabularyMemorySceneProps {
   journal: ChatJournal;
+  characters: Character[];
   fsrsSettings: FSRSSettings;
   onUpdateJournal: (updatedJournal: ChatJournal) => void;
   onUpdateSettings: (settings: FSRSSettings) => void;
   onBack: () => void;
+  onPlayAudio?: (audioData: string, characterName?: string) => void;
+  onTranslate?: (text: string) => Promise<string>;
 }
 
 export const VocabularyMemoryScene: React.FC<VocabularyMemorySceneProps> = ({
   journal,
+  characters,
   fsrsSettings,
   onUpdateJournal,
   onUpdateSettings,
-  onBack
+  onBack,
+  onPlayAudio,
+  onTranslate
 }) => {
   const [activeTab, setActiveTab] = useState<Tab>('review');
   const [showSettings, setShowSettings] = useState(false);
@@ -246,10 +253,13 @@ export const VocabularyMemoryScene: React.FC<VocabularyMemorySceneProps> = ({
         <VocabularyMemoryEditor
           vocabulary={selectedVocabulary.vocabulary}
           journal={journal}
+          characters={characters}
           existingMemory={selectedVocabulary.memory}
           dailyChat={selectedVocabulary.dailyChat}
           onSave={handleSaveMemory}
           onCancel={() => setSelectedVocabulary(null)}
+          onPlayAudio={onPlayAudio}
+          onTranslate={onTranslate}
         />
       );
     }
@@ -371,6 +381,7 @@ export const VocabularyMemoryScene: React.FC<VocabularyMemorySceneProps> = ({
         vocabulary={currentItem.vocabulary}
         review={migrateLegacyToFSRS(currentItem.review)}
         memory={currentItem.memory}
+        dailyChat={currentItem.dailyChat}
         settings={fsrsSettings}
         onReviewComplete={handleReviewComplete}
         onSkip={handleSkip}
