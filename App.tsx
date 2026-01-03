@@ -15,7 +15,7 @@ import { VocabularyMemoryScene } from './components/VocabularyMemoryScene';
 import type { Message, ChatJournal, DailyChat, Character, SavedData, CharacterThought, VocabularyItem, VocabularyReview, StreakData, KoreanLevel, StoryMeta, StoriesIndex, FSRSSettings } from './types';
 import { DEFAULT_FSRS_SETTINGS } from './types';
 import { initializeGeminiService, initChat, sendMessage, textToSpeech, translateAndExplainText, translateWord, summarizeConversation, generateCharacterThoughts, generateToneDescription, generateRelationshipSummary, generateContextSuggestion, generateMessageSuggestions, generateVocabulary, generateSceneImage, initAutoChatSession, sendAutoChatMessage, uploadAudio, sendAudioMessage } from './services/geminiService';
-import { getVocabulariesDueForReview, updateReviewAfterQuiz, initializeVocabularyReview, getReviewDueCount, getRandomReviewVocabulariesForChat, getTotalVocabulariesLearned } from './utils/spacedRepetition';
+import { getVocabulariesDueForReview, updateReviewAfterQuiz, initializeVocabularyReview, getReviewDueCount, getTotalVocabulariesLearned } from './utils/spacedRepetition';
 import { initializeStreak, updateStreak, checkStreakStatus } from './utils/streakManager';
 import { formatJournalForSearch, parseSystemCommand, executeSystemCommand, type FormattedJournal } from './utils/storySearch';
 import { KOREAN_LEVELS } from './types';
@@ -96,12 +96,7 @@ const App: React.FC = () => {
     messages: Message[];
   }[] | null>(null);
 
-  // Chat review vocabularies - vocabularies being reviewed during normal chat
-  const [chatReviewVocabularies, setChatReviewVocabularies] = useState<{
-    vocabulary: VocabularyItem;
-    review: VocabularyReview;
-    dailyChatId: string;
-  }[]>([]);
+
 
   // Streak state
   const [streak, setStreak] = useState<StreakData>(initializeStreak());
@@ -173,34 +168,7 @@ const App: React.FC = () => {
     return characters.filter(c => activeCharacterIds.includes(c.id));
   }, [characters, activeCharacterIds]);
 
-  // Helper to restore chatReviewVocabularies from saved vocabulary IDs
-  const restoreReviewVocabulariesFromIds = useCallback((vocabIds: string[], journalData: DailyChat[]) => {
-    const restored: {
-      vocabulary: VocabularyItem;
-      review: VocabularyReview;
-      dailyChatId: string;
-    }[] = [];
 
-    for (const vocabId of vocabIds) {
-      for (const dailyChat of journalData) {
-        if (!dailyChat.vocabularies || !dailyChat.reviewSchedule) continue;
-        
-        const vocab = dailyChat.vocabularies.find(v => v.id === vocabId);
-        const review = dailyChat.reviewSchedule.find(r => r.vocabularyId === vocabId);
-        
-        if (vocab && review) {
-          restored.push({
-            vocabulary: vocab,
-            review: review,
-            dailyChatId: dailyChat.id
-          });
-          break;
-        }
-      }
-    }
-
-    return restored;
-  }, []);
 
   // Initialize Gemini service first
   useEffect(() => {
@@ -223,17 +191,6 @@ const App: React.FC = () => {
     const initializeChatSession = async () => {
       const activeChars = getActiveCharacters();
       if (activeChars.length > 0) {
-        // Only get new review vocabularies if we don't have any yet
-        // This prevents re-randomizing when context changes
-        let reviewVocabs = chatReviewVocabularies;
-        if (chatReviewVocabularies.length < 20) {
-          reviewVocabs = getRandomReviewVocabulariesForChat(journal);
-          if(reviewVocabs.length < 20){
-            reviewVocabs = [];
-          }
-          setChatReviewVocabularies(reviewVocabs);
-        }
-        
         const currentChat = getCurrentChat();
         const history: Content[] = currentChat ? currentChat.messages.map(msg => ({
           role: msg.sender === 'user' ? 'user' : 'model',
@@ -247,16 +204,12 @@ const App: React.FC = () => {
           '', 
           relationshipSummary, 
           currentLevel,
-          reviewVocabs.map(rv => rv.vocabulary),
+          [],
           storyPlot,
           checkPronunciation
         );
         
-        if (reviewVocabs.length > 0) {
-          console.log("Chat initialized with review vocabularies:", reviewVocabs.map(rv => rv.vocabulary.korean));
-        } else {
-          console.log("Chat re-initialized with new context/characters.");
-        }
+        console.log("Chat re-initialized with new context/characters.");
       }
     };
     initializeChatSession();
@@ -545,7 +498,7 @@ const App: React.FC = () => {
           parts: [{ text: msg.rawText || msg.text }],
         })) : [];
         console.log(historyForGemini);
-        chatRef.current = await initChat(activeChars, context, historyForGemini, '', relationshipSummary, currentLevel, chatReviewVocabularies.map(rv => rv.vocabulary), storyPlot, checkPronunciation);
+        chatRef.current = await initChat(activeChars, context, historyForGemini, '', relationshipSummary, currentLevel, [], storyPlot, checkPronunciation);
       }
       
       let botResponseText = await sendMessage(chatRef.current, messageForAI);
@@ -736,7 +689,7 @@ const App: React.FC = () => {
           role: msg.sender === 'user' ? 'user' : 'model',
           parts: [{ text: msg.rawText || msg.text }],
         })) : [];
-        chatRef.current = await initChat(activeChars, context, history, '', relationshipSummary, currentLevel, chatReviewVocabularies.map(rv => rv.vocabulary), storyPlot, checkPronunciation);
+        chatRef.current = await initChat(activeChars, context, history, '', relationshipSummary, currentLevel, [], storyPlot, checkPronunciation);
       }
       
       // Build context prefix for voice messages if realtime context is available
@@ -906,7 +859,7 @@ const App: React.FC = () => {
       setIsLoading(false);
       setIsAISearching(false);
     }
-  }, [isLoading, getActiveCharacters, context, updateCurrentChatMessages, processBotResponsesSequentially, handleStreakUpdate, relationshipSummary, currentLevel, chatReviewVocabularies, realtimeContext, handleSystemCommand]);
+  }, [isLoading, getActiveCharacters, context, updateCurrentChatMessages, processBotResponsesSequentially, handleStreakUpdate, relationshipSummary, currentLevel, realtimeContext, handleSystemCommand]);
 
   const handleUpdateMessage = useCallback(async (messageId: string, newText: string) => {
     if (isLoading) return;
@@ -938,7 +891,7 @@ const App: React.FC = () => {
       }));
 
       const activeChars = getActiveCharacters();
-      chatRef.current = await initChat(activeChars, context, historyForGemini, '', relationshipSummary, currentLevel, chatReviewVocabularies.map(rv => rv.vocabulary), storyPlot, checkPronunciation);
+      chatRef.current = await initChat(activeChars, context, historyForGemini, '', relationshipSummary, currentLevel, [], storyPlot, checkPronunciation);
 
       let botResponseText = await sendMessage(chatRef.current, newText);
 
@@ -1158,8 +1111,7 @@ const App: React.FC = () => {
     
     setIsGeneratingSuggestion(true);
     try {
-      const pendingVocabs = chatReviewVocabularies.map(rv => rv.vocabulary);
-      const suggestions = await generateContextSuggestion(activeChars, relationshipSummary, context, pendingVocabs);
+      const suggestions = await generateContextSuggestion(activeChars, relationshipSummary, context, []);
       setContextSuggestions(suggestions);
     } catch (error) {
       console.error('Failed to generate context suggestion:', error);
@@ -1214,7 +1166,7 @@ const App: React.FC = () => {
       })).slice(0, -1);
 
       const activeChars = getActiveCharacters();
-      chatRef.current = await initChat(activeChars, context, historyForGemini, '', relationshipSummary, currentLevel, chatReviewVocabularies.map(rv => rv.vocabulary), storyPlot, checkPronunciation);
+      chatRef.current = await initChat(activeChars, context, historyForGemini, '', relationshipSummary, currentLevel, [], storyPlot, checkPronunciation);
 
       let botResponseText = await sendMessage(chatRef.current, lastUserMessage.text);
 
@@ -1457,77 +1409,8 @@ const App: React.FC = () => {
       );
       setRelationshipSummary(newRelationshipSummary);
 
-      // Build updated journal with review schedule changes
+      // Build updated journal
       let updatedJournal = [...journal];
-
-      // Check which review vocabularies were used in chat and update their review schedule
-      if (chatReviewVocabularies.length > 0) {
-        const chatText = currentChat.messages
-          .filter(m => m.sender === 'bot')
-          .map(m => m.text)
-          .join(' ');
-        
-        const usedVocabularyIds: string[] = [];
-        for (const rv of chatReviewVocabularies) {
-          if (chatText.includes(rv.vocabulary.korean)) {
-            usedVocabularyIds.push(rv.vocabulary.id);
-          }
-        }
-
-        // Update review schedule for vocabularies used in chat
-        if (usedVocabularyIds.length > 0) {
-          for (const vocabId of usedVocabularyIds) {
-            const rv = chatReviewVocabularies.find(r => r.vocabulary.id === vocabId);
-            if (!rv) continue;
-            
-            const chatIndex = updatedJournal.findIndex(dc => dc.id === rv.dailyChatId);
-            if (chatIndex === -1) continue;
-            
-            const dailyChat = updatedJournal[chatIndex];
-
-            // Ensure reviewSchedule exists
-            const existingSchedule = dailyChat.reviewSchedule || [];
-            const reviewIndex = existingSchedule.findIndex(r => r.vocabularyId === vocabId);
-
-            if (reviewIndex === -1) {
-              // If there is no existing review entry, try to initialize it from vocabularies in the same chat
-              const vocabItem = dailyChat.vocabularies?.find(v => v.id === vocabId);
-              if (vocabItem) {
-                const newReview = initializeVocabularyReview(vocabItem, dailyChat.id);
-                const appliedReview = updateReviewAfterQuiz(newReview, 1, 0);
-
-                updatedJournal[chatIndex] = {
-                  ...dailyChat,
-                  reviewSchedule: [...existingSchedule, appliedReview]
-                };
-              } else {
-                // If vocab not present in this chat, skip
-                continue;
-              }
-            } else {
-              const updatedReview = updateReviewAfterQuiz(
-                existingSchedule[reviewIndex],
-                1, // 1 correct for appearing in conversation
-                0
-              );
-
-              updatedJournal[chatIndex] = {
-                ...dailyChat,
-                reviewSchedule: [
-                  ...existingSchedule.slice(0, reviewIndex),
-                  updatedReview,
-                  ...existingSchedule.slice(reviewIndex + 1)
-                ]
-              };
-            }
-          }
-          
-          console.log(`Updated review for ${usedVocabularyIds.length} vocabularies used in chat`);
-        }
-        
-        // Reset review vocabularies for next chat session
-        setChatReviewVocabularies([]);
-      }
 
       const today = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Ho_Chi_Minh' });
       const newChat: DailyChat = { id: Date.now().toString(), date: today, summary: '', messages: [] };
@@ -1538,10 +1421,6 @@ const App: React.FC = () => {
         summary: summary
       };
       updatedJournal = [...updatedJournal, newChat];
-
-      // Get new review vocabularies using the UPDATED journal (with new nextReviewDates)
-      const newReviewVocabs = getRandomReviewVocabulariesForChat(updatedJournal);
-      setChatReviewVocabularies(newReviewVocabs);
 
       // Now set the journal state
       setJournal(updatedJournal);
@@ -1559,16 +1438,12 @@ const App: React.FC = () => {
         summary, 
         newRelationshipSummary, 
         currentLevel,
-        newReviewVocabs.map(rv => rv.vocabulary),
+        [],
         storyPlot,
         checkPronunciation
       );
       
-      if (newReviewVocabs.length > 0) {
-        alert(`Cuộc trò chuyện đã được tóm tắt và một ngày mới đã bắt đầu! Có ${newReviewVocabs.length} từ vựng cần ôn tập trong cuộc trò chuyện mới.`);
-      } else {
-        alert("Cuộc trò chuyện đã được tóm tắt và một ngày mới đã bắt đầu!");
-      }
+      alert("Cuộc trò chuyện đã được tóm tắt và một ngày mới đã bắt đầu!");
 
     } catch (error) {
       console.error("Không thể tóm tắt cuộc trò chuyện:", error);
@@ -1764,19 +1639,6 @@ const App: React.FC = () => {
     setView('vocabulary');
   }, [journal]);
 
-  // Xử lý khi người dùng click vào từ vựng gợi ý để tạo gợi ý nội dung chat
-  const handleSuggestWithVocabulary = useCallback((vocabulary: VocabularyItem) => {
-    // Tạo gợi ý dựa trên từ vựng được chọn
-    const suggestions = [
-      `Hãy nói về ${vocabulary.vietnamese}`, // Vietnamese prompt
-      `${vocabulary.korean}에 대해 이야기해 주세요`, // Korean: Please talk about...
-      `${vocabulary.korean} 어떻게 사용해요?`, // Korean: How do you use...?
-    ];
-    // Lock these suggestions so they don't automatically change when user sends messages
-    setMessageSuggestions(suggestions);
-    setMessageSuggestionsLocked(true);
-  }, []);
-
   const handleViewContext = useCallback((vocabulary: VocabularyItem, usageIndex: number) => {
     const dailyChat = journal.find(dc => dc.id === selectedDailyChatId);
     if (!dailyChat) return;
@@ -1891,7 +1753,6 @@ const App: React.FC = () => {
         context,
         relationshipSummary,
         currentLevel,
-        pendingReviewVocabularyIds: chatReviewVocabularies.map(rv => rv.vocabulary.id),
       };
       if (currentStoryId) {
         await http.put(`${API_URL.API_STORY}/${currentStoryId}`, { data: dataToSave });
@@ -1944,7 +1805,6 @@ const App: React.FC = () => {
         context,
         relationshipSummary,
         currentLevel,
-        pendingReviewVocabularyIds: chatReviewVocabularies.map(rv => rv.vocabulary.id),
         realtimeContext,
         storyPlot,
         fsrsSettings
@@ -1953,13 +1813,11 @@ const App: React.FC = () => {
         console.error("Failed to auto-save from memory scene:", err);
       });
     }
-  }, [currentStoryId, characters, activeCharacterIds, context, relationshipSummary, currentLevel, chatReviewVocabularies, realtimeContext, storyPlot, fsrsSettings]);
+  }, [currentStoryId, characters, activeCharacterIds, context, relationshipSummary, currentLevel, realtimeContext, storyPlot, fsrsSettings]);
 
   // Review mode handlers
   const handleStartReview = useCallback(() => {
-    // Exclude vocabularies currently pending in chat review hints
-    const pendingIds = chatReviewVocabularies.map(rv => rv.vocabulary.id);
-    const reviewItems = getVocabulariesDueForReview(journal, pendingIds);
+    const reviewItems = getVocabulariesDueForReview(journal, []);
     
     if (reviewItems.length === 0) {
       alert('Không có từ vựng nào cần ôn tập hôm nay!');
@@ -1969,7 +1827,7 @@ const App: React.FC = () => {
     // Store shuffled list to keep consistent order
     setCurrentReviewItems(reviewItems);
     setView('review');
-  }, [journal, chatReviewVocabularies]);
+  }, [journal]);
 
   // Handler for review conversation completion
   const handleReviewConversationComplete = useCallback(async (learnedVocabIds: string[]) => {
@@ -2038,7 +1896,6 @@ const App: React.FC = () => {
         context,
         relationshipSummary,
         currentLevel,
-        pendingReviewVocabularyIds: chatReviewVocabularies.map(rv => rv.vocabulary.id),
       };
       if (currentStoryId) {
         await http.put(`${API_URL.API_STORY}/${currentStoryId}`, { data: dataToSave });
@@ -2077,9 +1934,9 @@ const App: React.FC = () => {
           parts: [{ text: msg.rawText || msg.text }],
         }));
         const previousSummary = journal.length > 1 ? journal[journal.length - 2]?.summary || '' : '';
-        chatRef.current = await initChat(activeChars, context, history, previousSummary, relationshipSummary, newLevel, chatReviewVocabularies.map(rv => rv.vocabulary), storyPlot, checkPronunciation);
+        chatRef.current = await initChat(activeChars, context, history, previousSummary, relationshipSummary, newLevel, [], storyPlot, checkPronunciation);
       } else {
-        chatRef.current = await initChat(activeChars, context, [], '', relationshipSummary, newLevel, chatReviewVocabularies.map(rv => rv.vocabulary), storyPlot, checkPronunciation);
+        chatRef.current = await initChat(activeChars, context, [], '', relationshipSummary, newLevel, [], storyPlot, checkPronunciation);
       }
     }
     
@@ -2093,7 +1950,6 @@ const App: React.FC = () => {
         context,
         relationshipSummary,
         currentLevel: newLevel,
-        pendingReviewVocabularyIds: chatReviewVocabularies.map(rv => rv.vocabulary.id),
         storyPlot,
       };
       if (currentStoryId) {
@@ -2104,7 +1960,7 @@ const App: React.FC = () => {
     } catch (error) {
       console.error("Failed to save level:", error);
     }
-  }, [currentLevel, journal, characters, activeCharacterIds, context, relationshipSummary, getActiveCharacters, getCurrentChat, currentStoryId, chatReviewVocabularies, storyPlot]);
+  }, [currentLevel, journal, characters, activeCharacterIds, context, relationshipSummary, getActiveCharacters, getCurrentChat, currentStoryId, storyPlot]);
 
   const handleSaveJournal = async () => {
     try {
@@ -2116,7 +1972,6 @@ const App: React.FC = () => {
         context,
         relationshipSummary,
         currentLevel,
-        pendingReviewVocabularyIds: chatReviewVocabularies.map(rv => rv.vocabulary.id),
         storyPlot,
       };
       
@@ -2146,7 +2001,6 @@ const App: React.FC = () => {
         context,
         relationshipSummary,
         currentLevel,
-        pendingReviewVocabularyIds: chatReviewVocabularies.map(rv => rv.vocabulary.id),
       };
       const jsonString = JSON.stringify(dataToSave, null, 2);
       const blob = new Blob([jsonString], { type: 'application/json' });
@@ -2403,17 +2257,7 @@ const App: React.FC = () => {
 
     const activeChars = loadedCharacters.filter(c => loadedActiveIds.includes(c.id));
     
-    // Restore review vocabularies from saved IDs, or get new random ones if none saved
-    let reviewVocabs: { vocabulary: VocabularyItem; review: VocabularyReview; dailyChatId: string; }[] = [];
-    if (loadedData.pendingReviewVocabularyIds && loadedData.pendingReviewVocabularyIds.length > 0) {
-      reviewVocabs = restoreReviewVocabulariesFromIds(loadedData.pendingReviewVocabularyIds, loadedJournal);
-    }
-    if (reviewVocabs.length === 0) {
-      reviewVocabs = getRandomReviewVocabulariesForChat(loadedJournal);
-    }
-    setChatReviewVocabularies(reviewVocabs);
-    
-    chatRef.current = await initChat(activeChars, loadedContext, history, previousSummary, loadedRelationshipSummary, loadedLevel, reviewVocabs.map(rv => rv.vocabulary), loadedStoryPlot, checkPronunciation);
+    chatRef.current = await initChat(activeChars, loadedContext, history, previousSummary, loadedRelationshipSummary, loadedLevel, [], loadedStoryPlot, checkPronunciation);
 
     setView('journal');
     setIsDataLoaded(true);
@@ -2608,7 +2452,6 @@ const App: React.FC = () => {
       context,
       relationshipSummary,
       currentLevel,
-      pendingReviewVocabularyIds: chatReviewVocabularies.map(rv => rv.vocabulary.id),
       storyPlot,
     };
 
@@ -2700,11 +2543,7 @@ const App: React.FC = () => {
 
         const activeChars = loadedCharacters.filter(c => loadedActiveIds.includes(c.id));
         
-        // Get review vocabularies for new chat session
-        const reviewVocabs = getRandomReviewVocabulariesForChat(loadedJournal);
-        setChatReviewVocabularies(reviewVocabs);
-        
-        chatRef.current = await initChat(activeChars, loadedContext, history, previousSummary, loadedRelationshipSummary, loadedLevel, reviewVocabs.map(rv => rv.vocabulary), loadedStoryPlot, checkPronunciation);
+        chatRef.current = await initChat(activeChars, loadedContext, history, previousSummary, loadedRelationshipSummary, loadedLevel, [], loadedStoryPlot, checkPronunciation);
 
         setView('journal');
 
@@ -2732,7 +2571,6 @@ const App: React.FC = () => {
           context,
           relationshipSummary,
           currentLevel,
-          pendingReviewVocabularyIds: chatReviewVocabularies.map(rv => rv.vocabulary.id),
           realtimeContext,
           storyPlot,
         };
@@ -2752,7 +2590,7 @@ const App: React.FC = () => {
     const timeoutId = setTimeout(saveData, 3000); // Debounce 3s
 
     return () => clearTimeout(timeoutId);
-  }, [journal, characters, activeCharacterIds, context, relationshipSummary, currentLevel, isDataLoaded, currentStoryId, chatReviewVocabularies, realtimeContext, storyPlot]);
+  }, [journal, characters, activeCharacterIds, context, relationshipSummary, currentLevel, isDataLoaded, currentStoryId, realtimeContext, storyPlot]);
 
   const currentMessages = getCurrentChat()?.messages || [];
 
@@ -3057,8 +2895,6 @@ const App: React.FC = () => {
             onRegenerateImage={handleRegenerateImage}
             onDeleteMessage={handleDeleteMessage}
             characters={characters}
-            reviewVocabularies={chatReviewVocabularies.map(rv => rv.vocabulary)}
-            onSuggestWithVocabulary={handleSuggestWithVocabulary}
           />
           <div className="p-2 bg-white border-t border-gray-200 relative">
             <div className="flex items-center space-x-2 justify-center">
