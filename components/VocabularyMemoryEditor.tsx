@@ -5,7 +5,7 @@ import Placeholder from '@tiptap/extension-placeholder';
 import Image from '@tiptap/extension-image';
 import type { VocabularyItem, VocabularyMemoryEntry, ChatJournal, DailyChat, Character } from '../types';
 import { formatJournalForSearch, searchConversations, SearchResult } from '../utils/storySearch';
-import { searchVocabularyInJournal } from '../services/geminiService';
+import { searchVocabularyInJournal, generateCustomImage } from '../services/geminiService';
 import HTTPService from '../services/HTTPService';
 import JournalPreviewModal from './JournalPreviewModal';
 
@@ -248,11 +248,38 @@ export const VocabularyMemoryEditor: React.FC<VocabularyMemoryEditorProps> = ({
   // Journal preview state
   const [previewJournal, setPreviewJournal] = useState<{ dailyChat: DailyChat; messageId: string } | null>(null);
   
+  // AI Image generation state
+  const [showAIImagePopup, setShowAIImagePopup] = useState(false);
+  const [aiImagePrompt, setAiImagePrompt] = useState('');
+  const [aiSelectedCharacters, setAiSelectedCharacters] = useState<string[]>([]);
+  const [aiGeneratedImages, setAiGeneratedImages] = useState<string[]>([]);
+  const [isGeneratingImage, setIsGeneratingImage] = useState(false);
+  const [aiImageError, setAiImageError] = useState<string | null>(null);
+  
+  // Fullscreen image viewer state
+  const [fullscreenImage, setFullscreenImage] = useState<string | null>(null);
+  
   // Detect mobile/desktop
   useEffect(() => {
     const handleResize = () => setMobile(isMobile());
     window.addEventListener('resize', handleResize);
     return () => window.removeEventListener('resize', handleResize);
+  }, []);
+
+  // Handle image click to open fullscreen
+  useEffect(() => {
+    const handleImageClick = (e: MouseEvent) => {
+      const target = e.target as HTMLElement;
+      if (target.tagName === 'IMG' && target.closest('.editor-container')) {
+        const imgSrc = (target as HTMLImageElement).src;
+        if (imgSrc) {
+          setFullscreenImage(imgSrc);
+        }
+      }
+    };
+    
+    document.addEventListener('click', handleImageClick);
+    return () => document.removeEventListener('click', handleImageClick);
   }, []);
 
   // Create message block extension with audio callback
@@ -493,6 +520,55 @@ export const VocabularyMemoryEditor: React.FC<VocabularyMemoryEditorProps> = ({
     fileInputRef.current?.click();
   }, []);
 
+  // AI Image Generation handlers
+  const handleOpenAIImagePopup = useCallback(() => {
+    setShowAIImagePopup(true);
+    setAiImagePrompt('');
+    setAiSelectedCharacters([]);
+    setAiGeneratedImages([]);
+    setAiImageError(null);
+  }, []);
+
+  const handleToggleCharacter = useCallback((charId: string) => {
+    setAiSelectedCharacters(prev => 
+      prev.includes(charId) 
+        ? prev.filter(id => id !== charId)
+        : [...prev, charId]
+    );
+  }, []);
+
+  const handleGenerateAIImage = useCallback(async () => {
+    if (!aiImagePrompt.trim()) {
+      setAiImageError('Vui lòng nhập mô tả hình ảnh.');
+      return;
+    }
+
+    setIsGeneratingImage(true);
+    setAiImageError(null);
+
+    try {
+      const selectedChars = characters.filter(c => aiSelectedCharacters.includes(c.id));
+      const imageUrl = await generateCustomImage(aiImagePrompt, selectedChars.length > 0 ? selectedChars : undefined);
+      
+      if (imageUrl) {
+        setAiGeneratedImages(prev => [imageUrl, ...prev]);
+      } else {
+        setAiImageError('Không thể tạo hình ảnh. Vui lòng thử lại.');
+      }
+    } catch (error) {
+      console.error('AI image generation error:', error);
+      setAiImageError('Lỗi khi tạo hình ảnh.');
+    } finally {
+      setIsGeneratingImage(false);
+    }
+  }, [aiImagePrompt, aiSelectedCharacters, characters]);
+
+  const handleInsertAIImage = useCallback((imageUrl: string) => {
+    if (!editor) return;
+    editor.chain().focus().setImage({ src: imageUrl }).run();
+    setShowAIImagePopup(false);
+  }, [editor]);
+
   // Save the memory
   const handleSave = useCallback(() => {
     if (!editor) return;
@@ -681,6 +757,13 @@ export const VocabularyMemoryEditor: React.FC<VocabularyMemoryEditorProps> = ({
               >
                 🖼️
               </button>
+              <button
+                className="format-btn ai-image-btn"
+                onClick={handleOpenAIImagePopup}
+                title="Tạo ảnh AI"
+              >
+                ✨🎨
+              </button>
               {/* Hidden file input for image upload */}
               <input
                 type="file"
@@ -772,6 +855,120 @@ export const VocabularyMemoryEditor: React.FC<VocabularyMemoryEditorProps> = ({
           onPlayAudio={onPlayAudio}
           onTranslate={onTranslate}
         />
+      )}
+
+      {/* AI Image Generation Popup */}
+      {showAIImagePopup && (
+        <div className="ai-image-overlay" onClick={() => setShowAIImagePopup(false)}>
+          <div className="ai-image-popup" onClick={e => e.stopPropagation()}>
+            <div className="ai-popup-header">
+              <h3>✨ Tạo ảnh AI</h3>
+              <button className="close-btn" onClick={() => setShowAIImagePopup(false)}>✕</button>
+            </div>
+
+            <div className="ai-popup-content">
+              {/* Character Selection */}
+              <div className="ai-section">
+                <label>👥 Thêm nhân vật vào hình:</label>
+                <div className="character-chips">
+                  {characters.map(char => (
+                    <button
+                      key={char.id}
+                      className={`character-chip ${aiSelectedCharacters.includes(char.id) ? 'selected' : ''}`}
+                      onClick={() => handleToggleCharacter(char.id)}
+                    >
+                      {char.avatar && (
+                        <img src={char.avatar} alt={char.name} className="chip-avatar" />
+                      )}
+                      <span>{char.name}</span>
+                    </button>
+                  ))}
+                </div>
+                {aiSelectedCharacters.length > 0 && (
+                  <div className="selected-chars-info">
+                    {characters
+                      .filter(c => aiSelectedCharacters.includes(c.id))
+                      .map(c => (
+                        <div key={c.id} className="char-info">
+                          <strong>{c.name}:</strong> {c.appearance || c.personality}
+                        </div>
+                      ))}
+                  </div>
+                )}
+              </div>
+
+              {/* Prompt Input */}
+              <div className="ai-section">
+                <label>🎨 Mô tả hình ảnh muốn tạo:</label>
+                <textarea
+                  className="ai-prompt-input"
+                  value={aiImagePrompt}
+                  onChange={e => setAiImagePrompt(e.target.value)}
+                  placeholder="Ví dụ: Mimi và Lisa đang ngồi trong quán cafe, uống trà và trò chuyện vui vẻ..."
+                  rows={3}
+                />
+              </div>
+
+              {/* Generate Button */}
+              <button
+                className="generate-btn"
+                onClick={handleGenerateAIImage}
+                disabled={isGeneratingImage || !aiImagePrompt.trim()}
+              >
+                {isGeneratingImage ? '⏳ Đang tạo...' : '🚀 Tạo hình ảnh'}
+              </button>
+
+              {aiImageError && (
+                <div className="ai-error">{aiImageError}</div>
+              )}
+
+              {/* Generated Images */}
+              {aiGeneratedImages.length > 0 && (
+                <div className="ai-section">
+                  <label>🖼️ Hình đã tạo:</label>
+                  <div className="generated-images">
+                    {aiGeneratedImages.map((imgUrl, idx) => (
+                      <div key={idx} className="generated-image-item">
+                        <div className="image-wrapper">
+                          <img 
+                            src={imgUrl} 
+                            alt={`Generated ${idx + 1}`}
+                          />
+                          <button
+                            className="fullscreen-btn"
+                            onClick={() => setFullscreenImage(imgUrl)}
+                            title="Xem full màn hình"
+                          >
+                            🔍
+                          </button>
+                        </div>
+                        <button
+                          className="insert-btn"
+                          onClick={() => handleInsertAIImage(imgUrl)}
+                        >
+                          ✓ Chọn ảnh này
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Fullscreen Image Viewer */}
+      {fullscreenImage && (
+        <div className="fullscreen-overlay" onClick={() => setFullscreenImage(null)}>
+          <button className="fullscreen-close" onClick={() => setFullscreenImage(null)}>✕</button>
+          <img 
+            src={fullscreenImage} 
+            alt="Fullscreen view" 
+            className="fullscreen-image"
+            onClick={e => e.stopPropagation()}
+          />
+        </div>
       )}
 
       <style>{`
@@ -1480,6 +1677,328 @@ export const VocabularyMemoryEditor: React.FC<VocabularyMemoryEditorProps> = ({
 
         .ProseMirror ::selection {
           background: rgba(102, 126, 234, 0.4);
+        }
+
+        /* AI Image Button */
+        .ai-image-btn {
+          background: linear-gradient(135deg, #667eea 0%, #764ba2 100%) !important;
+          color: white !important;
+        }
+
+        /* AI Image Popup */
+        .ai-image-overlay {
+          position: fixed;
+          top: 0;
+          left: 0;
+          right: 0;
+          bottom: 0;
+          background: rgba(0, 0, 0, 0.8);
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          z-index: 2000;
+          padding: 20px;
+        }
+
+        .ai-image-popup {
+          background: #1a1a2e;
+          border-radius: 16px;
+          width: 100%;
+          max-width: 600px;
+          max-height: 90vh;
+          display: flex;
+          flex-direction: column;
+          box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
+          overflow: hidden;
+        }
+
+        .ai-popup-header {
+          display: flex;
+          justify-content: space-between;
+          align-items: center;
+          padding: 16px 20px;
+          background: #16213e;
+          border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+        }
+
+        .ai-popup-header h3 {
+          margin: 0;
+          color: #fff;
+          font-size: 18px;
+        }
+
+        .ai-popup-header .close-btn {
+          background: rgba(255, 255, 255, 0.1);
+          border: none;
+          color: #888;
+          width: 32px;
+          height: 32px;
+          border-radius: 50%;
+          cursor: pointer;
+          font-size: 16px;
+        }
+
+        .ai-popup-header .close-btn:hover {
+          background: rgba(255, 255, 255, 0.2);
+          color: #fff;
+        }
+
+        .ai-popup-content {
+          padding: 20px;
+          overflow-y: auto;
+          flex: 1;
+          display: flex;
+          flex-direction: column;
+          gap: 16px;
+        }
+
+        .ai-section {
+          display: flex;
+          flex-direction: column;
+          gap: 8px;
+        }
+
+        .ai-section label {
+          color: #aaa;
+          font-size: 14px;
+        }
+
+        .character-chips {
+          display: flex;
+          flex-wrap: wrap;
+          gap: 8px;
+        }
+
+        .character-chip {
+          display: flex;
+          align-items: center;
+          gap: 6px;
+          padding: 6px 12px;
+          background: rgba(255, 255, 255, 0.1);
+          border: 2px solid transparent;
+          border-radius: 20px;
+          cursor: pointer;
+          transition: all 0.2s;
+          color: #ccc;
+          font-size: 13px;
+        }
+
+        .character-chip:hover {
+          background: rgba(255, 255, 255, 0.15);
+        }
+
+        .character-chip.selected {
+          background: rgba(102, 126, 234, 0.3);
+          border-color: #667eea;
+          color: #fff;
+        }
+
+        .chip-avatar {
+          width: 24px;
+          height: 24px;
+          border-radius: 50%;
+          object-fit: cover;
+        }
+
+        .selected-chars-info {
+          background: rgba(102, 126, 234, 0.1);
+          border-radius: 8px;
+          padding: 10px;
+          margin-top: 8px;
+        }
+
+        .char-info {
+          font-size: 12px;
+          color: #aaa;
+          margin-bottom: 4px;
+        }
+
+        .char-info:last-child {
+          margin-bottom: 0;
+        }
+
+        .char-info strong {
+          color: #667eea;
+        }
+
+        .ai-prompt-input {
+          width: 100%;
+          padding: 12px;
+          background: rgba(255, 255, 255, 0.05);
+          border: 1px solid rgba(255, 255, 255, 0.1);
+          border-radius: 8px;
+          color: #fff;
+          font-size: 14px;
+          resize: vertical;
+          min-height: 80px;
+        }
+
+        .ai-prompt-input:focus {
+          outline: none;
+          border-color: #667eea;
+        }
+
+        .ai-prompt-input::placeholder {
+          color: #666;
+        }
+
+        .generate-btn {
+          padding: 12px 24px;
+          background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+          border: none;
+          border-radius: 8px;
+          color: white;
+          font-size: 15px;
+          font-weight: 600;
+          cursor: pointer;
+          transition: all 0.2s;
+        }
+
+        .generate-btn:hover:not(:disabled) {
+          transform: translateY(-2px);
+          box-shadow: 0 4px 12px rgba(102, 126, 234, 0.4);
+        }
+
+        .generate-btn:disabled {
+          opacity: 0.6;
+          cursor: not-allowed;
+        }
+
+        .ai-error {
+          color: #ef4444;
+          font-size: 13px;
+          padding: 8px 12px;
+          background: rgba(239, 68, 68, 0.1);
+          border-radius: 6px;
+        }
+
+        .generated-images {
+          display: grid;
+          grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+          gap: 12px;
+        }
+
+        .generated-image-item {
+          background: rgba(255, 255, 255, 0.05);
+          border-radius: 12px;
+          overflow: hidden;
+          display: flex;
+          flex-direction: column;
+        }
+
+        .generated-image-item img {
+          width: 100%;
+          aspect-ratio: 1;
+          object-fit: cover;
+          cursor: pointer;
+          transition: opacity 0.2s;
+        }
+
+        .generated-image-item img:hover {
+          opacity: 0.9;
+        }
+
+        .generated-image-item .image-wrapper {
+          position: relative;
+        }
+
+        .generated-image-item .fullscreen-btn {
+          position: absolute;
+          top: 8px;
+          right: 8px;
+          width: 32px;
+          height: 32px;
+          background: rgba(0, 0, 0, 0.6);
+          border: none;
+          border-radius: 50%;
+          color: white;
+          font-size: 16px;
+          cursor: pointer;
+          opacity: 0;
+          transition: opacity 0.2s;
+        }
+
+        .generated-image-item:hover .fullscreen-btn {
+          opacity: 1;
+        }
+
+        .generated-image-item .fullscreen-btn:hover {
+          background: rgba(0, 0, 0, 0.8);
+        }
+
+        .generated-image-item .insert-btn {
+          padding: 10px;
+          background: rgba(74, 222, 128, 0.2);
+          border: none;
+          color: #4ade80;
+          font-size: 13px;
+          cursor: pointer;
+          transition: all 0.2s;
+        }
+
+        .generated-image-item .insert-btn:hover {
+          background: rgba(74, 222, 128, 0.3);
+        }
+
+        /* Fullscreen Image Viewer */
+        .fullscreen-overlay {
+          position: fixed;
+          top: 0;
+          left: 0;
+          right: 0;
+          bottom: 0;
+          background: rgba(0, 0, 0, 0.95);
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          z-index: 9999;
+          cursor: zoom-out;
+          animation: fadeIn 0.2s ease;
+        }
+
+        @keyframes fadeIn {
+          from { opacity: 0; }
+          to { opacity: 1; }
+        }
+
+        .fullscreen-close {
+          position: absolute;
+          top: 20px;
+          right: 20px;
+          width: 44px;
+          height: 44px;
+          background: rgba(255, 255, 255, 0.1);
+          border: none;
+          border-radius: 50%;
+          color: #fff;
+          font-size: 24px;
+          cursor: pointer;
+          transition: all 0.2s;
+          z-index: 10000;
+        }
+
+        .fullscreen-close:hover {
+          background: rgba(255, 255, 255, 0.2);
+          transform: scale(1.1);
+        }
+
+        .fullscreen-image {
+          max-width: 95vw;
+          max-height: 95vh;
+          object-fit: contain;
+          cursor: default;
+          border-radius: 8px;
+          box-shadow: 0 10px 50px rgba(0, 0, 0, 0.5);
+        }
+
+        /* Make images in editor clickable */
+        .editor-container .memory-image {
+          cursor: zoom-in;
+          transition: transform 0.2s;
+        }
+
+        .editor-container .memory-image:hover {
+          transform: scale(1.02);
         }
       `}</style>
     </div>
