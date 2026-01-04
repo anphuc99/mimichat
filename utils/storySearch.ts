@@ -78,8 +78,12 @@ export function searchConversations(
   const results: SearchResult[] = [];
 
   try {
+    // Trim and clean pattern (remove whitespace from start/end and around | separators)
+    const cleanPattern = pattern.trim().split('|').map(p => p.trim()).filter(p => p.length > 0).join('|');
+    if (!cleanPattern) return results;
+    
     // Create regex from pattern (case-insensitive)
-    const regex = new RegExp(pattern, 'gi');
+    const regex = new RegExp(cleanPattern, 'gi');
 
     for (const entry of formattedJournal.entries) {
       for (const msg of entry.messages) {

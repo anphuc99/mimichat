@@ -1448,32 +1448,18 @@ function addToAudioList(audioId: string): void {
 app.get("/api/text-to-speech", async (req: Request, res: Response) => {
   const text = req.query.text as string;
   const voice = (req.query.voice as string) || "echo";  
-  const format = "wav";
+  const format = "mp3";
   const instructions = (req.query.instructions as string) || undefined;  
   const force = req.query.force === 'true';
   const output = crypto.createHash("md5").update(normalizeText(text) + voice + normalizeText(instructions)).digest("hex");
-  
-  // Load audio list mỗi lần gọi API để đảm bảo dữ liệu luôn mới nhất
-  const audioListSet = loadAudioList();
-  
-  // Kiểm tra trong audio-list trước (nhanh hơn kiểm tra file)
-  if (!force && audioListSet.has(output)) {
-    return res.json({ success: true, output });
-  }
-  
-  // Fallback: kiểm tra file thực tế nếu không có trong list
   if(!force && fs.existsSync(path.join(__dirname, "data/audio", output + "." + format))) {
-    // Thêm vào list nếu chưa có
-    addToAudioList(output);
     return res.json({ success: true, output });
   }
   else if (fs.existsSync(path.join(__dirname, "data/audio", output + "." + format))){
-    await unlinkSync(path.join(__dirname, "data/audio", output + ".wav"));
+    await unlinkSync(path.join(__dirname, "data/audio", output + "." + format));
   }
   try {    
     const result = await textToSpeech(text, voice, format, output, instructions);
-    // Thêm audio mới vào list
-    addToAudioList(output);
     // await convertWavToMp3(path.join(__dirname, "data/audio", output + ".wav"))
     // unlink(path.join(__dirname, "data/audio", output + ".wav"), () => {});
     res.json(result);

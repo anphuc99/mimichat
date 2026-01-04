@@ -971,7 +971,7 @@ export const generateVocabulary = async (
   // Create list of existing Korean words to avoid
   const existingWords = existingVocabularies.map(v => v.korean).join(', ');
 
-  const prompt = `Phân tích cuộc hội thoại sau và xác định 10 từ vựng hoặc cụm từ phù hợp cho người mới học tiếng Hàn (Cấp độ ${level}).
+  const prompt = `Phân tích cuộc hội thoại sau và xác định 20 từ vựng hoặc cụm từ phù hợp cho người mới học tiếng Hàn (Cấp độ ${level}).
 
 CUỘC HỘI THOẠI:
 ${conversationText}
@@ -1029,7 +1029,7 @@ Mảng JSON các đối tượng:
       return m;
     });
 
-    return vocabularies.slice(0, 10); // Ensure max 10 items
+    return vocabularies.slice(0, 20); // Ensure max 10 items
   } catch (error) {
     console.error("Gemini vocabulary generation error:", error);
     throw new Error("Failed to generate vocabulary.");
