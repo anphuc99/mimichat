@@ -423,6 +423,7 @@ export const VocabularyMemoryScene: React.FC<VocabularyMemorySceneProps> = ({
         review={migrateLegacyToFSRS(currentItem.review)}
         memory={currentItem.memory}
         dailyChat={currentItem.dailyChat}
+        journal={journal}
         settings={fsrsSettings}
         characters={characters}
         onReviewComplete={handleReviewComplete}
@@ -649,6 +650,7 @@ export const VocabularyMemoryScene: React.FC<VocabularyMemorySceneProps> = ({
           flex: 1;
           overflow-y: auto;
           padding: 16px;
+          padding-bottom: 80px;
         }
 
         .vocab-item {

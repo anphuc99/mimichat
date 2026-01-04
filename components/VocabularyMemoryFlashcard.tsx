@@ -1,5 +1,5 @@
 import React, { useState, useCallback, useMemo } from 'react';
-import type { VocabularyItem, VocabularyReview, VocabularyMemoryEntry, FSRSRating, FSRSSettings, DailyChat, Character } from '../types';
+import type { VocabularyItem, VocabularyReview, VocabularyMemoryEntry, FSRSRating, FSRSSettings, DailyChat, Character, ChatJournal } from '../types';
 import { DEFAULT_FSRS_SETTINGS } from '../types';
 import { updateFSRSAfterReview, calculateRetrievability } from '../utils/spacedRepetition';
 import HTTPService from '../services/HTTPService';
@@ -16,6 +16,7 @@ interface VocabularyMemoryFlashcardProps {
   review: VocabularyReview;
   memory?: VocabularyMemoryEntry;
   dailyChat?: DailyChat;
+  journal?: ChatJournal;
   settings?: FSRSSettings;
   characters?: Character[];
   onReviewComplete: (updatedReview: VocabularyReview, rating: FSRSRating) => void;
@@ -34,6 +35,7 @@ export const VocabularyMemoryFlashcard: React.FC<VocabularyMemoryFlashcardProps>
   review,
   memory,
   dailyChat,
+  journal = [],
   settings = DEFAULT_FSRS_SETTINGS,
   characters = [],
   onReviewComplete,
@@ -47,6 +49,7 @@ export const VocabularyMemoryFlashcard: React.FC<VocabularyMemoryFlashcardProps>
   const [state, setState] = useState<FlashcardState>('word');
   const [isAnimating, setIsAnimating] = useState(false);
   const [showMemoryPopup, setShowMemoryPopup] = useState(false);
+  const [showSearchPopup, setShowSearchPopup] = useState(false);
   const [selectedCharacterId, setSelectedCharacterId] = useState<string>('');
   const [isGeneratingAudio, setIsGeneratingAudio] = useState(false);
 
@@ -125,6 +128,27 @@ export const VocabularyMemoryFlashcard: React.FC<VocabularyMemoryFlashcardProps>
 
     return html || '<p class="empty-memory">Chưa có nội dung</p>';
   }, [memory?.userMemory, dailyChat]);
+
+  // Search for word usage in entire journal
+  const wordUsageResults = useMemo(() => {
+    if (!journal || journal.length === 0) return [];
+    
+    const koreanWord = vocabulary.korean;
+    const results: {
+      message: typeof journal[0]['messages'][0];
+      dailyChat: typeof journal[0];
+    }[] = [];
+    
+    for (const dc of journal) {
+      for (const message of dc.messages) {
+        if (message.text.includes(koreanWord)) {
+          results.push({ message, dailyChat: dc });
+        }
+      }
+    }
+    
+    return results;
+  }, [journal, vocabulary.korean]);
 
   // Calculate current retrievability for display
   const getRetrievabilityInfo = useCallback(() => {
@@ -295,6 +319,17 @@ export const VocabularyMemoryFlashcard: React.FC<VocabularyMemoryFlashcardProps>
                 </button>
               </div>
             )}
+            
+            {/* Search word in story button */}
+            {journal && journal.length > 0 && (
+              <button
+                className="search-word-btn"
+                onClick={() => setShowSearchPopup(true)}
+                title={`Tìm "${vocabulary.korean}" trong story`}
+              >
+                🔍 Tìm trong story ({wordUsageResults.length})
+              </button>
+            )}
           </div>
 
           {/* Memory - Visible in 'memory' and 'answer' states */}
@@ -429,6 +464,65 @@ export const VocabularyMemoryFlashcard: React.FC<VocabularyMemoryFlashcardProps>
                 className="memory-full-content"
                 dangerouslySetInnerHTML={{ __html: processedMemoryHtml }}
               />
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Search Word Usage Popup */}
+      {showSearchPopup && (
+        <div className="search-popup-overlay" onClick={() => setShowSearchPopup(false)}>
+          <div className="search-popup" onClick={e => e.stopPropagation()}>
+            <div className="search-popup-header">
+              <div className="search-popup-title">
+                🔍 "{vocabulary.korean}" trong story
+              </div>
+              <button className="popup-close-btn" onClick={() => setShowSearchPopup(false)}>✕</button>
+            </div>
+            <div className="search-popup-results">
+              {wordUsageResults.length === 0 ? (
+                <div className="no-results">
+                  Không tìm thấy "{vocabulary.korean}" trong story nào
+                </div>
+              ) : (
+                <div className="results-list">
+                  <div className="results-count">
+                    Tìm thấy {wordUsageResults.length} lần sử dụng
+                  </div>
+                  {wordUsageResults.map((result, index) => {
+                    const dateStr = new Date(result.dailyChat.date).toLocaleDateString('vi-VN');
+                    const characterName = result.message.speaker;
+                    const text = result.message.text;
+                    // Highlight the searched word
+                    const highlightedText = text.replace(
+                      new RegExp(`(${vocabulary.korean})`, 'g'),
+                      '<mark class="highlight-word">$1</mark>'
+                    );
+                    
+                    return (
+                      <div key={index} className="search-result-item">
+                        <div className="result-meta">
+                          <span className="result-character">{characterName}</span>
+                          <span className="result-date">{dateStr}</span>
+                        </div>
+                        <div 
+                          className="result-text"
+                          dangerouslySetInnerHTML={{ __html: highlightedText }}
+                        />
+                        {result.message.audioBase64 && onPlayAudio && (
+                          <button
+                            className="result-play-btn"
+                            onClick={() => onPlayAudio(result.message.audioBase64!, characterName)}
+                            title="Nghe audio"
+                          >
+                            🔊
+                          </button>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
             </div>
           </div>
         </div>
@@ -940,6 +1034,147 @@ export const VocabularyMemoryFlashcard: React.FC<VocabularyMemoryFlashcardProps>
           font-size: 14px;
           color: #aaa;
           font-weight: 500;
+        }
+
+        /* Search word button */
+        .search-word-btn {
+          margin-top: 12px;
+          padding: 8px 16px;
+          background: rgba(74, 222, 128, 0.15);
+          border: 1px solid rgba(74, 222, 128, 0.3);
+          border-radius: 20px;
+          color: #4ade80;
+          font-size: 13px;
+          cursor: pointer;
+          transition: all 0.2s;
+        }
+
+        .search-word-btn:hover {
+          background: rgba(74, 222, 128, 0.25);
+          border-color: rgba(74, 222, 128, 0.5);
+        }
+
+        /* Search popup */
+        .search-popup-overlay {
+          position: fixed;
+          top: 0;
+          left: 0;
+          right: 0;
+          bottom: 0;
+          background: rgba(0, 0, 0, 0.8);
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          z-index: 1000;
+          padding: 20px;
+        }
+
+        .search-popup {
+          background: #1a1a2e;
+          border-radius: 16px;
+          width: 100%;
+          max-width: 500px;
+          max-height: 80vh;
+          display: flex;
+          flex-direction: column;
+          box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
+          animation: slideUp 0.3s ease;
+        }
+
+        .search-popup-header {
+          display: flex;
+          justify-content: space-between;
+          align-items: center;
+          padding: 20px;
+          border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+        }
+
+        .search-popup-title {
+          font-size: 18px;
+          font-weight: bold;
+          color: #fff;
+        }
+
+        .search-popup-results {
+          padding: 16px;
+          overflow-y: auto;
+          flex: 1;
+        }
+
+        .no-results {
+          text-align: center;
+          color: #888;
+          padding: 40px 20px;
+        }
+
+        .results-count {
+          font-size: 13px;
+          color: #888;
+          margin-bottom: 12px;
+          padding-bottom: 12px;
+          border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+        }
+
+        .results-list {
+          display: flex;
+          flex-direction: column;
+          gap: 12px;
+        }
+
+        .search-result-item {
+          background: rgba(255, 255, 255, 0.05);
+          border-radius: 12px;
+          padding: 12px;
+          position: relative;
+        }
+
+        .result-meta {
+          display: flex;
+          justify-content: space-between;
+          align-items: center;
+          margin-bottom: 8px;
+        }
+
+        .result-character {
+          font-size: 14px;
+          font-weight: 600;
+          color: #667eea;
+        }
+
+        .result-date {
+          font-size: 12px;
+          color: #666;
+        }
+
+        .result-text {
+          color: #ddd;
+          font-size: 15px;
+          line-height: 1.5;
+        }
+
+        .highlight-word {
+          background: rgba(74, 222, 128, 0.3);
+          color: #4ade80;
+          padding: 0 4px;
+          border-radius: 4px;
+        }
+
+        .result-play-btn {
+          position: absolute;
+          right: 12px;
+          bottom: 12px;
+          width: 32px;
+          height: 32px;
+          border-radius: 50%;
+          background: rgba(102, 126, 234, 0.3);
+          border: none;
+          cursor: pointer;
+          font-size: 16px;
+          transition: all 0.2s;
+        }
+
+        .result-play-btn:hover {
+          background: rgba(102, 126, 234, 0.5);
         }
       `}</style>
     </div>

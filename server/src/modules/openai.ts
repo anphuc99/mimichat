@@ -55,7 +55,7 @@ export async function textToSpeech(
     instructions: instructions,
     speed: 0.8, 
   });
-
+  console.log("OpenAI TTS response received");
   const buffer = Buffer.from(await response.arrayBuffer());
   fs.writeFileSync(path.join(process.cwd(), "data/audio", output + "." + format), buffer);
 

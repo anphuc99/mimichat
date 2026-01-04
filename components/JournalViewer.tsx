@@ -457,6 +457,10 @@ export const JournalViewer: React.FC<JournalViewerProps> = ({
     const [isEditingSummary, setIsEditingSummary] = useState(false);
     const [editedSummary, setEditedSummary] = useState(relationshipSummary);
     
+    // Search State
+    const [searchQuery, setSearchQuery] = useState('');
+    const [showSearchResults, setShowSearchResults] = useState(false);
+    
     // Global Player State
     const [selectedEntryIds, setSelectedEntryIds] = useState<Set<string>>(new Set());
     const [isPlaying, setIsPlaying] = useState(false);
@@ -629,6 +633,35 @@ export const JournalViewer: React.FC<JournalViewerProps> = ({
         setIsEditingSummary(false);
     };
 
+    // Search messages across all journal entries
+    const searchResults = React.useMemo(() => {
+        if (!searchQuery.trim()) return [];
+        
+        const query = searchQuery.toLowerCase();
+        const results: {
+            message: typeof journal[0]['messages'][0];
+            dailyChat: typeof journal[0];
+            matchIndex: number;
+        }[] = [];
+        
+        for (const dailyChat of journal) {
+            for (const message of dailyChat.messages) {
+                if (message.text.toLowerCase().includes(query)) {
+                    results.push({ message, dailyChat, matchIndex: results.length });
+                }
+            }
+        }
+        
+        return results;
+    }, [journal, searchQuery]);
+
+    // Play search result audio
+    const handlePlaySearchResult = async (result: typeof searchResults[0]) => {
+        if (result.message.audioData) {
+            await onReplayAudio(result.message.audioData, result.message.characterName);
+        }
+    };
+
     return (
         <div className="flex-1 p-4 overflow-y-auto bg-gray-50">
             <div className="flex justify-between items-center mb-4">
@@ -744,6 +777,101 @@ export const JournalViewer: React.FC<JournalViewerProps> = ({
                         </svg>
                     </button>
                 </div>
+            </div>
+
+            {/* Message Search Section */}
+            <div className="mb-6 bg-white p-4 rounded-lg shadow-sm border border-gray-200">
+                <div className="flex items-center gap-3">
+                    <div className="flex-1 relative">
+                        <input
+                            type="text"
+                            value={searchQuery}
+                            onChange={(e) => {
+                                setSearchQuery(e.target.value);
+                                setShowSearchResults(true);
+                            }}
+                            placeholder="🔍 Tìm kiếm tin nhắn trong toàn bộ story..."
+                            className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-400 focus:border-transparent"
+                        />
+                        {searchQuery && (
+                            <button
+                                onClick={() => {
+                                    setSearchQuery('');
+                                    setShowSearchResults(false);
+                                }}
+                                className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
+                            >
+                                ✕
+                            </button>
+                        )}
+                    </div>
+                    <button
+                        onClick={() => setShowSearchResults(!showSearchResults)}
+                        className={`px-4 py-2 rounded-lg transition-colors ${
+                            showSearchResults && searchQuery ? 'bg-blue-500 text-white' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                        }`}
+                    >
+                        {searchResults.length > 0 ? `${searchResults.length} kết quả` : 'Tìm kiếm'}
+                    </button>
+                </div>
+
+                {/* Search Results */}
+                {showSearchResults && searchQuery && (
+                    <div className="mt-4 max-h-96 overflow-y-auto border-t border-gray-200 pt-4">
+                        {searchResults.length > 0 ? (
+                            <div className="space-y-3">
+                                {searchResults.map((result, idx) => {
+                                    const isUser = result.message.sender === 'user';
+                                    const formattedDate = new Date(result.dailyChat.date + 'T00:00:00+07:00').toLocaleDateString('vi-VN', {
+                                        day: 'numeric',
+                                        month: 'short',
+                                        year: 'numeric',
+                                        timeZone: 'Asia/Ho_Chi_Minh'
+                                    });
+                                    
+                                    return (
+                                        <div 
+                                            key={`${result.dailyChat.id}-${result.message.id}`}
+                                            className="p-3 bg-gray-50 rounded-lg hover:bg-gray-100 transition-colors"
+                                        >
+                                            <div className="flex items-start justify-between gap-3">
+                                                <div className="flex-1 min-w-0">
+                                                    <div className="flex items-center gap-2 mb-1">
+                                                        <span className={`text-xs font-medium px-2 py-0.5 rounded ${
+                                                            isUser ? 'bg-blue-100 text-blue-700' : 'bg-pink-100 text-pink-700'
+                                                        }`}>
+                                                            {isUser ? 'Bạn' : result.message.characterName || 'Bot'}
+                                                        </span>
+                                                        <span className="text-xs text-gray-400">{formattedDate}</span>
+                                                    </div>
+                                                    <p className="text-sm text-gray-700 break-words">
+                                                        {result.message.text.length > 200 
+                                                            ? result.message.text.substring(0, 200) + '...'
+                                                            : result.message.text
+                                                        }
+                                                    </p>
+                                                </div>
+                                                {result.message.audioData && (
+                                                    <button
+                                                        onClick={() => handlePlaySearchResult(result)}
+                                                        className="flex-shrink-0 w-10 h-10 bg-green-500 hover:bg-green-600 text-white rounded-full flex items-center justify-center transition-colors"
+                                                        title="Phát audio"
+                                                    >
+                                                        🔊
+                                                    </button>
+                                                )}
+                                            </div>
+                                        </div>
+                                    );
+                                })}
+                            </div>
+                        ) : (
+                            <p className="text-center text-gray-500 py-4">
+                                Không tìm thấy tin nhắn nào phù hợp với "{searchQuery}"
+                            </p>
+                        )}
+                    </div>
+                )}
             </div>
 
             {/* Streak Display Section */}

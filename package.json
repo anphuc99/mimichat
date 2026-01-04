@@ -21,7 +21,8 @@
     "node-fetch": "^3.3.2",
     "react": "^19.2.0",
     "react-dom": "^19.2.0",
-    "react-router-dom": "^7.9.6"
+    "react-router-dom": "^7.9.6",
+    "ts-fsrs": "^5.2.3"
   },
   "devDependencies": {
     "@types/node": "^22.14.0",

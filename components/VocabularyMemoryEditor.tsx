@@ -245,6 +245,10 @@ export const VocabularyMemoryEditor: React.FC<VocabularyMemoryEditorProps> = ({
   const [draggedResult, setDraggedResult] = useState<CachedSearchResult | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   
+  // Manual search state
+  const [searchMode, setSearchMode] = useState<'ai' | 'manual'>('ai');
+  const [manualSearchQuery, setManualSearchQuery] = useState('');
+  
   // Journal preview state
   const [previewJournal, setPreviewJournal] = useState<{ dailyChat: DailyChat; messageId: string } | null>(null);
   
@@ -407,6 +411,41 @@ export const VocabularyMemoryEditor: React.FC<VocabularyMemoryEditorProps> = ({
       setIsSearching(false);
     }
   }, [journal, vocabulary, getAudioForResult]);
+
+  // Manual search for vocabulary
+  const handleManualSearch = useCallback(() => {
+    const query = manualSearchQuery.trim();
+    if (!query) {
+      setSearchError('Vui lòng nhập từ cần tìm.');
+      return;
+    }
+
+    setIsSearching(true);
+    setSearchError(null);
+    setHasSearched(true);
+
+    try {
+      const formattedJournal = formatJournalForSearch(journal);
+      const results = searchConversations(formattedJournal, query, 50);
+
+      // Enrich results with audio data
+      const enrichedResults: CachedSearchResult[] = results.map(r => ({
+        ...r,
+        audioData: getAudioForResult(r) || undefined
+      }));
+
+      setSearchResults(enrichedResults);
+      
+      if (results.length === 0) {
+        setSearchError(`Không tìm thấy "${query}" trong lịch sử hội thoại.`);
+      }
+    } catch (err) {
+      console.error('Manual search error:', err);
+      setSearchError('Lỗi khi tìm kiếm. Vui lòng thử lại.');
+    } finally {
+      setIsSearching(false);
+    }
+  }, [journal, manualSearchQuery, getAudioForResult]);
 
   // Open journal preview
   const openJournalPreview = useCallback((result: CachedSearchResult) => {
@@ -598,39 +637,79 @@ export const VocabularyMemoryEditor: React.FC<VocabularyMemoryEditorProps> = ({
   // Render search panel content
   const renderSearchContent = () => (
     <div className="search-panel-content">
-      {/* Search Button */}
-      {!hasSearched && (
+      {/* Search Mode Toggle */}
+      <div className="search-mode-toggle">
         <button 
-          className="ai-search-btn"
-          onClick={handleSearch}
-          disabled={isSearching}
+          className={`mode-btn ${searchMode === 'ai' ? 'active' : ''}`}
+          onClick={() => setSearchMode('ai')}
         >
-          {isSearching ? (
-            <>
-              <span className="spinner"></span>
-              Đang tìm kiếm...
-            </>
-          ) : (
-            <>🤖 Tìm với AI</>
-          )}
+          🤖 AI
         </button>
+        <button 
+          className={`mode-btn ${searchMode === 'manual' ? 'active' : ''}`}
+          onClick={() => setSearchMode('manual')}
+        >
+          ✍️ Tay
+        </button>
+      </div>
+
+      {/* AI Search Mode */}
+      {searchMode === 'ai' && (
+        <>
+          {!hasSearched && (
+            <button 
+              className="ai-search-btn"
+              onClick={handleSearch}
+              disabled={isSearching}
+            >
+              {isSearching ? (
+                <>
+                  <span className="spinner"></span>
+                  Đang tìm kiếm...
+                </>
+              ) : (
+                <>🤖 Tìm với AI</>
+              )}
+            </button>
+          )}
+
+          {hasSearched && !isSearching && (
+            <button 
+              className="re-search-btn"
+              onClick={handleSearch}
+            >
+              🔄 Tìm lại
+            </button>
+          )}
+        </>
       )}
 
-      {/* Re-search button if already searched */}
-      {hasSearched && !isSearching && (
-        <button 
-          className="re-search-btn"
-          onClick={handleSearch}
-        >
-          🔄 Tìm lại
-        </button>
+      {/* Manual Search Mode */}
+      {searchMode === 'manual' && (
+        <div className="manual-search-box">
+          <input
+            type="text"
+            className="manual-search-input"
+            value={manualSearchQuery}
+            onChange={(e) => setManualSearchQuery(e.target.value)}
+            placeholder="Nhập từ/regex cần tìm..."
+            onKeyDown={(e) => e.key === 'Enter' && handleManualSearch()}
+          />
+          <button 
+            className="manual-search-btn"
+            onClick={handleManualSearch}
+            disabled={isSearching}
+          >
+            {isSearching ? '...' : '🔍'}
+          </button>
+        </div>
       )}
 
       {/* Loading */}
       {isSearching && (
         <div className="search-loading">
           <span className="spinner large"></span>
-          <p>Đang tìm các biến thể từ...</p>
+          <p>{searchMode === 'ai' ? 'Đang tìm các biến thể từ...' : 'Đang tìm kiếm...'}</p>
         </div>
       )}
 
@@ -1361,6 +1440,84 @@ export const VocabularyMemoryEditor: React.FC<VocabularyMemoryEditorProps> = ({
           overflow-x: hidden;
           padding: 12px;
           min-height: 0;
+        }
+
+        /* Search Mode Toggle */
+        .search-mode-toggle {
+          display: flex;
+          gap: 4px;
+          margin-bottom: 12px;
+          background: rgba(255, 255, 255, 0.05);
+          border-radius: 8px;
+          padding: 4px;
+        }
+
+        .mode-btn {
+          flex: 1;
+          padding: 8px 12px;
+          background: transparent;
+          border: none;
+          border-radius: 6px;
+          color: #888;
+          font-size: 13px;
+          cursor: pointer;
+          transition: all 0.2s;
+        }
+
+        .mode-btn:hover {
+          background: rgba(255, 255, 255, 0.1);
+          color: #aaa;
+        }
+
+        .mode-btn.active {
+          background: #667eea;
+          color: white;
+        }
+
+        /* Manual Search */
+        .manual-search-box {
+          display: flex;
+          gap: 8px;
+          margin-bottom: 12px;
+        }
+
+        .manual-search-input {
+          flex: 1;
+          padding: 10px 12px;
+          background: rgba(255, 255, 255, 0.05);
+          border: 1px solid rgba(255, 255, 255, 0.1);
+          border-radius: 8px;
+          color: #fff;
+          font-size: 14px;
+        }
+
+        .manual-search-input:focus {
+          outline: none;
+          border-color: #667eea;
+        }
+
+        .manual-search-input::placeholder {
+          color: #666;
+        }
+
+        .manual-search-btn {
+          padding: 10px 16px;
+          background: #667eea;
+          border: none;
+          border-radius: 8px;
+          color: white;
+          font-size: 16px;
+          cursor: pointer;
+          transition: all 0.2s;
+        }
+
+        .manual-search-btn:hover:not(:disabled) {
+          background: #5a6fd6;
+        }
+
+        .manual-search-btn:disabled {
+          opacity: 0.6;
+          cursor: not-allowed;
         }
 
         .ai-search-btn {

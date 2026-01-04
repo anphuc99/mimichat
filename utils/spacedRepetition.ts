@@ -1,61 +1,95 @@
 import type { VocabularyReview, VocabularyItem, DailyChat, Message, FSRSRating, FSRSSettings } from '../types';
-import { FSRS_PARAMS, DEFAULT_FSRS_SETTINGS } from '../types';
+import { DEFAULT_FSRS_SETTINGS } from '../types';
+import { fsrs, createEmptyCard, Rating, State, type Card, type Grade, type FSRS } from 'ts-fsrs';
 
 // ============================================================================
 // FSRS (Free Spaced Repetition Scheduler) Algorithm Implementation
-// Based on: https://github.com/open-spaced-repetition/fsrs4anki/wiki/The-Algorithm
+// Using ts-fsrs library for accurate calculations
 // ============================================================================
 
-const { w, DECAY, FACTOR } = FSRS_PARAMS;
+// Create FSRS instance with default parameters
+const f: FSRS = fsrs();
+
+/**
+ * Map our 3-level rating to ts-fsrs Rating
+ * Our: 1=Again, 2=Hard, 3=Good
+ * ts-fsrs: Again=1, Hard=2, Good=3, Easy=4
+ */
+function mapRatingToTsFsrs(rating: FSRSRating): Grade {
+  switch (rating) {
+    case 1: return Rating.Again;
+    case 2: return Rating.Hard;
+    case 3: return Rating.Good;
+    default: return Rating.Good;
+  }
+}
+
+/**
+ * Convert VocabularyReview to ts-fsrs Card format
+ */
+function reviewToCard(review: VocabularyReview): Card {
+  const isNew = review.stability === undefined || review.stability === 0;
+  
+  if (isNew) {
+    return createEmptyCard();
+  }
+  
+  return {
+    due: new Date(review.nextReviewDate),
+    stability: review.stability || 0,
+    difficulty: review.difficulty || 0,
+    elapsed_days: review.lastReviewDate 
+      ? Math.max(0, (Date.now() - new Date(review.lastReviewDate).getTime()) / (1000 * 60 * 60 * 24))
+      : 0,
+    scheduled_days: review.currentIntervalDays || 0,
+    reps: review.reviewHistory.length,
+    lapses: review.lapses || 0,
+    state: isNew ? State.New : (review.lapses && review.lapses > 0 ? State.Relearning : State.Review),
+    last_review: review.lastReviewDate ? new Date(review.lastReviewDate) : undefined
+  };
+}
 
 /**
  * Calculate retrievability (probability of recall) based on stability and elapsed time
- * Formula: R(t, S) = (1 + FACTOR * t / S) ^ DECAY
- * When t = S, R ≈ 0.9 (90% retention)
+ * Using ts-fsrs formula
  */
 export function calculateRetrievability(stability: number, elapsedDays: number): number {
   if (stability <= 0) return 0;
+  // FSRS formula: R = (1 + FACTOR * t / S) ^ DECAY
+  // where FACTOR ≈ 19/81, DECAY = -0.5
+  const DECAY = -0.5;
+  const FACTOR = Math.pow(0.9, 1 / DECAY) - 1;
   return Math.pow(1 + FACTOR * elapsedDays / stability, DECAY);
 }
 
 /**
- * Calculate initial stability based on first rating
- * S0(G) = w[G-1] for G = 1,2,3,4
- * We use G = 1,2,3 so: S0(1)=w[0], S0(2)=w[1], S0(3)=w[2]
+ * @deprecated Kept for backward compatibility - ts-fsrs handles this internally
  */
 export function getInitialStability(rating: FSRSRating): number {
-  // Map our 3-level rating to FSRS 4-level: 1->1, 2->2, 3->3 (skip Easy=4)
-  return w[rating - 1];
+  const card = createEmptyCard();
+  const result = f.repeat(card, new Date())[mapRatingToTsFsrs(rating)].card;
+  return result.stability;
 }
 
 /**
- * Calculate initial difficulty based on first rating
- * D0(G) = w[4] - (G - 3) * w[5]
- * Clamped to [1, 10]
+ * @deprecated Kept for backward compatibility - ts-fsrs handles this internally
  */
 export function getInitialDifficulty(rating: FSRSRating): number {
-  const d = w[4] - (rating - 3) * w[5];
-  return Math.min(10, Math.max(1, d));
+  const card = createEmptyCard();
+  const result = f.repeat(card, new Date())[mapRatingToTsFsrs(rating)].card;
+  return result.difficulty;
 }
 
 /**
- * Update difficulty after a review
- * D'(D, G) = w[7] * D0(3) + (1 - w[7]) * (D - w[6] * (G - 3))
- * This includes mean reversion to avoid "ease hell"
+ * @deprecated Kept for backward compatibility - ts-fsrs handles this internally
  */
 export function updateDifficulty(currentDifficulty: number, rating: FSRSRating): number {
-  const d0 = w[4]; // D0(3) = w[4] - 0 = w[4]
-  const newD = w[7] * d0 + (1 - w[7]) * (currentDifficulty - w[6] * (rating - 3));
-  return Math.min(10, Math.max(1, newD));
+  // This is now handled by ts-fsrs internally
+  return currentDifficulty;
 }
 
 /**
- * Calculate next stability after a successful review (rating >= 2: Hard, Good)
- * S'_r(D, S, R, G) = S * (e^w[8] * (11-D)^(-w[9]) * S^(-w[10]) * (e^(w[10]*(1-R)) - 1) * w[15]^[G=2] * w[16]^[G=4] + 1)
- * 
- * For our 3-level system:
- * - Rating 2 (Hard): apply w[15] penalty
- * - Rating 3 (Good): no bonus/penalty
+ * @deprecated Kept for backward compatibility - ts-fsrs handles this internally
  */
 export function calculateNextStabilitySuccess(
   difficulty: number,
@@ -63,56 +97,42 @@ export function calculateNextStabilitySuccess(
   retrievability: number,
   rating: FSRSRating
 ): number {
-  const hardPenalty = rating === 2 ? w[15] : 1;
-  // We don't have "Easy" rating, so no w[16] bonus
-  
-  const factor = Math.exp(w[8]) *
-    Math.pow(11 - difficulty, -w[9]) *
-    Math.pow(stability, -w[10]) *
-    (Math.exp(w[10] * (1 - retrievability)) - 1) *
-    hardPenalty;
-  
-  return stability * (factor + 1);
+  // This is now handled by ts-fsrs internally
+  return stability;
 }
 
 /**
- * Calculate next stability after forgetting (rating = 1: Again)
- * S'_f(D, S, R) = w[11] * D^(-w[12]) * ((S+1)^w[13] - 1) * e^(w[14]*(1-R))
+ * @deprecated Kept for backward compatibility - ts-fsrs handles this internally
  */
 export function calculateNextStabilityFail(
   difficulty: number,
   stability: number,
   retrievability: number
 ): number {
-  return w[11] *
-    Math.pow(difficulty, -w[12]) *
-    (Math.pow(stability + 1, w[13]) - 1) *
-    Math.exp(w[14] * (1 - retrievability));
+  // This is now handled by ts-fsrs internally
+  return stability;
 }
 
 /**
- * Calculate next interval from desired retention and stability
- * I(r, S) = 9 * S * (1/r - 1)
- * When r = 0.9, I = S (interval equals stability)
+ * @deprecated Kept for backward compatibility - ts-fsrs handles this internally
  */
 export function calculateIntervalFromStability(stability: number, desiredRetention: number = 0.9): number {
+  // ts-fsrs uses this formula internally
   const interval = (9 * stability) * (1 / desiredRetention - 1);
   return Math.max(1, Math.round(interval));
 }
 
 /**
- * Apply fuzz factor to interval to avoid review pile-ups
- * Adds ±5% randomness (max ±2 days) for intervals > 2 days
+ * @deprecated Kept for backward compatibility - ts-fsrs handles this internally
  */
 export function applyFuzzFactor(interval: number): number {
-  if (interval <= 2) return interval;
-  const fuzzRange = Math.min(interval * 0.05, 2);
-  const fuzz = (Math.random() * 2 - 1) * fuzzRange;
-  return Math.max(1, Math.round(interval + fuzz));
+  // ts-fsrs handles fuzz internally
+  return interval;
 }
 
 /**
  * Main FSRS update function - call after a review
+ * Uses ts-fsrs library for accurate calculations
  * Returns updated VocabularyReview with new stability, difficulty, and nextReviewDate
  */
 export function updateFSRSAfterReview(
@@ -121,44 +141,24 @@ export function updateFSRSAfterReview(
   settings: FSRSSettings = DEFAULT_FSRS_SETTINGS
 ): VocabularyReview {
   const now = new Date();
-  const isFirstReview = review.stability === undefined || review.stability === 0;
   
-  let newStability: number;
-  let newDifficulty: number;
-  let newLapses = review.lapses || 0;
-  let retrievability = 1;
+  // Convert to ts-fsrs Card format
+  const card = reviewToCard(review);
   
-  if (isFirstReview) {
-    // First review - use initial values
-    newStability = getInitialStability(rating);
-    newDifficulty = getInitialDifficulty(rating);
-    if (rating === 1) newLapses++;
-  } else {
-    // Subsequent review - calculate based on elapsed time
-    const lastReviewDate = review.lastReviewDate ? new Date(review.lastReviewDate) : now;
-    const elapsedDays = Math.max(0, (now.getTime() - lastReviewDate.getTime()) / (1000 * 60 * 60 * 24));
-    
-    retrievability = calculateRetrievability(review.stability!, elapsedDays);
-    
-    if (rating === 1) {
-      // Forgot - use failure formula
-      newStability = calculateNextStabilityFail(review.difficulty!, review.stability!, retrievability);
-      newLapses++;
-    } else {
-      // Remembered - use success formula
-      newStability = calculateNextStabilitySuccess(review.difficulty!, review.stability!, retrievability, rating);
-    }
-    
-    newDifficulty = updateDifficulty(review.difficulty!, rating);
-  }
+  // Get scheduling options for all ratings
+  const schedulingCards = f.repeat(card, now);
   
-  // Calculate next interval with fuzz
-  const baseInterval = calculateIntervalFromStability(newStability, settings.desiredRetention);
-  const fuzzedInterval = applyFuzzFactor(baseInterval);
+  // Get the result for the selected rating
+  const tsFsrsRating = mapRatingToTsFsrs(rating);
+  const result = schedulingCards[tsFsrsRating];
+  const newCard = result.card;
   
-  // Calculate next review date
-  const nextReviewDate = new Date(now);
-  nextReviewDate.setDate(now.getDate() + fuzzedInterval);
+  // Calculate retrievability before this review
+  const lastReviewDate = review.lastReviewDate ? new Date(review.lastReviewDate) : now;
+  const elapsedDays = Math.max(0, (now.getTime() - lastReviewDate.getTime()) / (1000 * 60 * 60 * 24));
+  const retrievability = review.stability && review.stability > 0 
+    ? calculateRetrievability(review.stability, elapsedDays) 
+    : 1;
   
   // Create history entry
   const historyEntry = {
@@ -166,24 +166,24 @@ export function updateFSRSAfterReview(
     correctCount: rating >= 2 ? 1 : 0,
     incorrectCount: rating === 1 ? 1 : 0,
     intervalBefore: review.currentIntervalDays,
-    intervalAfter: fuzzedInterval,
+    intervalAfter: newCard.scheduled_days,
     rating,
     stabilityBefore: review.stability || 0,
-    stabilityAfter: newStability,
+    stabilityAfter: newCard.stability,
     difficultyBefore: review.difficulty || 5,
-    difficultyAfter: newDifficulty,
+    difficultyAfter: newCard.difficulty,
     retrievability
   };
   
   return {
     ...review,
-    currentIntervalDays: fuzzedInterval,
-    nextReviewDate: nextReviewDate.toISOString(),
+    currentIntervalDays: newCard.scheduled_days,
+    nextReviewDate: newCard.due.toISOString(),
     lastReviewDate: now.toISOString(),
     reviewHistory: [...review.reviewHistory, historyEntry],
-    stability: newStability,
-    difficulty: newDifficulty,
-    lapses: newLapses
+    stability: newCard.stability,
+    difficulty: newCard.difficulty,
+    lapses: newCard.lapses
   };
 }
 

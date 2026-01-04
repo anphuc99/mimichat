@@ -107,6 +107,8 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({
 
   const [isExpanded, setIsExpanded] = useState(false);
   const [isTranslating, setIsTranslating] = useState(false);
+  const [translateCountdown, setTranslateCountdown] = useState(0);
+  const [isWaitingTranslation, setIsWaitingTranslation] = useState(false);
   const [isCopied, setIsCopied] = useState(false);
   const [isGeneratingAudio, setIsGeneratingAudio] = useState(false);
   const [selectedText, setSelectedText] = useState<string>('');
@@ -149,25 +151,52 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({
   const handleTranslateClick = async () => {
     if (isExpanded) {
       setIsExpanded(false);
+      setTranslateCountdown(0);
+      setIsWaitingTranslation(false);
       return;
     }
 
-    if (message.translation) {
+    // Always start countdown first, even if translation exists
+    if (!isWaitingTranslation) {
       setIsExpanded(true);
+      setIsWaitingTranslation(true);
+      setTranslateCountdown(10);
+      
+      // Countdown timer
+      const interval = setInterval(() => {
+        setTranslateCountdown(prev => {
+          if (prev <= 1) {
+            clearInterval(interval);
+            return 0;
+          }
+          return prev - 1;
+        });
+      }, 1000);
+      
+      // After 10s, show or fetch translation
+      setTimeout(async () => {
+        setIsWaitingTranslation(false);
+        
+        // If already has translation, just show it (countdown already done)
+        if (message.translation) {
+          return;
+        }
+        
+        // Otherwise fetch translation
+        setIsTranslating(true);
+        try {
+          const result = await onTranslate(message.text);
+          onStoreTranslation(message.id, result);
+        } catch (error) {
+          console.error("Translation failed:", error);
+          const errorMessage = "Xin lỗi, không thể dịch được văn bản này.";
+          onStoreTranslation(message.id, errorMessage);
+        } finally {
+          setIsTranslating(false);
+        }
+      }, 10000);
+      
       return;
-    }
-
-    setIsTranslating(true);
-    setIsExpanded(true);
-    try {
-      const result = await onTranslate(message.text);
-      onStoreTranslation(message.id, result);
-    } catch (error) {
-      console.error("Translation failed:", error);
-      const errorMessage = "Xin lỗi, không thể dịch được văn bản này.";
-      onStoreTranslation(message.id, errorMessage);
-    } finally {
-      setIsTranslating(false);
     }
   };
 
@@ -506,7 +535,11 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({
               />
               {isExpanded && !message.isError && (
                 <div className="mt-3 pt-3 border-t border-gray-500/20 text-left">
-                  {isTranslating ? (
+                  {isWaitingTranslation ? (
+                    <div className="flex items-center text-sm text-amber-600">
+                      <span>🧠 Hãy cố gắng hiểu! Bản dịch sẽ xuất hiện sau {translateCountdown}s...</span>
+                    </div>
+                  ) : isTranslating ? (
                     <div className="flex items-center text-sm text-gray-500">
                       <svg className="animate-spin -ml-1 mr-3 h-4 w-4 text-gray-500" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
                         <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
@@ -519,7 +552,7 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({
                       <HiddenWordsText text={translationContent || ''} />
                     </div>
                   )}
-                  <button onClick={() => setIsExpanded(false)} className="text-xs text-blue-600 hover:underline mt-2 font-semibold">
+                  <button onClick={() => { setIsExpanded(false); setIsWaitingTranslation(false); }} className="text-xs text-blue-600 hover:underline mt-2 font-semibold">
                     Đóng
                   </button>
                 </div>

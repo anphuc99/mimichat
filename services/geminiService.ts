@@ -1332,33 +1332,30 @@ export const searchVocabularyInJournal = async (
       ? journalText.slice(-maxLength) 
       : journalText;
 
-    const prompt = `Bạn là trợ lý tìm kiếm từ vựng tiếng Hàn. Nhiệm vụ: tìm TẤT CẢ các lần xuất hiện của từ "${koreanWord}" trong lịch sử hội thoại.
-
-Lưu ý quan trọng về ngữ pháp tiếng Hàn:
-- Động từ/Tính từ biến đổi theo thì và ngữ pháp (chia động từ, thêm 조사, etc.)
-- Ví dụ: 먹다 có thể xuất hiện dưới dạng: 먹어요, 먹었어요, 먹고, 먹는, 먹을, 먹자, 먹으면, 먹어, 먹었, 먹니...
-- Ví dụ: 가다 có thể xuất hiện: 가요, 갔어요, 가고, 가는, 갈, 가자, 가면, 가서...
-- Ví dụ: 학교 có thể xuất hiện: 학교에, 학교를, 학교가, 학교에서, 학교도, 학교는...
-- Tính từ như 예쁘다 có thể: 예뻐요, 예쁜, 예쁘고, 예뻤어요...
+    const prompt = `Bạn là trợ lý tìm kiếm từ vựng tiếng Hàn.
 
 Từ cần tìm: "${koreanWord}"
 
-Hãy phân tích từ này và tạo regex pattern bao gồm:
-1. Gốc từ (어간/語幹)
-2. Tất cả các biến thể ngữ pháp phổ biến
-3. Các dạng chia theo thì (hiện tại, quá khứ, tương lai)
-4. Các dạng có 조사 (에, 를, 가, 는, 도, 에서...)
+Hãy liệt kê TẤT CẢ các biến thể có thể của từ này trong tiếng Hàn:
+- Nếu là động từ/tính từ: các dạng chia (먹다 → 먹어, 먹었, 먹고, 먹는, 먹을...)
+- Nếu là danh từ: các dạng với 조사 (학교 → 학교에, 학교를, 학교가...)
+- Chỉ liệt kê gốc từ và các biến thể PHỔ BIẾN
 
-QUAN TRỌNG: Chỉ trả lời ĐÚNG MỘT DÒNG với format:
-SEARCH:<regex_pattern>
+QUY TẮC BẮT BUỘC:
+1. CHỈ trả lời ĐÚNG 1 dòng
+2. Format: SEARCH:từ1|từ2|từ3
+3. KHÔNG dùng ký tự đặc biệt regex như ( ) [ ] * + ? . ^ $ \
+4. Các từ phân cách bằng dấu | (pipe)
+5. KHÔNG có khoảng trắng
 
-Ví dụ:
-- Nếu tìm "가다", trả lời: SEARCH:가다|가요|갔|가고|가는|가면|갈|가서|가니|가자
-- Nếu tìm "학교", trả lời: SEARCH:학교
-- Nếu tìm "예쁘다", trả lời: SEARCH:예쁘|예뻐|예쁜|예뻤
+VÍ DỤ ĐÚNG:
+- 가다 → SEARCH:가다|가요|갔어요|가고|가는|가면|갈|가서
+- 학교 → SEARCH:학교|학교에|학교를|학교가|학교에서
+- 예쁘다 → SEARCH:예쁘다|예뻐요|예쁜|예뻤어요
 
-Đây là lịch sử hội thoại để tham khảo (có thể từ đã xuất hiện với dạng nào):
-${truncatedJournal.slice(0, 10000)}
+VÍ DỤ SAI (KHÔNG LÀM):
+- SEARCH:골인(하다) ← SAI vì có dấu ()
+- SEARCH:가다|가요 | 갔어요 ← SAI vì có khoảng trắng
 
 Trả lời:`;
 
@@ -1377,11 +1374,16 @@ Trả lời:`;
     // Parse SEARCH command from response
     const match = text.match(/^SEARCH:(.+)$/im);
     if (match) {
-      return match[1].trim();
+      // Clean the pattern: trim, remove whitespace, remove invalid regex chars
+      const rawPattern = match[1].trim();
+      // Remove any regex special characters that could break the search
+      const sanitized = rawPattern.replace(/[()[\]*+?.^$\\{}]/g, '');
+      const cleanPattern = sanitized.split('|').map(p => p.trim()).filter(p => p.length > 0).join('|');
+      return cleanPattern || koreanWord;
     }
 
     // Fallback: return the original word
-    return koreanWord;
+    return koreanWord.trim();
   } catch (error) {
     console.error('AI vocabulary search error:', error);
     return null;
