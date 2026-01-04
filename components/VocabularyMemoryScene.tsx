@@ -28,7 +28,9 @@ interface VocabularyMemorySceneProps {
   onUpdateSettings: (settings: FSRSSettings) => void;
   onBack: () => void;
   onPlayAudio?: (audioData: string, characterName?: string) => void;
+  onGenerateAudio?: (text: string, tone: string, voiceName: string) => Promise<string | null>;
   onTranslate?: (text: string) => Promise<string>;
+  onStreakUpdate?: () => void;
 }
 
 export const VocabularyMemoryScene: React.FC<VocabularyMemorySceneProps> = ({
@@ -39,7 +41,9 @@ export const VocabularyMemoryScene: React.FC<VocabularyMemorySceneProps> = ({
   onUpdateSettings,
   onBack,
   onPlayAudio,
-  onTranslate
+  onGenerateAudio,
+  onTranslate,
+  onStreakUpdate
 }) => {
   const [activeTab, setActiveTab] = useState<Tab>('review');
   const [showSettings, setShowSettings] = useState(false);
@@ -68,6 +72,9 @@ export const VocabularyMemoryScene: React.FC<VocabularyMemorySceneProps> = ({
     remembered: 0,
     forgot: 0
   });
+  
+  // Edit from review state - shows editor overlay while in review tab
+  const [editingFromReview, setEditingFromReview] = useState(false);
   const [isReviewComplete, setIsReviewComplete] = useState(false);
 
   // Get all vocabularies for learn tab
@@ -136,8 +143,20 @@ export const VocabularyMemoryScene: React.FC<VocabularyMemorySceneProps> = ({
     });
     
     onUpdateJournal(updatedJournal);
-    setSelectedVocabulary(null);
-  }, [journal, onUpdateJournal]);
+    
+    // If editing from review, update the current item in review queue with new memory
+    if (editingFromReview && reviewQueue.length > 0) {
+      const updatedQueue = [...reviewQueue];
+      updatedQueue[currentReviewIndex] = {
+        ...updatedQueue[currentReviewIndex],
+        memory: memory
+      };
+      setReviewQueue(updatedQueue);
+      setEditingFromReview(false);
+    } else {
+      setSelectedVocabulary(null);
+    }
+  }, [journal, onUpdateJournal, editingFromReview, reviewQueue, currentReviewIndex]);
 
   // Handle review complete
   const handleReviewComplete = useCallback((updatedReview: VocabularyReview, rating: FSRSRating) => {
@@ -168,8 +187,10 @@ export const VocabularyMemoryScene: React.FC<VocabularyMemorySceneProps> = ({
       setCurrentReviewIndex(prev => prev + 1);
     } else {
       setIsReviewComplete(true);
+      // Update streak when completing review session
+      onStreakUpdate?.();
     }
-  }, [journal, onUpdateJournal, reviewQueue, currentReviewIndex]);
+  }, [journal, onUpdateJournal, reviewQueue, currentReviewIndex, onStreakUpdate]);
 
   // Handle skip
   const handleSkip = useCallback(() => {
@@ -179,6 +200,26 @@ export const VocabularyMemoryScene: React.FC<VocabularyMemorySceneProps> = ({
       setIsReviewComplete(true);
     }
   }, [currentReviewIndex, reviewQueue.length]);
+
+  // Handle edit memory from review flashcard
+  const handleEditMemoryFromReview = useCallback(() => {
+    const currentItem = reviewQueue[currentReviewIndex];
+    if (currentItem) {
+      setSelectedVocabulary({
+        vocabulary: currentItem.vocabulary,
+        review: currentItem.review,
+        dailyChat: currentItem.dailyChat,
+        memory: currentItem.memory
+      });
+      setEditingFromReview(true);
+    }
+  }, [reviewQueue, currentReviewIndex]);
+
+  // Handle cancel edit from review
+  const handleCancelEditFromReview = useCallback(() => {
+    setSelectedVocabulary(null);
+    setEditingFromReview(false);
+  }, []);
 
   // Handle restart review
   const handleRestartReview = useCallback(() => {
@@ -383,8 +424,12 @@ export const VocabularyMemoryScene: React.FC<VocabularyMemorySceneProps> = ({
         memory={currentItem.memory}
         dailyChat={currentItem.dailyChat}
         settings={fsrsSettings}
+        characters={characters}
         onReviewComplete={handleReviewComplete}
         onSkip={handleSkip}
+        onEditMemory={!currentItem.memory ? handleEditMemoryFromReview : undefined}
+        onGenerateAudio={onGenerateAudio}
+        onPlayAudio={onPlayAudio}
         currentIndex={currentReviewIndex}
         totalCount={reviewQueue.length}
       />
@@ -430,6 +475,27 @@ export const VocabularyMemoryScene: React.FC<VocabularyMemorySceneProps> = ({
 
       {/* Settings Modal */}
       {showSettings && renderSettingsModal()}
+
+      {/* Edit Memory from Review Overlay */}
+      {editingFromReview && selectedVocabulary && (
+        <div className="edit-from-review-overlay">
+          <div className="edit-from-review-header">
+            <button className="close-edit-btn" onClick={handleCancelEditFromReview}>
+              ← Quay lại ôn tập
+            </button>
+            <span>Thêm ký ức cho: {selectedVocabulary.vocabulary.korean}</span>
+          </div>
+          <VocabularyMemoryEditor
+            vocabulary={selectedVocabulary.vocabulary}
+            dailyChat={selectedVocabulary.dailyChat}
+            journal={journal}
+            characters={characters}
+            existingMemory={selectedVocabulary.memory}
+            onSave={handleSaveMemory}
+            onCancel={handleCancelEditFromReview}
+          />
+        </div>
+      )}
 
       <style>{`
         .vocabulary-memory-scene {
@@ -803,6 +869,48 @@ export const VocabularyMemoryScene: React.FC<VocabularyMemorySceneProps> = ({
           border: none;
           border-radius: 8px;
           cursor: pointer;
+        }
+
+        /* Edit from Review Overlay */
+        .edit-from-review-overlay {
+          position: fixed;
+          top: 0;
+          left: 0;
+          right: 0;
+          bottom: 0;
+          background: #1a1a2e;
+          z-index: 1000;
+          display: flex;
+          flex-direction: column;
+        }
+
+        .edit-from-review-header {
+          display: flex;
+          align-items: center;
+          gap: 12px;
+          padding: 12px 16px;
+          background: #16213e;
+          border-bottom: 1px solid #0f3460;
+          color: #fff;
+          font-size: 14px;
+        }
+
+        .close-edit-btn {
+          background: none;
+          border: none;
+          color: #667eea;
+          font-size: 14px;
+          cursor: pointer;
+          padding: 8px 12px;
+        }
+
+        .close-edit-btn:hover {
+          color: #8b9cf4;
+        }
+
+        .edit-from-review-overlay .vocabulary-memory-editor {
+          flex: 1;
+          overflow: auto;
         }
       `}</style>
     </div>

@@ -1,5 +1,5 @@
 import React, { useState, useCallback, useMemo } from 'react';
-import type { VocabularyItem, VocabularyReview, VocabularyMemoryEntry, FSRSRating, FSRSSettings, DailyChat } from '../types';
+import type { VocabularyItem, VocabularyReview, VocabularyMemoryEntry, FSRSRating, FSRSSettings, DailyChat, Character } from '../types';
 import { DEFAULT_FSRS_SETTINGS } from '../types';
 import { updateFSRSAfterReview, calculateRetrievability } from '../utils/spacedRepetition';
 import HTTPService from '../services/HTTPService';
@@ -17,8 +17,12 @@ interface VocabularyMemoryFlashcardProps {
   memory?: VocabularyMemoryEntry;
   dailyChat?: DailyChat;
   settings?: FSRSSettings;
+  characters?: Character[];
   onReviewComplete: (updatedReview: VocabularyReview, rating: FSRSRating) => void;
   onSkip: () => void;
+  onEditMemory?: () => void;
+  onGenerateAudio?: (text: string, tone: string, voiceName: string) => Promise<string | null>;
+  onPlayAudio?: (audioData: string, characterName?: string) => void;
   currentIndex: number;
   totalCount: number;
 }
@@ -31,14 +35,20 @@ export const VocabularyMemoryFlashcard: React.FC<VocabularyMemoryFlashcardProps>
   memory,
   dailyChat,
   settings = DEFAULT_FSRS_SETTINGS,
+  characters = [],
   onReviewComplete,
   onSkip,
+  onEditMemory,
+  onGenerateAudio,
+  onPlayAudio,
   currentIndex,
   totalCount
 }) => {
   const [state, setState] = useState<FlashcardState>('word');
   const [isAnimating, setIsAnimating] = useState(false);
   const [showMemoryPopup, setShowMemoryPopup] = useState(false);
+  const [selectedCharacterId, setSelectedCharacterId] = useState<string>('');
+  const [isGeneratingAudio, setIsGeneratingAudio] = useState(false);
 
   // Convert memory format [MSG:id][IMG:url] to HTML
   const processedMemoryHtml = useMemo(() => {
@@ -176,6 +186,27 @@ export const VocabularyMemoryFlashcard: React.FC<VocabularyMemoryFlashcardProps>
     setState('word');
   }, [review, settings, onReviewComplete]);
 
+  // Handle pronunciation
+  const handlePronounce = useCallback(async () => {
+    if (!onGenerateAudio || !onPlayAudio || isGeneratingAudio) return;
+    
+    const selectedChar = characters.find(c => c.id === selectedCharacterId);
+    const voiceName = selectedChar?.voiceName || 'echo';
+    
+    setIsGeneratingAudio(true);
+    try {
+      // Use 'slowly and clearly' tone for vocabulary pronunciation
+      const audioData = await onGenerateAudio(vocabulary.korean, 'slowly and clearly', voiceName);
+      if (audioData) {
+        onPlayAudio(audioData, selectedChar?.name);
+      }
+    } catch (error) {
+      console.error('Failed to generate pronunciation:', error);
+    } finally {
+      setIsGeneratingAudio(false);
+    }
+  }, [onGenerateAudio, onPlayAudio, vocabulary.korean, characters, selectedCharacterId, isGeneratingAudio]);
+
   // Get rating button info
   const getRatingInfo = (rating: FSRSRating) => {
     switch (rating) {
@@ -238,6 +269,32 @@ export const VocabularyMemoryFlashcard: React.FC<VocabularyMemoryFlashcardProps>
           {/* Word - Always visible */}
           <div className="word-section">
             <div className="korean-word">{vocabulary.korean}</div>
+            
+            {/* Pronunciation controls */}
+            {onGenerateAudio && onPlayAudio && characters.length > 0 && (
+              <div className="pronunciation-controls">
+                <select
+                  className="character-select"
+                  value={selectedCharacterId}
+                  onChange={(e) => setSelectedCharacterId(e.target.value)}
+                >
+                  <option value="">Chọn giọng...</option>
+                  {characters.map(char => (
+                    <option key={char.id} value={char.id}>
+                      {char.name}
+                    </option>
+                  ))}
+                </select>
+                <button
+                  className="pronounce-btn"
+                  onClick={handlePronounce}
+                  disabled={isGeneratingAudio || !selectedCharacterId}
+                  title="Nghe phát âm"
+                >
+                  {isGeneratingAudio ? '⏳' : '🔊'}
+                </button>
+              </div>
+            )}
           </div>
 
           {/* Memory - Visible in 'memory' and 'answer' states */}
@@ -263,7 +320,13 @@ export const VocabularyMemoryFlashcard: React.FC<VocabularyMemoryFlashcardProps>
               ) : (
                 <div className="no-memory">
                   <span>📝 Chưa có ký ức</span>
-                  <span className="hint">Bạn có thể thêm ký ức sau khi ôn tập</span>
+                  {onEditMemory ? (
+                    <button className="add-memory-btn" onClick={onEditMemory}>
+                      ✏️ Thêm ký ức ngay
+                    </button>
+                  ) : (
+                    <span className="hint">Bạn có thể thêm ký ức sau khi ôn tập</span>
+                  )}
                 </div>
               )}
             </div>
@@ -462,6 +525,54 @@ export const VocabularyMemoryFlashcard: React.FC<VocabularyMemoryFlashcardProps>
           font-size: 48px;
           color: #fff;
           font-weight: bold;
+        }
+
+        .pronunciation-controls {
+          display: flex;
+          justify-content: center;
+          align-items: center;
+          gap: 8px;
+          margin-top: 12px;
+        }
+
+        .character-select {
+          padding: 8px 12px;
+          border-radius: 8px;
+          background: rgba(255, 255, 255, 0.1);
+          border: 1px solid rgba(255, 255, 255, 0.2);
+          color: #fff;
+          font-size: 14px;
+          cursor: pointer;
+          min-width: 140px;
+        }
+
+        .character-select option {
+          background: #1a1a2e;
+          color: #fff;
+        }
+
+        .pronounce-btn {
+          width: 40px;
+          height: 40px;
+          border-radius: 50%;
+          background: linear-gradient(135deg, #667eea, #764ba2);
+          border: none;
+          font-size: 20px;
+          cursor: pointer;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          transition: all 0.2s ease;
+        }
+
+        .pronounce-btn:hover:not(:disabled) {
+          transform: scale(1.1);
+          box-shadow: 0 4px 12px rgba(102, 126, 234, 0.4);
+        }
+
+        .pronounce-btn:disabled {
+          opacity: 0.5;
+          cursor: not-allowed;
         }
 
         .memory-section {
@@ -682,6 +793,23 @@ export const VocabularyMemoryFlashcard: React.FC<VocabularyMemoryFlashcardProps>
         .no-memory .hint {
           font-size: 12px;
           margin-top: 4px;
+        }
+
+        .no-memory .add-memory-btn {
+          margin-top: 8px;
+          padding: 8px 16px;
+          background: linear-gradient(135deg, #6366f1, #8b5cf6);
+          color: white;
+          border: none;
+          border-radius: 8px;
+          font-size: 14px;
+          cursor: pointer;
+          transition: all 0.2s ease;
+        }
+
+        .no-memory .add-memory-btn:hover {
+          transform: scale(1.05);
+          box-shadow: 0 4px 12px rgba(99, 102, 241, 0.4);
         }
 
         .answer-section {

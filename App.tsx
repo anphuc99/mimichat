@@ -15,7 +15,7 @@ import { VocabularyMemoryScene } from './components/VocabularyMemoryScene';
 import type { Message, ChatJournal, DailyChat, Character, SavedData, CharacterThought, VocabularyItem, VocabularyReview, StreakData, KoreanLevel, StoryMeta, StoriesIndex, FSRSSettings } from './types';
 import { DEFAULT_FSRS_SETTINGS } from './types';
 import { initializeGeminiService, initChat, sendMessage, textToSpeech, translateAndExplainText, translateWord, summarizeConversation, generateCharacterThoughts, generateToneDescription, generateRelationshipSummary, generateContextSuggestion, generateMessageSuggestions, generateVocabulary, generateSceneImage, initAutoChatSession, sendAutoChatMessage, uploadAudio, sendAudioMessage } from './services/geminiService';
-import { getVocabulariesDueForReview, updateReviewAfterQuiz, initializeVocabularyReview, getReviewDueCount, getTotalVocabulariesLearned } from './utils/spacedRepetition';
+import { getVocabulariesDueForReview, updateReviewAfterQuiz, initializeFSRSReview, getReviewDueCount, getTotalVocabulariesLearned } from './utils/spacedRepetition';
 import { initializeStreak, updateStreak, checkStreakStatus } from './utils/streakManager';
 import { formatJournalForSearch, parseSystemCommand, executeSystemCommand, type FormattedJournal } from './utils/storySearch';
 import { KOREAN_LEVELS } from './types';
@@ -1732,16 +1732,18 @@ const App: React.FC = () => {
         if (!exists) {
           const vocabItem = newChat.vocabularies?.find(v => v.id === learnedId);
           if (vocabItem) {
-            const init = initializeVocabularyReview(vocabItem, newChat.id);
-            // Treat learning via vocabulary conversation as an immediate correct review
-            const updated = updateReviewAfterQuiz(init, 2, 0);
-            newChat.reviewSchedule.push(updated);
+            // Initialize FSRS review - first review will be tomorrow
+            const init = initializeFSRSReview(vocabItem, newChat.id);
+            newChat.reviewSchedule.push(init);
           }
         }
       }
 
       return newChat;
     });
+
+    // Update local state first
+    setJournal(updatedJournal);
 
     // Persist updated journal
     try {
@@ -1871,7 +1873,7 @@ const App: React.FC = () => {
           // If no review entry exists yet, try to initialize it from vocabularies in this chat
           const vocabItem = dailyChat.vocabularies?.find(v => v.id === result.vocabularyId);
           if (vocabItem) {
-            const newReview = initializeVocabularyReview(vocabItem, dailyChat.id);
+            const newReview = initializeFSRSReview(vocabItem, dailyChat.id);
             const updatedReview = updateReviewAfterQuiz(newReview, result.correctCount, result.incorrectCount);
 
             updatedJournal[i] = {
@@ -3062,7 +3064,9 @@ const App: React.FC = () => {
           onUpdateSettings={handleUpdateFsrsSettings}
           onBack={handleBackFromMemory}
           onPlayAudio={handleReplayAudio}
+          onGenerateAudio={textToSpeech}
           onTranslate={getTranslationAndExplanation}
+          onStreakUpdate={() => handleStreakUpdate('review')}
         />
       ) : (
         <JournalViewer
