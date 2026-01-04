@@ -1,7 +1,7 @@
 import React, { useState, useCallback, useMemo } from 'react';
 import type { VocabularyItem, VocabularyReview, VocabularyMemoryEntry, FSRSRating, FSRSSettings, DailyChat, Character, ChatJournal } from '../types';
 import { DEFAULT_FSRS_SETTINGS } from '../types';
-import { updateFSRSAfterReview, calculateRetrievability } from '../utils/spacedRepetition';
+import { updateFSRSReview, calculateRetrievability } from '../utils/spacedRepetition';
 import HTTPService from '../services/HTTPService';
 
 // Helper function to escape HTML
@@ -201,9 +201,9 @@ export const VocabularyMemoryFlashcard: React.FC<VocabularyMemoryFlashcardProps>
     }, 150);
   }, []);
 
-  // Handle rating
+  // Handle rating - use unified FSRS logic (same as ASK_VOCAB_DIFFICULTY)
   const handleRating = useCallback((rating: FSRSRating) => {
-    const updatedReview = updateFSRSAfterReview(review, rating, settings);
+    const updatedReview = updateFSRSReview(review, rating, settings);
     onReviewComplete(updatedReview, rating);
     
     // Reset state for next card
@@ -509,10 +509,10 @@ export const VocabularyMemoryFlashcard: React.FC<VocabularyMemoryFlashcardProps>
                           className="result-text"
                           dangerouslySetInnerHTML={{ __html: highlightedText }}
                         />
-                        {result.message.audioBase64 && onPlayAudio && (
+                        {result.message.audioData && onPlayAudio && (
                           <button
                             className="result-play-btn"
-                            onClick={() => onPlayAudio(result.message.audioBase64!, characterName)}
+                            onClick={() => onPlayAudio(result.message.audioData!, characterName)}
                             title="Nghe audio"
                           >
                             🔊
@@ -535,6 +535,8 @@ export const VocabularyMemoryFlashcard: React.FC<VocabularyMemoryFlashcardProps>
           align-items: center;
           padding: 20px;
           min-height: 100%;
+          overflow-y: auto;
+          padding-bottom: 40px;
         }
 
         .flashcard-progress {
@@ -604,19 +606,19 @@ export const VocabularyMemoryFlashcard: React.FC<VocabularyMemoryFlashcardProps>
         }
 
         .card-content {
-          min-height: 200px;
+          min-height: 150px;
           display: flex;
           flex-direction: column;
-          gap: 20px;
+          gap: 16px;
         }
 
         .word-section {
           text-align: center;
-          padding: 20px 0;
+          padding: 16px 0;
         }
 
         .korean-word {
-          font-size: 48px;
+          font-size: 42px;
           color: #fff;
           font-weight: bold;
         }
@@ -961,14 +963,14 @@ export const VocabularyMemoryFlashcard: React.FC<VocabularyMemoryFlashcardProps>
 
         .rating-buttons {
           display: flex;
-          flex-direction: column;
-          gap: 10px;
+          flex-direction: row;
+          gap: 8px;
           width: 100%;
         }
 
         .rating-btn {
-          width: 100%;
-          padding: 14px 16px;
+          flex: 1;
+          padding: 12px 8px;
           background: transparent;
           border: 2px solid;
           border-radius: 10px;
@@ -984,18 +986,19 @@ export const VocabularyMemoryFlashcard: React.FC<VocabularyMemoryFlashcardProps>
         }
 
         .rating-label {
-          font-size: 16px;
+          font-size: 13px;
           color: #fff;
+          text-align: center;
         }
 
         .rating-sublabel {
-          font-size: 12px;
+          font-size: 11px;
           color: #888;
           margin-top: 2px;
         }
 
         .skip-btn {
-          margin-top: 16px;
+          margin-top: 12px;
           padding: 8px 16px;
           background: none;
           border: none;
@@ -1010,12 +1013,13 @@ export const VocabularyMemoryFlashcard: React.FC<VocabularyMemoryFlashcardProps>
         }
 
         .card-stats {
-          margin-top: 24px;
+          margin-top: 16px;
           display: flex;
-          gap: 20px;
-          padding: 12px 20px;
+          gap: 16px;
+          padding: 10px 16px;
           background: rgba(255, 255, 255, 0.05);
           border-radius: 8px;
+          font-size: 12px;
         }
 
         .stat-item {

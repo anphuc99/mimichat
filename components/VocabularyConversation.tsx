@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect, useMemo, useCallback } from 'react';
-import type { Character, Message, VocabularyItem, VocabularyReview, DailyChat } from '../types';
+import type { Character, Message, VocabularyItem, VocabularyReview, DailyChat, VocabularyDifficultyRating } from '../types';
 import type { Chat, Content } from '@google/genai';
 import { initAutoChatSession, sendAutoChatMessage, textToSpeech, suggestConversationTopic, initChat, sendMessage, sendAudioMessage, uploadAudio } from '../services/geminiService';
 import { MessageBubble } from './MessageBubble';
@@ -13,7 +13,7 @@ interface VocabularyConversationProps {
   characters: Character[];
   context: string;
   currentLevel: string;
-  onComplete: (learnedVocabIds: string[]) => void;
+  onComplete: (learnedVocabIds?: string[]) => void; // For new learning, passes learned IDs; for review, no params needed
   onBack: () => void;
   playAudio: (audioData: string, speakingRate?: number, pitch?: number) => Promise<void>;
   isReviewMode?: boolean; // Đang ôn tập hay học mới
@@ -21,6 +21,7 @@ interface VocabularyConversationProps {
   relationshipSummary?: string; // Needed for active learning chat
   formattedJournalForSearch?: FormattedJournal; // For AI story research
   journal?: DailyChat[]; // For AI story research (full journal for GET_JOURNAL)
+  onVocabDifficultyRated?: (vocab: VocabularyItem, rating: VocabularyDifficultyRating, dailyChatId: string) => void; // Callback when user rates vocab difficulty
 }
 
 export const VocabularyConversation: React.FC<VocabularyConversationProps> = ({
@@ -36,6 +37,7 @@ export const VocabularyConversation: React.FC<VocabularyConversationProps> = ({
   relationshipSummary = '',
   formattedJournalForSearch,
   journal = [],
+  onVocabDifficultyRated,
 }) => {
   const [messages, setMessages] = useState<Message[]>([]);
   // Learning mode: passive (AI talks to each other) or active (user interacts)
@@ -60,6 +62,12 @@ export const VocabularyConversation: React.FC<VocabularyConversationProps> = ({
   const [suggestedTopic, setSuggestedTopic] = useState<string>('');
   const [isLoadingSuggestion, setIsLoadingSuggestion] = useState(false);
   const [showMeaning, setShowMeaning] = useState(false); // Ẩn/hiện nghĩa tiếng Việt trong ôn tập
+  
+  // State cho việc hỏi độ khó từ vựng
+  const [pendingVocabRating, setPendingVocabRating] = useState<VocabularyItem | null>(null);
+  const [ratedVocabIds, setRatedVocabIds] = useState<Set<string>>(new Set()); // Track vocabs already rated
+  const waitingForVocabRatingRef = useRef(false);
+  const lastVocabRatingResultRef = useRef<{ vocab: VocabularyItem; rating: VocabularyDifficultyRating } | null>(null);
   
   // State để chọn từ vựng muốn học
   const [selectedVocabIds, setSelectedVocabIds] = useState<Set<string>>(
@@ -181,6 +189,31 @@ export const VocabularyConversation: React.FC<VocabularyConversationProps> = ({
     }
   };
 
+  // Handle vocab difficulty rating from user
+  const handleVocabDifficultyRating = useCallback((rating: VocabularyDifficultyRating) => {
+    if (!pendingVocabRating) return;
+    
+    // Find dailyChatId for this vocabulary
+    const dailyChatId = journal.find(dc => 
+      dc.vocabularies?.some(v => v.id === pendingVocabRating.id)
+    )?.id || journal[journal.length - 1]?.id || 'unknown';
+    
+    // Mark as rated
+    setRatedVocabIds(prev => new Set(prev).add(pendingVocabRating.id));
+    
+    // Store rating result for sending to AI
+    lastVocabRatingResultRef.current = { vocab: pendingVocabRating, rating };
+    
+    // Call parent callback
+    if (onVocabDifficultyRated) {
+      onVocabDifficultyRated(pendingVocabRating, rating, dailyChatId);
+    }
+    
+    // Close popup and continue
+    setPendingVocabRating(null);
+    waitingForVocabRatingRef.current = false;
+  }, [pendingVocabRating, journal, onVocabDifficultyRated]);
+
   // Tạo topic tự động từ từ vựng đã chọn
   const generateTopicFromVocabularies = (): string => {
     const koreanWords = selectedVocabularies.map(v => v.korean).join(', ');
@@ -224,18 +257,59 @@ export const VocabularyConversation: React.FC<VocabularyConversationProps> = ({
       
       if (shouldStopRef.current) break;
       
-      // Chờ nếu đang pause hoặc đang chờ user continue
-      while ((isPausedRef.current || waitingForContinueRef.current) && !shouldStopRef.current) {
+      // Chờ nếu đang pause hoặc đang chờ user continue hoặc chờ vocab rating
+      while ((isPausedRef.current || waitingForContinueRef.current || waitingForVocabRatingRef.current) && !shouldStopRef.current) {
         await new Promise(resolve => setTimeout(resolve, 200));
       }
       if (shouldStopRef.current) break;
+
+      // Handle System command: ASK_VOCAB_DIFFICULTY
+      const { CharacterName, Text, Tone, Translation } = botResponse;
+      if (CharacterName === 'System' && Text) {
+        const command = parseSystemCommand(Text);
+        if (command && command.type === 'ASK_VOCAB_DIFFICULTY') {
+          const koreanWord = command.param;
+          // Find vocabulary by korean word
+          const vocab = selectedVocabularies.find(v => v.korean === koreanWord);
+          if (vocab && !ratedVocabIds.has(vocab.id)) {
+            // Clear previous rating result
+            lastVocabRatingResultRef.current = null;
+            // Show rating popup
+            setPendingVocabRating(vocab);
+            waitingForVocabRatingRef.current = true;
+            // Wait until user rates
+            while (waitingForVocabRatingRef.current && !shouldStopRef.current) {
+              await new Promise(resolve => setTimeout(resolve, 200));
+            }
+            // After user rated, send result to AI for passive mode
+            if (lastVocabRatingResultRef.current && chatRef.current) {
+              const ratingResult = lastVocabRatingResultRef.current;
+              const ratingText = ratingResult.rating === 'easy' ? 'Dễ' : ratingResult.rating === 'medium' ? 'Trung bình' : 'Khó';
+              const feedbackMessage = `VOCAB_RATING_RESULT: Người dùng đánh giá từ "${ratingResult.vocab.korean}" là: ${ratingText}. Hãy tiếp tục hội thoại một cách tự nhiên.`;
+              // Send feedback to AI (response will be processed in next batch)
+              try {
+                const responseText = await sendAutoChatMessage(chatRef.current, feedbackMessage);
+                const newResponses = JSON.parse(responseText);
+                if (Array.isArray(newResponses) && newResponses.length > 0) {
+                  // Add new responses to the beginning of remaining responses
+                  const remainingResponses = responses.slice(i + 1);
+                  responses.length = i + 1; // Truncate current array
+                  responses.push(...newResponses, ...remainingResponses);
+                }
+              } catch (e) {
+                console.error('Error sending vocab rating feedback:', e);
+              }
+            }
+          }
+          continue; // Don't display System messages
+        }
+      }
 
       // Prefetch khi còn 2-3 tin nhắn cuối
       if (i >= responses.length - 3 && !nextBatchRef.current && !isFetchingRef.current && !isLastBatch) {
         fetchNextBatch();
       }
 
-      const { CharacterName, Text, Tone, Translation } = botResponse;
       if (!CharacterName || !Text) continue;
 
       const character = selectedCharacters.find(c => c.name === CharacterName) || characters.find(c => c.name === CharacterName);
@@ -661,19 +735,85 @@ export const VocabularyConversation: React.FC<VocabularyConversationProps> = ({
       }
 
       // Handle System commands (AI story research) - max 3 searches
-      // Also handle mixed responses (character messages + System command)
+      // Also handle ASK_VOCAB_DIFFICULTY commands
       let searchCount = 0;
       
-      const hasSystemCommand = (responses: any[]) => 
-        responses.some((r: any) => r.CharacterName === 'System' && parseSystemCommand(r.Text));
+      const hasSearchCommand = (responses: any[]) => 
+        responses.some((r: any) => {
+          if (r.CharacterName !== 'System') return false;
+          const cmd = parseSystemCommand(r.Text);
+          return cmd && cmd.type !== 'ASK_VOCAB_DIFFICULTY';
+        });
       
-      const getSystemCommand = (responses: any[]) => 
-        responses.find((r: any) => r.CharacterName === 'System' && parseSystemCommand(r.Text));
+      const hasVocabDifficultyCommand = (responses: any[]) =>
+        responses.some((r: any) => {
+          if (r.CharacterName !== 'System') return false;
+          const cmd = parseSystemCommand(r.Text);
+          return cmd && cmd.type === 'ASK_VOCAB_DIFFICULTY';
+        });
+      
+      const getSearchCommand = (responses: any[]) => 
+        responses.find((r: any) => {
+          if (r.CharacterName !== 'System') return false;
+          const cmd = parseSystemCommand(r.Text);
+          return cmd && cmd.type !== 'ASK_VOCAB_DIFFICULTY';
+        });
+      
+      const getVocabDifficultyCommand = (responses: any[]) =>
+        responses.find((r: any) => {
+          if (r.CharacterName !== 'System') return false;
+          const cmd = parseSystemCommand(r.Text);
+          return cmd && cmd.type === 'ASK_VOCAB_DIFFICULTY';
+        });
       
       const getCharacterResponses = (responses: any[]) => 
         responses.filter((r: any) => r.CharacterName !== 'System');
 
-      while (hasSystemCommand(botResponses) && searchCount < 3) {
+      // Handle ASK_VOCAB_DIFFICULTY commands first
+      while (hasVocabDifficultyCommand(botResponses)) {
+        const vocabCmd = getVocabDifficultyCommand(botResponses);
+        const cmd = parseSystemCommand(vocabCmd.Text);
+        if (cmd && cmd.type === 'ASK_VOCAB_DIFFICULTY') {
+          const koreanWord = cmd.param.trim();
+          console.log('[ASK_VOCAB_DIFFICULTY Active Text] koreanWord:', koreanWord, 'selectedVocabularies:', selectedVocabularies.map(v => v.korean));
+          const vocab = selectedVocabularies.find(v => v.korean.trim() === koreanWord);
+          console.log('[ASK_VOCAB_DIFFICULTY Active Text] found vocab:', vocab, 'ratedVocabIds:', Array.from(ratedVocabIds));
+          console.log('[ASK_VOCAB_DIFFICULTY Active Text] condition check:', vocab ? 'vocab exists' : 'vocab null', vocab ? `ratedVocabIds.has(${vocab.id}): ${ratedVocabIds.has(vocab.id)}` : '');
+          if (vocab && !ratedVocabIds.has(vocab.id)) {
+            console.log('[ASK_VOCAB_DIFFICULTY Active Text] INSIDE IF - showing popup');
+            // Process any character responses first
+            const charResponses = getCharacterResponses(botResponses);
+            console.log('[ASK_VOCAB_DIFFICULTY Active Text] charResponses count:', charResponses.length);
+            if (charResponses.length > 0) {
+              await processActiveBotResponses(charResponses);
+            }
+            // Clear previous rating result
+            lastVocabRatingResultRef.current = null;
+            // Show rating popup and wait
+            console.log('[ASK_VOCAB_DIFFICULTY Active Text] Setting pendingVocabRating to:', vocab);
+            setPendingVocabRating(vocab);
+            waitingForVocabRatingRef.current = true;
+            while (waitingForVocabRatingRef.current) {
+              await new Promise(resolve => setTimeout(resolve, 200));
+            }
+            // After user rated, send result to AI
+            if (lastVocabRatingResultRef.current) {
+              const ratingResult = lastVocabRatingResultRef.current;
+              const ratingText = ratingResult.rating === 'easy' ? 'Dễ' : ratingResult.rating === 'medium' ? 'Trung bình' : 'Khó';
+              const feedbackMessage = `VOCAB_RATING_RESULT: Người dùng đánh giá từ "${ratingResult.vocab.korean}" là: ${ratingText}. Hãy tiếp tục hội thoại một cách tự nhiên.`;
+              botResponseText = await sendMessage(activeChatRef.current!, feedbackMessage);
+              const newResponses = parseAndValidate(botResponseText);
+              if (newResponses) {
+                botResponses = [...botResponses.filter((r: any) => r !== vocabCmd), ...newResponses];
+              }
+            }
+          }
+        }
+        // Remove the vocab difficulty command and continue
+        botResponses = botResponses.filter((r: any) => r !== vocabCmd);
+      }
+
+      while (hasSearchCommand(botResponses) && searchCount < 3) {
         // First, process any character responses before the search
         const charResponses = getCharacterResponses(botResponses);
         if (charResponses.length > 0) {
@@ -681,7 +821,7 @@ export const VocabularyConversation: React.FC<VocabularyConversationProps> = ({
         }
         
         // Now execute the System command
-        const systemResponse = getSystemCommand(botResponses);
+        const systemResponse = getSearchCommand(botResponses);
         const commandText = systemResponse.Text;
         console.log('AI System command (vocab active):', commandText);
         
@@ -837,13 +977,36 @@ export const VocabularyConversation: React.FC<VocabularyConversationProps> = ({
 
       // Handle System commands (AI story research) - max 3 searches
       // Also handle mixed responses (character messages + System command)
+      // Also handle ASK_VOCAB_DIFFICULTY commands
       let searchCount = 0;
       
-      const hasSystemCommand = (responses: any[]) => 
-        responses.some((r: any) => r.CharacterName === 'System' && parseSystemCommand(r.Text));
+      const hasSearchCommand = (responses: any[]) => 
+        responses.some((r: any) => {
+          if (r.CharacterName !== 'System') return false;
+          const cmd = parseSystemCommand(r.Text);
+          return cmd && cmd.type !== 'ASK_VOCAB_DIFFICULTY';
+        });
       
-      const getSystemCommand = (responses: any[]) => 
-        responses.find((r: any) => r.CharacterName === 'System' && parseSystemCommand(r.Text));
+      const hasVocabDifficultyCommand = (responses: any[]) =>
+        responses.some((r: any) => {
+          if (r.CharacterName !== 'System') return false;
+          const cmd = parseSystemCommand(r.Text);
+          return cmd && cmd.type === 'ASK_VOCAB_DIFFICULTY';
+        });
+      
+      const getSearchCommand = (responses: any[]) => 
+        responses.find((r: any) => {
+          if (r.CharacterName !== 'System') return false;
+          const cmd = parseSystemCommand(r.Text);
+          return cmd && cmd.type !== 'ASK_VOCAB_DIFFICULTY';
+        });
+      
+      const getVocabDifficultyCommand = (responses: any[]) =>
+        responses.find((r: any) => {
+          if (r.CharacterName !== 'System') return false;
+          const cmd = parseSystemCommand(r.Text);
+          return cmd && cmd.type === 'ASK_VOCAB_DIFFICULTY';
+        });
       
       const getCharacterResponses = (responses: any[]) => 
         responses.filter((r: any) => r.CharacterName !== 'System');
@@ -858,7 +1021,47 @@ export const VocabularyConversation: React.FC<VocabularyConversationProps> = ({
         ));
       }
 
-      while (hasSystemCommand(botResponses) && searchCount < 3) {
+      // Handle ASK_VOCAB_DIFFICULTY commands first
+      while (hasVocabDifficultyCommand(botResponses)) {
+        const vocabCmd = getVocabDifficultyCommand(botResponses);
+        const cmd = parseSystemCommand(vocabCmd.Text);
+        if (cmd && cmd.type === 'ASK_VOCAB_DIFFICULTY') {
+          const koreanWord = cmd.param.trim();
+          console.log('[ASK_VOCAB_DIFFICULTY Active Audio] koreanWord:', koreanWord, 'selectedVocabularies:', selectedVocabularies.map(v => v.korean));
+          const vocab = selectedVocabularies.find(v => v.korean.trim() === koreanWord);
+          console.log('[ASK_VOCAB_DIFFICULTY Active Audio] found vocab:', vocab, 'ratedVocabIds:', Array.from(ratedVocabIds));
+          if (vocab && !ratedVocabIds.has(vocab.id)) {
+            // Process any character responses first
+            const charResponses = getCharacterResponses(botResponses);
+            if (charResponses.length > 0) {
+              await processActiveBotResponses(charResponses);
+            }
+            // Clear previous rating result
+            lastVocabRatingResultRef.current = null;
+            // Show rating popup and wait
+            setPendingVocabRating(vocab);
+            waitingForVocabRatingRef.current = true;
+            while (waitingForVocabRatingRef.current) {
+              await new Promise(resolve => setTimeout(resolve, 200));
+            }
+            // After user rated, send result to AI
+            if (lastVocabRatingResultRef.current) {
+              const ratingResult = lastVocabRatingResultRef.current;
+              const ratingText = ratingResult.rating === 'easy' ? 'Dễ' : ratingResult.rating === 'medium' ? 'Trung bình' : 'Khó';
+              const feedbackMessage = `VOCAB_RATING_RESULT: Người dùng đánh giá từ "${ratingResult.vocab.korean}" là: ${ratingText}. Hãy tiếp tục hội thoại một cách tự nhiên.`;
+              botResponseText = await sendMessage(activeChatRef.current!, feedbackMessage);
+              const newResponses = parseAndValidate(botResponseText);
+              if (newResponses) {
+                botResponses = [...botResponses.filter((r: any) => r !== vocabCmd), ...newResponses];
+              }
+            }
+          }
+        }
+        // Remove the vocab difficulty command and continue
+        botResponses = botResponses.filter((r: any) => r !== vocabCmd);
+      }
+
+      while (hasSearchCommand(botResponses) && searchCount < 3) {
         // First, process any character responses before the search
         const charResponses = getCharacterResponses(botResponses);
         if (charResponses.length > 0) {
@@ -1138,6 +1341,67 @@ export const VocabularyConversation: React.FC<VocabularyConversationProps> = ({
             </button>
           }
         />
+
+        {/* Vocabulary Difficulty Rating Popup - Active Learning */}
+        {pendingVocabRating && (
+          <div className="fixed inset-0 bg-black bg-opacity-60 flex items-center justify-center z-50 p-4">
+            <div className="bg-white rounded-2xl shadow-2xl max-w-sm w-full overflow-hidden animate-in zoom-in-95 duration-200">
+              {/* Header */}
+              <div className="bg-gradient-to-r from-purple-500 to-indigo-500 px-6 py-4 text-white">
+                <h3 className="text-lg font-bold flex items-center gap-2">
+                  📚 Đánh giá từ vựng
+                </h3>
+                <p className="text-sm opacity-90 mt-1">Từ này khó hay dễ với bạn?</p>
+              </div>
+              
+              {/* Word Display */}
+              <div className="px-6 py-6 text-center">
+                <div className="text-4xl font-bold text-gray-800 mb-2">
+                  {pendingVocabRating.korean}
+                </div>
+                <div className="text-lg text-gray-500">
+                  ({pendingVocabRating.vietnamese})
+                </div>
+              </div>
+              
+              {/* Rating Buttons */}
+              <div className="px-6 pb-6 space-y-3">
+                <button
+                  onClick={() => handleVocabDifficultyRating('easy')}
+                  className="w-full py-4 bg-gradient-to-r from-green-400 to-emerald-500 hover:from-green-500 hover:to-emerald-600 text-white font-bold rounded-xl transition-all transform hover:scale-[1.02] flex items-center justify-between px-6"
+                >
+                  <span className="flex items-center gap-2">
+                    <span className="text-2xl">😊</span>
+                    <span>Dễ - Đã biết rồi</span>
+                  </span>
+                  <span className="text-sm opacity-80">~7 ngày</span>
+                </button>
+                
+                <button
+                  onClick={() => handleVocabDifficultyRating('medium')}
+                  className="w-full py-4 bg-gradient-to-r from-amber-400 to-orange-500 hover:from-amber-500 hover:to-orange-600 text-white font-bold rounded-xl transition-all transform hover:scale-[1.02] flex items-center justify-between px-6"
+                >
+                  <span className="flex items-center gap-2">
+                    <span className="text-2xl">🤔</span>
+                    <span>Trung bình</span>
+                  </span>
+                  <span className="text-sm opacity-80">~3 ngày</span>
+                </button>
+                
+                <button
+                  onClick={() => handleVocabDifficultyRating('hard')}
+                  className="w-full py-4 bg-gradient-to-r from-red-400 to-rose-500 hover:from-red-500 hover:to-rose-600 text-white font-bold rounded-xl transition-all transform hover:scale-[1.02] flex items-center justify-between px-6"
+                >
+                  <span className="flex items-center gap-2">
+                    <span className="text-2xl">😰</span>
+                    <span>Khó - Cần ôn nhiều</span>
+                  </span>
+                  <span className="text-sm opacity-80">~1 ngày</span>
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
     );
   }
@@ -1673,6 +1937,67 @@ export const VocabularyConversation: React.FC<VocabularyConversationProps> = ({
         )}
         </div>
       </div>
+
+      {/* Vocabulary Difficulty Rating Popup */}
+      {pendingVocabRating && (
+        <div className="fixed inset-0 bg-black bg-opacity-60 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-2xl shadow-2xl max-w-sm w-full overflow-hidden animate-in zoom-in-95 duration-200">
+            {/* Header */}
+            <div className="bg-gradient-to-r from-purple-500 to-indigo-500 px-6 py-4 text-white">
+              <h3 className="text-lg font-bold flex items-center gap-2">
+                📚 Đánh giá từ vựng
+              </h3>
+              <p className="text-sm opacity-90 mt-1">Từ này khó hay dễ với bạn?</p>
+            </div>
+            
+            {/* Word Display */}
+            <div className="px-6 py-6 text-center">
+              <div className="text-4xl font-bold text-gray-800 mb-2">
+                {pendingVocabRating.korean}
+              </div>
+              <div className="text-lg text-gray-500">
+                ({pendingVocabRating.vietnamese})
+              </div>
+            </div>
+            
+            {/* Rating Buttons */}
+            <div className="px-6 pb-6 space-y-3">
+              <button
+                onClick={() => handleVocabDifficultyRating('easy')}
+                className="w-full py-4 bg-gradient-to-r from-green-400 to-emerald-500 hover:from-green-500 hover:to-emerald-600 text-white font-bold rounded-xl transition-all transform hover:scale-[1.02] flex items-center justify-between px-6"
+              >
+                <span className="flex items-center gap-2">
+                  <span className="text-2xl">😊</span>
+                  <span>Dễ - Đã biết rồi</span>
+                </span>
+                <span className="text-sm opacity-80">~7 ngày</span>
+              </button>
+              
+              <button
+                onClick={() => handleVocabDifficultyRating('medium')}
+                className="w-full py-4 bg-gradient-to-r from-amber-400 to-orange-500 hover:from-amber-500 hover:to-orange-600 text-white font-bold rounded-xl transition-all transform hover:scale-[1.02] flex items-center justify-between px-6"
+              >
+                <span className="flex items-center gap-2">
+                  <span className="text-2xl">🤔</span>
+                  <span>Trung bình</span>
+                </span>
+                <span className="text-sm opacity-80">~3 ngày</span>
+              </button>
+              
+              <button
+                onClick={() => handleVocabDifficultyRating('hard')}
+                className="w-full py-4 bg-gradient-to-r from-red-400 to-rose-500 hover:from-red-500 hover:to-rose-600 text-white font-bold rounded-xl transition-all transform hover:scale-[1.02] flex items-center justify-between px-6"
+              >
+                <span className="flex items-center gap-2">
+                  <span className="text-2xl">😰</span>
+                  <span>Khó - Cần ôn nhiều</span>
+                </span>
+                <span className="text-sm opacity-80">~1 ngày</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

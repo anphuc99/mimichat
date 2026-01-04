@@ -26,25 +26,52 @@ function mapRatingToTsFsrs(rating: FSRSRating): Grade {
 
 /**
  * Convert VocabularyReview to ts-fsrs Card format
+ * For cards without stability (new or legacy), use default initial values
+ * that will produce desired intervals: easy=7d, medium=3d, hard=1d
  */
 function reviewToCard(review: VocabularyReview): Card {
-  const isNew = review.stability === undefined || review.stability === 0;
+  const hasStability = review.stability !== undefined && review.stability > 0;
+  const hasReviewHistory = review.reviewHistory && review.reviewHistory.length > 0;
   
-  if (isNew) {
-    return createEmptyCard();
+  if (!hasStability) {
+    // For new cards or legacy cards without stability:
+    // Set initial stability that will produce reasonable intervals
+    // With FSRS, stability ≈ interval (simplified for retention = 0.9)
+    // Default: stability = 3 (will produce ~6 days interval on first Good rating)
+    const initialStability = 3;
+    const initialDifficulty = 5;
+    
+    console.log(`[reviewToCard] Card without stability (new or legacy), using default: stability=${initialStability}, difficulty=${initialDifficulty}`);
+    
+    return {
+      due: hasReviewHistory ? new Date(review.nextReviewDate) : new Date(),
+      stability: initialStability,
+      difficulty: initialDifficulty,
+      elapsed_days: review.lastReviewDate 
+        ? Math.max(0, (Date.now() - new Date(review.lastReviewDate).getTime()) / (1000 * 60 * 60 * 24))
+        : 0,
+      scheduled_days: review.currentIntervalDays || 0,
+      learning_steps: 0,
+      reps: hasReviewHistory ? review.reviewHistory.length : 0,
+      lapses: review.lapses || 0,
+      state: hasReviewHistory ? State.Review : State.New, // Legacy cards are in Review state
+      last_review: review.lastReviewDate ? new Date(review.lastReviewDate) : undefined
+    };
   }
   
+  // Normal FSRS card with stability
   return {
     due: new Date(review.nextReviewDate),
-    stability: review.stability || 0,
-    difficulty: review.difficulty || 0,
+    stability: review.stability,
+    difficulty: review.difficulty || 5,
     elapsed_days: review.lastReviewDate 
       ? Math.max(0, (Date.now() - new Date(review.lastReviewDate).getTime()) / (1000 * 60 * 60 * 24))
       : 0,
     scheduled_days: review.currentIntervalDays || 0,
+    learning_steps: 0,
     reps: review.reviewHistory.length,
     lapses: review.lapses || 0,
-    state: isNew ? State.New : (review.lapses && review.lapses > 0 ? State.Relearning : State.Review),
+    state: review.lapses && review.lapses > 0 ? State.Relearning : State.Review,
     last_review: review.lastReviewDate ? new Date(review.lastReviewDate) : undefined
   };
 }
@@ -185,6 +212,20 @@ export function updateFSRSAfterReview(
     difficulty: newCard.difficulty,
     lapses: newCard.lapses
   };
+}
+
+/**
+ * Unified FSRS review update function - handles both legacy and new data
+ * Used by both VocabularyMemoryFlashcard (flashcard review) and ASK_VOCAB_DIFFICULTY (rating)
+ * Ensures consistent FSRS calculations across all review modes
+ */
+export function updateFSRSReview(
+  review: VocabularyReview,
+  rating: FSRSRating,
+  settings: FSRSSettings = DEFAULT_FSRS_SETTINGS
+): VocabularyReview {
+  // Use the main updateFSRSAfterReview which handles legacy migration via reviewToCard
+  return updateFSRSAfterReview(review, rating, settings);
 }
 
 /**
@@ -358,6 +399,63 @@ export function initializeFSRSReview(
     // FSRS initial values
     stability: 0, // Will be set on first actual review
     difficulty: 5, // Default medium difficulty
+    lapses: 0
+  };
+}
+
+/**
+ * Initialize a new VocabularyReview with user's difficulty rating
+ * Maps user rating to FSRS: easy=3 (Good), medium=2 (Hard), hard=1 (Again)
+ * Uses fixed intervals: easy=7 days, medium=3 days, hard=1 day
+ */
+export function initializeFSRSWithDifficulty(
+  vocab: VocabularyItem,
+  dailyChatId: string,
+  difficultyRating: 'easy' | 'medium' | 'hard'
+): VocabularyReview {
+  const now = new Date();
+  
+  // Map difficulty to FSRS rating: easy=3, medium=2, hard=1
+  const fsrsRating: FSRSRating = difficultyRating === 'easy' ? 3 : difficultyRating === 'medium' ? 2 : 1;
+  
+  // Fixed intervals based on difficulty (NOT using ts-fsrs new card which gives 10 minutes)
+  // easy=7 days, medium=3 days, hard=1 day
+  const intervalDays = difficultyRating === 'easy' ? 7 : difficultyRating === 'medium' ? 3 : 1;
+  
+  // Initial stability based on interval (for FSRS, stability ≈ interval when retention=0.9)
+  const initialStability = intervalDays;
+  const initialDifficulty = difficultyRating === 'easy' ? 3 : difficultyRating === 'medium' ? 5 : 7;
+  
+  // Calculate next review date
+  const nextReviewDate = new Date(now);
+  nextReviewDate.setDate(now.getDate() + intervalDays);
+  
+  console.log(`[initializeFSRSWithDifficulty] Creating new review: rating=${difficultyRating}, interval=${intervalDays} days, stability=${initialStability}`);
+  
+  // Create initial history entry
+  const historyEntry = {
+    date: now.toISOString(),
+    correctCount: fsrsRating >= 2 ? 1 : 0,
+    incorrectCount: fsrsRating === 1 ? 1 : 0,
+    intervalBefore: 0,
+    intervalAfter: intervalDays,
+    rating: fsrsRating,
+    stabilityBefore: 0,
+    stabilityAfter: initialStability,
+    difficultyBefore: 5,
+    difficultyAfter: initialDifficulty,
+    retrievability: 1
+  };
+  
+  return {
+    vocabularyId: vocab.id,
+    dailyChatId: dailyChatId,
+    currentIntervalDays: intervalDays,
+    nextReviewDate: nextReviewDate.toISOString(),
+    lastReviewDate: now.toISOString(),
+    reviewHistory: [historyEntry],
+    stability: initialStability,
+    difficulty: initialDifficulty,
     lapses: 0
   };
 }
@@ -615,6 +713,72 @@ export function getTotalVocabulariesLearned(journal: DailyChat[]): number {
 }
 
 /**
+ * Get vocabularies that don't have a review schedule yet (new cards)
+ * These are candidates for auto-adding to the memory system
+ */
+export function getNewVocabulariesWithoutReview(
+  journal: DailyChat[]
+): {
+  vocabulary: VocabularyItem;
+  dailyChat: DailyChat;
+  memory?: import('../types').VocabularyMemoryEntry;
+}[] {
+  const result: {
+    vocabulary: VocabularyItem;
+    dailyChat: DailyChat;
+    memory?: import('../types').VocabularyMemoryEntry;
+  }[] = [];
+  
+  for (const dailyChat of journal) {
+    if (!dailyChat.vocabularies) continue;
+    
+    for (const vocabulary of dailyChat.vocabularies) {
+      // Check if this vocabulary already has a review
+      const hasReview = dailyChat.reviewSchedule?.some(r => r.vocabularyId === vocabulary.id);
+      
+      if (!hasReview) {
+        const memory = dailyChat.vocabularyMemories?.find(m => m.vocabularyId === vocabulary.id);
+        result.push({ vocabulary, dailyChat, memory });
+      }
+    }
+  }
+  
+  // Sort by date (oldest first - FIFO)
+  result.sort((a, b) => {
+    const dateA = new Date(a.dailyChat.id).getTime();
+    const dateB = new Date(b.dailyChat.id).getTime();
+    return dateA - dateB;
+  });
+  
+  return result;
+}
+
+/**
+ * Create initial review for a new vocabulary
+ * New cards start with interval = 0 (due today) so they appear in review immediately
+ * User will rate difficulty after seeing the card for the first time
+ */
+export function createInitialReview(
+  vocabulary: VocabularyItem,
+  dailyChatId: string
+): VocabularyReview {
+  const now = new Date();
+  
+  // New card: due today, no stability yet (will be set after first review)
+  return {
+    vocabularyId: vocabulary.id,
+    dailyChatId: dailyChatId,
+    currentIntervalDays: 0,
+    nextReviewDate: now.toISOString(), // Due immediately
+    lastReviewDate: null,
+    reviewHistory: [],
+    stability: 0, // Will be set after first rating
+    difficulty: 5, // Default middle difficulty
+    lapses: 0
+  };
+}
+
+/**
  * Get vocabularies due for Memory Card review with FSRS
  * Respects maxReviewsPerDay limit from settings
  */
@@ -667,6 +831,91 @@ export function getVocabulariesDueForMemoryReview(
   
   // Apply maxReviewsPerDay limit
   return dueVocabularies.slice(0, settings.maxReviewsPerDay);
+}
+
+/**
+ * Auto-add new vocabularies to the review system
+ * New cards are due immediately (interval=0) - user will rate after first review
+ * @param journal - Current journal
+ * @param settings - FSRS settings with newCardsPerDay
+ * @returns Updated journal with new reviews added, and count of added reviews
+ */
+export function autoAddNewVocabularies(
+  journal: DailyChat[],
+  settings: FSRSSettings = DEFAULT_FSRS_SETTINGS
+): { 
+  updatedJournal: DailyChat[];
+  addedCount: number;
+  addedVocabularies: { vocabulary: VocabularyItem; dailyChatId: string }[];
+} {
+  const newVocabs = getNewVocabulariesWithoutReview(journal);
+  const toAdd = newVocabs.slice(0, settings.newCardsPerDay || 20);
+  
+  if (toAdd.length === 0) {
+    return { updatedJournal: journal, addedCount: 0, addedVocabularies: [] };
+  }
+  
+  console.log(`[autoAddNewVocabularies] Adding ${toAdd.length} new vocabularies (due today for first review)`);
+  
+  // Group by dailyChatId for efficient update
+  const reviewsByChat = new Map<string, VocabularyReview[]>();
+  const addedVocabularies: { vocabulary: VocabularyItem; dailyChatId: string }[] = [];
+  
+  for (const item of toAdd) {
+    const review = createInitialReview(item.vocabulary, item.dailyChat.id);
+    
+    if (!reviewsByChat.has(item.dailyChat.id)) {
+      reviewsByChat.set(item.dailyChat.id, []);
+    }
+    reviewsByChat.get(item.dailyChat.id)!.push(review);
+    addedVocabularies.push({ vocabulary: item.vocabulary, dailyChatId: item.dailyChat.id });
+  }
+  
+  // Update journal with new reviews
+  const updatedJournal = journal.map(dc => {
+    const newReviews = reviewsByChat.get(dc.id);
+    if (newReviews && newReviews.length > 0) {
+      return {
+        ...dc,
+        reviewSchedule: [...(dc.reviewSchedule || []), ...newReviews]
+      };
+    }
+    return dc;
+  });
+  
+  return { 
+    updatedJournal, 
+    addedCount: toAdd.length,
+    addedVocabularies 
+  };
+}
+
+/**
+ * Get statistics about new/review cards
+ */
+export function getVocabularyStats(
+  journal: DailyChat[],
+  settings: FSRSSettings = DEFAULT_FSRS_SETTINGS
+): {
+  totalVocabularies: number;
+  withReview: number;
+  withoutReview: number;
+  dueToday: number;
+  newCardsPerDay: number;
+  maxReviewsPerDay: number;
+} {
+  const allVocabs = getAllVocabulariesWithMemories(journal);
+  const newVocabs = getNewVocabulariesWithoutReview(journal);
+  const dueReviews = getVocabulariesDueForMemoryReview(journal, settings);
+  
+  return {
+    totalVocabularies: allVocabs.length,
+    withReview: allVocabs.length - newVocabs.length,
+    withoutReview: newVocabs.length,
+    dueToday: dueReviews.length,
+    newCardsPerDay: settings.newCardsPerDay || 20,
+    maxReviewsPerDay: settings.maxReviewsPerDay
+  };
 }
 
 /**

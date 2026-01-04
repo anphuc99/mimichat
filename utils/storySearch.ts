@@ -341,9 +341,10 @@ export function getMessageContext(
  * - SEARCH:<pattern> - Search for pattern in conversations (supports regex with |)
  * - GET_JOURNAL:<index> - Get full conversation by journal index (1-based)
  * - GET_MESSAGE:<index> - Get messages around a specific message (global index, 1-based)
+ * - ASK_VOCAB_DIFFICULTY:<korean> - Ask user to rate vocabulary difficulty
  */
 export function parseSystemCommand(text: string): {
-  type: 'SEARCH' | 'GET_JOURNAL' | 'GET_MESSAGE';
+  type: 'SEARCH' | 'GET_JOURNAL' | 'GET_MESSAGE' | 'ASK_VOCAB_DIFFICULTY';
   param: string;
 } | null {
   const searchMatch = text.match(/^SEARCH:(.+)$/i);
@@ -361,14 +362,20 @@ export function parseSystemCommand(text: string): {
     return { type: 'GET_MESSAGE', param: getMessageMatch[1] };
   }
 
+  const askVocabMatch = text.match(/^ASK_VOCAB_DIFFICULTY:(.+)$/i);
+  if (askVocabMatch) {
+    return { type: 'ASK_VOCAB_DIFFICULTY', param: askVocabMatch[1].trim() };
+  }
+
   return null;
 }
 
 /**
  * Execute System command and return result text for AI
+ * Note: ASK_VOCAB_DIFFICULTY is handled separately in VocabularyConversation component
  */
 export function executeSystemCommand(
-  command: { type: 'SEARCH' | 'GET_JOURNAL' | 'GET_MESSAGE'; param: string },
+  command: { type: 'SEARCH' | 'GET_JOURNAL' | 'GET_MESSAGE' | 'ASK_VOCAB_DIFFICULTY'; param: string },
   journal: ChatJournal,
   formattedJournal: FormattedJournal
 ): string {
@@ -389,6 +396,11 @@ export function executeSystemCommand(
       const globalIndex = parseInt(command.param, 10);
       const result = getMessageContext(journal, globalIndex);
       return result.text;
+    }
+    case 'ASK_VOCAB_DIFFICULTY': {
+      // This command is handled separately in VocabularyConversation component
+      // Return empty string as placeholder
+      return '';
     }
     default:
       return 'Lỗi: Command không hợp lệ.';

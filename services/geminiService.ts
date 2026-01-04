@@ -242,6 +242,14 @@ CÁC COMMANDS:
    - Số message là global index (đếm liên tục qua tất cả journals)
    - Ví dụ: {"CharacterName": "System", "Text": "GET_MESSAGE:379", "Tone": "", "Translation": ""}
 
+4. ASK_VOCAB_DIFFICULTY:<từ_tiếng_Hàn> - Hỏi người dùng đánh giá độ khó của từ vựng
+   - Chỉ sử dụng với từ trong danh sách TỪ VỰNG CẦN ÔN TẬP (nếu có)
+   - Ví dụ: {"CharacterName": "System", "Text": "ASK_VOCAB_DIFFICULTY:사랑", "Tone": "", "Translation": ""}
+   - Hệ thống sẽ hiển thị popup cho người dùng chọn: Dễ / Trung bình / Khó
+   - Sau khi người dùng chọn, từ vựng sẽ được lưu vào lịch ôn tập FSRS
+   - CHỈ hỏi mỗi từ MỘT LẦN trong suốt cuộc hội thoại
+   - Hỏi sau khi từ đã được sử dụng tự nhiên trong ngữ cảnh
+
 QUY TẮC QUAN TRỌNG:
 - Chỉ sử dụng tối đa 3 lần search trong một lượt phản hồi
 - Khi sử dụng System command, chỉ trả về MỘT phần tử duy nhất với command đó
@@ -420,6 +428,21 @@ Tạo một mảng các lượt đối thoại. Mỗi lượt:
   "Tone": "<Emotion>, <pitch> (ví dụ: 'Happy, high pitch', 'Sad, low pitch', 'Angry, medium pitch')",
   "Translation": "Dịch mỗi câu chat sang tiếng Việt",
 }
+
+HỆ THỐNG ĐÁNH GIÁ TỪ VỰNG:
+Sau khi sử dụng một từ vựng, bạn CÓ THỂ hỏi người học đánh giá độ khó của từ đó bằng System command.
+
+CÁCH SỬ DỤNG:
+- Trả về một phần tử với CharacterName = "System" và Text = "ASK_VOCAB_DIFFICULTY:<từ_tiếng_Hàn>"
+- Ví dụ: {"CharacterName": "System", "Text": "ASK_VOCAB_DIFFICULTY:사랑", "Tone": "", "Translation": ""}
+- Hệ thống sẽ hiển thị popup cho người dùng chọn: Dễ / Trung bình / Khó
+- Sau khi người dùng chọn, hệ thống sẽ lưu vào lịch ôn tập FSRS
+
+QUY TẮC:
+- CHỈ hỏi với từ vựng trong DANH SÁCH TỪ VỰNG CẦN HỌC (nếu có)
+- Mỗi từ chỉ hỏi MỘT LẦN trong suốt cuộc hội thoại
+- Hỏi sau khi từ đã được sử dụng tự nhiên trong ngữ cảnh (không hỏi ngay từ đầu)
+- Có thể kết hợp với các tin nhắn nhân vật trong cùng một response
 
 Khi tôi gửi "CONTINUE", tạo 3-8 lượt tiếp theo tiếp tục cuộc hội thoại một cách tự nhiên.
 Khi tôi gửi "NEW TOPIC: [chủ đề]", bắt đầu thảo luận mới về chủ đề đó.

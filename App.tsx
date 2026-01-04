@@ -12,10 +12,10 @@ import { LevelSelector } from './components/LevelSelector';
 import { AutoChatModal } from './components/AutoChatModal';
 import { RealtimeContextEditor } from './components/RealtimeContextEditor';
 import { VocabularyMemoryScene } from './components/VocabularyMemoryScene';
-import type { Message, ChatJournal, DailyChat, Character, SavedData, CharacterThought, VocabularyItem, VocabularyReview, StreakData, KoreanLevel, StoryMeta, StoriesIndex, FSRSSettings } from './types';
+import type { Message, ChatJournal, DailyChat, Character, SavedData, CharacterThought, VocabularyItem, VocabularyReview, StreakData, KoreanLevel, StoryMeta, StoriesIndex, FSRSSettings, VocabularyDifficultyRating } from './types';
 import { DEFAULT_FSRS_SETTINGS } from './types';
 import { initializeGeminiService, initChat, sendMessage, textToSpeech, translateAndExplainText, translateWord, summarizeConversation, generateCharacterThoughts, generateToneDescription, generateRelationshipSummary, generateContextSuggestion, generateMessageSuggestions, generateVocabulary, generateSceneImage, initAutoChatSession, sendAutoChatMessage, uploadAudio, sendAudioMessage } from './services/geminiService';
-import { getVocabulariesDueForReview, updateReviewAfterQuiz, initializeFSRSReview, getReviewDueCount, getTotalVocabulariesLearned } from './utils/spacedRepetition';
+import { getVocabulariesDueForReview, initializeFSRSReview, initializeFSRSWithDifficulty, updateFSRSReview, getReviewDueCount, getTotalVocabulariesLearned } from './utils/spacedRepetition';
 import { initializeStreak, updateStreak, checkStreakStatus } from './utils/streakManager';
 import { formatJournalForSearch, parseSystemCommand, executeSystemCommand, type FormattedJournal } from './utils/storySearch';
 import { KOREAN_LEVELS } from './types';
@@ -1780,6 +1780,108 @@ const App: React.FC = () => {
     setSelectedDailyChatId(null);
   }, []);
 
+  // Handler for vocabulary difficulty rating from AI command
+  // Works for both NEW vocab (creates FSRS entry) and REVIEW vocab (updates existing entry)
+  const handleVocabDifficultyRated = useCallback(async (vocab: VocabularyItem, rating: VocabularyDifficultyRating, dailyChatId: string) => {
+    console.log('[handleVocabDifficultyRated] Called with:', { vocab: vocab.korean, vocabId: vocab.id, rating, dailyChatId });
+    
+    // Map difficulty rating to FSRS rating: easy=3 (Good), medium=2 (Hard), hard=1 (Again)
+    const fsrsRating: FSRSRating = rating === 'easy' ? 3 : rating === 'medium' ? 2 : 1;
+    
+    // Find the vocabulary in any daily chat (for review mode, it might be in a different chat)
+    let foundChatIndex = -1;
+    let foundReviewIndex = -1;
+    
+    for (let i = 0; i < journal.length; i++) {
+      const chat = journal[i];
+      const reviewIdx = chat.reviewSchedule?.findIndex(r => r.vocabularyId === vocab.id) ?? -1;
+      if (reviewIdx !== -1) {
+        foundChatIndex = i;
+        foundReviewIndex = reviewIdx;
+        console.log('[handleVocabDifficultyRated] Found existing review at chatIndex:', foundChatIndex, 'reviewIndex:', foundReviewIndex);
+        break;
+      }
+    }
+    
+    let updatedJournal: typeof journal;
+    
+    if (foundChatIndex !== -1 && foundReviewIndex !== -1) {
+      // UPDATE existing review entry (for review mode) - use unified FSRS logic
+      const existingReview = journal[foundChatIndex].reviewSchedule![foundReviewIndex];
+      console.log('[handleVocabDifficultyRated] Existing review BEFORE update:', JSON.stringify(existingReview, null, 2));
+      
+      const updatedReview = updateFSRSReview(existingReview, fsrsRating, fsrsSettings);
+      console.log('[handleVocabDifficultyRated] Updated review AFTER update:', JSON.stringify(updatedReview, null, 2));
+      
+      updatedJournal = journal.map((chat, idx) => {
+        if (idx !== foundChatIndex) return chat;
+        
+        return {
+          ...chat,
+          reviewSchedule: [
+            ...chat.reviewSchedule!.slice(0, foundReviewIndex),
+            updatedReview,
+            ...chat.reviewSchedule!.slice(foundReviewIndex + 1)
+          ]
+        };
+      });
+      
+      console.log(`Updated FSRS review for vocab "${vocab.korean}" with rating "${rating}" (${fsrsRating}), next review: ${updatedReview.nextReviewDate}`);
+    } else {
+      // CREATE new review entry (for new learning mode)
+      console.log('[handleVocabDifficultyRated] No existing review found, creating new one');
+      const chatIndex = journal.findIndex(dc => dc.id === dailyChatId);
+      if (chatIndex === -1) {
+        console.error("Daily chat not found for vocab difficulty rating:", dailyChatId);
+        return;
+      }
+      
+      const newReview = initializeFSRSWithDifficulty(vocab, dailyChatId, rating);
+      console.log('[handleVocabDifficultyRated] New review created:', JSON.stringify(newReview, null, 2));
+      
+      updatedJournal = journal.map((chat, idx) => {
+        if (idx !== chatIndex) return chat;
+        
+        return {
+          ...chat,
+          reviewSchedule: [...(chat.reviewSchedule || []), newReview]
+        };
+      });
+      
+      console.log(`Created FSRS review for vocab "${vocab.korean}" with rating "${rating}", next review: ${newReview.nextReviewDate}`);
+    }
+
+    // Update local state
+    setJournal(updatedJournal);
+    console.log('[handleVocabDifficultyRated] setJournal called');
+
+    // Persist updated journal
+    try {
+      const dataToSave: SavedData = {
+        version: 5,
+        journal: updatedJournal,
+        characters,
+        activeCharacterIds,
+        context,
+        relationshipSummary,
+        currentLevel,
+        realtimeContext,
+        storyPlot,
+        fsrsSettings
+      };
+      if (currentStoryId) {
+        console.log('[handleVocabDifficultyRated] Saving to story:', currentStoryId);
+        await http.put(`${API_URL.API_STORY}/${currentStoryId}`, { data: dataToSave });
+      } else {
+        console.log('[handleVocabDifficultyRated] Saving to default data');
+        await http.post(API_URL.API_SAVE_DATA, { data: dataToSave });
+      }
+      console.log(`[handleVocabDifficultyRated] Saved FSRS review for vocab "${vocab.korean}" with rating "${rating}"`);
+    } catch (error) {
+      console.error("[handleVocabDifficultyRated] Failed to save vocabulary FSRS review:", error);
+    }
+  }, [journal, characters, activeCharacterIds, context, relationshipSummary, currentLevel, realtimeContext, storyPlot, fsrsSettings, currentStoryId]);
+
   // FSRS Settings handlers
   const handleUpdateFsrsSettings = useCallback((settings: FSRSSettings) => {
     setFsrsSettings(settings);
@@ -1831,91 +1933,15 @@ const App: React.FC = () => {
     setView('review');
   }, [journal]);
 
-  // Handler for review conversation completion
-  const handleReviewConversationComplete = useCallback(async (learnedVocabIds: string[]) => {
-    if (!currentReviewItems) return;
-    
-    // Create results from learned vocab ids - all correct for conversation-based learning
-    const results = learnedVocabIds.map(id => ({
-      vocabularyId: id,
-      correctCount: 2, // Count conversation as 2 correct answers
-      incorrectCount: 0
-    }));
-    
-    // Update review schedule for each vocabulary
-    const updatedJournal = [...journal];
-    
-    for (const result of results) {
-      // Find the daily chat and review for this vocabulary, create if missing
-      for (let i = 0; i < updatedJournal.length; i++) {
-        const dailyChat = updatedJournal[i];
-
-        const reviewIndex = dailyChat.reviewSchedule ? dailyChat.reviewSchedule.findIndex(r => r.vocabularyId === result.vocabularyId) : -1;
-
-        if (reviewIndex !== -1) {
-          const currentReview = dailyChat.reviewSchedule[reviewIndex];
-          const updatedReview = updateReviewAfterQuiz(
-            currentReview,
-            result.correctCount,
-            result.incorrectCount
-          );
-
-          updatedJournal[i] = {
-            ...dailyChat,
-            reviewSchedule: [
-              ...dailyChat.reviewSchedule!.slice(0, reviewIndex),
-              updatedReview,
-              ...dailyChat.reviewSchedule!.slice(reviewIndex + 1)
-            ]
-          };
-          break;
-        } else {
-          // If no review entry exists yet, try to initialize it from vocabularies in this chat
-          const vocabItem = dailyChat.vocabularies?.find(v => v.id === result.vocabularyId);
-          if (vocabItem) {
-            const newReview = initializeFSRSReview(vocabItem, dailyChat.id);
-            const updatedReview = updateReviewAfterQuiz(newReview, result.correctCount, result.incorrectCount);
-
-            updatedJournal[i] = {
-              ...dailyChat,
-              reviewSchedule: [...(dailyChat.reviewSchedule || []), updatedReview]
-            };
-            break;
-          }
-        }
-      }
-    }
-    
-    setJournal(updatedJournal);
-    
-    // Save to server
-    try {
-      const dataToSave: SavedData = {
-        version: 5,
-        journal: updatedJournal,
-        characters,
-        activeCharacterIds,
-        context,
-        relationshipSummary,
-        currentLevel,
-      };
-      if (currentStoryId) {
-        await http.put(`${API_URL.API_STORY}/${currentStoryId}`, { data: dataToSave });
-      } else {
-        await http.post(API_URL.API_SAVE_DATA, { data: dataToSave });
-      }
-      alert(`Hoàn thành ôn tập! Đã ôn ${results.length} từ vựng qua hội thoại.`);
-    } catch (error) {
-      console.error("Failed to save review progress:", error);
-    }
-    
+  // Handler for completing review (just return to journal, FSRS updates are done via ASK_VOCAB_DIFFICULTY)
+  const handleReviewComplete = useCallback(async () => {
     // Update streak after completing review
     await handleStreakUpdate('review');
     
     // Return to journal
     setView('journal');
     setCurrentReviewItems(null);
-  }, [journal, characters, activeCharacterIds, context, relationshipSummary, handleStreakUpdate, currentStoryId, currentReviewItems, currentLevel]);
+  }, [handleStreakUpdate]);
 
   const handleBackFromReview = useCallback(() => {
     setView('journal');
@@ -3029,6 +3055,8 @@ const App: React.FC = () => {
           relationshipSummary={relationshipSummary}
           formattedJournalForSearch={formattedJournalForSearch}
           journal={journal}
+          dailyChatId={selectedDailyChatId}
+          onVocabDifficultyRated={handleVocabDifficultyRated}
         />
       ) : view === 'context' && contextViewState ? (
         <ChatContextViewer
@@ -3046,7 +3074,7 @@ const App: React.FC = () => {
           characters={getActiveCharacters()}
           context={context}
           currentLevel={currentLevel}
-          onComplete={handleReviewConversationComplete}
+          onComplete={handleReviewComplete}
           onBack={handleBackFromReview}
           playAudio={playAudio}
           isReviewMode={true}
@@ -3054,6 +3082,7 @@ const App: React.FC = () => {
           relationshipSummary={relationshipSummary}
           formattedJournalForSearch={formattedJournalForSearch}
           journal={journal}
+          onVocabDifficultyRated={handleVocabDifficultyRated}
         />
       ) : view === 'memory' ? (
         <VocabularyMemoryScene

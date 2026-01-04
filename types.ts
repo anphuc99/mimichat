@@ -54,13 +54,18 @@ export interface VocabularyItem {
 // FSRS Rating: 1=Again (Quên), 2=Hard (Nhớ qua ký ức), 3=Good (Nhớ ngay)
 export type FSRSRating = 1 | 2 | 3;
 
+// Vocabulary Difficulty Rating from user during learning
+export type VocabularyDifficultyRating = 'easy' | 'medium' | 'hard';
+
 export interface FSRSSettings {
   maxReviewsPerDay: number; // Default: 50
+  newCardsPerDay: number; // Default: 20 - Số từ mới thêm mỗi ngày
   desiredRetention: number; // Default: 0.9 (90%)
 }
 
 export const DEFAULT_FSRS_SETTINGS: FSRSSettings = {
   maxReviewsPerDay: 50,
+  newCardsPerDay: 20,
   desiredRetention: 0.9
 };
 
