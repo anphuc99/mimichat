@@ -24,6 +24,8 @@ interface VocabularyMemoryFlashcardProps {
   onEditMemory?: () => void;
   onGenerateAudio?: (text: string, tone: string, voiceName: string) => Promise<string | null>;
   onPlayAudio?: (audioData: string, characterName?: string) => void;
+  onSearchWord?: () => void;
+  wordUsageCount?: number;
   currentIndex: number;
   totalCount: number;
 }
@@ -43,13 +45,14 @@ export const VocabularyMemoryFlashcard: React.FC<VocabularyMemoryFlashcardProps>
   onEditMemory,
   onGenerateAudio,
   onPlayAudio,
+  onSearchWord,
+  wordUsageCount = 0,
   currentIndex,
   totalCount
 }) => {
   const [state, setState] = useState<FlashcardState>('word');
   const [isAnimating, setIsAnimating] = useState(false);
   const [showMemoryPopup, setShowMemoryPopup] = useState(false);
-  const [showSearchPopup, setShowSearchPopup] = useState(false);
   const [selectedCharacterId, setSelectedCharacterId] = useState<string>('');
   const [isGeneratingAudio, setIsGeneratingAudio] = useState(false);
 
@@ -128,27 +131,6 @@ export const VocabularyMemoryFlashcard: React.FC<VocabularyMemoryFlashcardProps>
 
     return html || '<p class="empty-memory">Chưa có nội dung</p>';
   }, [memory?.userMemory, dailyChat]);
-
-  // Search for word usage in entire journal
-  const wordUsageResults = useMemo(() => {
-    if (!journal || journal.length === 0) return [];
-    
-    const koreanWord = vocabulary.korean;
-    const results: {
-      message: typeof journal[0]['messages'][0];
-      dailyChat: typeof journal[0];
-    }[] = [];
-    
-    for (const dc of journal) {
-      for (const message of dc.messages) {
-        if (message.text.includes(koreanWord)) {
-          results.push({ message, dailyChat: dc });
-        }
-      }
-    }
-    
-    return results;
-  }, [journal, vocabulary.korean]);
 
   // Calculate current retrievability for display
   const getRetrievabilityInfo = useCallback(() => {
@@ -321,13 +303,13 @@ export const VocabularyMemoryFlashcard: React.FC<VocabularyMemoryFlashcardProps>
             )}
             
             {/* Search word in story button */}
-            {journal && journal.length > 0 && (
+            {onSearchWord && (
               <button
                 className="search-word-btn"
-                onClick={() => setShowSearchPopup(true)}
+                onClick={onSearchWord}
                 title={`Tìm "${vocabulary.korean}" trong story`}
               >
-                🔍 Tìm trong story ({wordUsageResults.length})
+                🔍 Tìm trong story ({wordUsageCount})
               </button>
             )}
           </div>
@@ -464,65 +446,6 @@ export const VocabularyMemoryFlashcard: React.FC<VocabularyMemoryFlashcardProps>
                 className="memory-full-content"
                 dangerouslySetInnerHTML={{ __html: processedMemoryHtml }}
               />
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Search Word Usage Popup */}
-      {showSearchPopup && (
-        <div className="search-popup-overlay" onClick={() => setShowSearchPopup(false)}>
-          <div className="search-popup" onClick={e => e.stopPropagation()}>
-            <div className="search-popup-header">
-              <div className="search-popup-title">
-                🔍 "{vocabulary.korean}" trong story
-              </div>
-              <button className="popup-close-btn" onClick={() => setShowSearchPopup(false)}>✕</button>
-            </div>
-            <div className="search-popup-results">
-              {wordUsageResults.length === 0 ? (
-                <div className="no-results">
-                  Không tìm thấy "{vocabulary.korean}" trong story nào
-                </div>
-              ) : (
-                <div className="results-list">
-                  <div className="results-count">
-                    Tìm thấy {wordUsageResults.length} lần sử dụng
-                  </div>
-                  {wordUsageResults.map((result, index) => {
-                    const dateStr = new Date(result.dailyChat.date).toLocaleDateString('vi-VN');
-                    const characterName = result.message.speaker;
-                    const text = result.message.text;
-                    // Highlight the searched word
-                    const highlightedText = text.replace(
-                      new RegExp(`(${vocabulary.korean})`, 'g'),
-                      '<mark class="highlight-word">$1</mark>'
-                    );
-                    
-                    return (
-                      <div key={index} className="search-result-item">
-                        <div className="result-meta">
-                          <span className="result-character">{characterName}</span>
-                          <span className="result-date">{dateStr}</span>
-                        </div>
-                        <div 
-                          className="result-text"
-                          dangerouslySetInnerHTML={{ __html: highlightedText }}
-                        />
-                        {result.message.audioData && onPlayAudio && (
-                          <button
-                            className="result-play-btn"
-                            onClick={() => onPlayAudio(result.message.audioData!, characterName)}
-                            title="Nghe audio"
-                          >
-                            🔊
-                          </button>
-                        )}
-                      </div>
-                    );
-                  })}
-                </div>
-              )}
             </div>
           </div>
         </div>
