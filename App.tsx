@@ -2683,13 +2683,13 @@ const App: React.FC = () => {
           <StreakDisplay streak={streak} compact={true} />
           
           {/* Vocabulary Count */}
-          <div 
+          {/*<div 
             className="px-3 py-1.5 bg-gradient-to-r from-emerald-500 to-teal-600 text-white font-bold rounded-lg shadow-md flex items-center gap-2"
             title="Số từ vựng đã học"
           >
             <span className="text-lg">📚</span>
             <span className="text-sm">{getTotalVocabulariesLearned(journal)} từ</span>
-          </div>
+          </div>*/}
           
           <div className="flex items-center space-x-2">
             {isSaving && <span className="text-xs text-gray-500 animate-pulse">Đang lưu...</span>}
