@@ -1003,7 +1003,8 @@ ${existingWords ? `CÁC TỪ ĐÃ HỌC (KHÔNG BAO GỒM NHỮNG TỪ NÀY):
 ${existingWords}
 
 ` : ''}NHIỆM VỤ:
-- Chọn từ/cụm từ xuất hiện và chuyển thành gốc từ (dạng chưa chia) ví dụ "가요" thành "가다".
+- Chọn từ/cụm từ xuất hiện giữ nguyên từ không chuyển thành từ góc ví dụ: "가요" không chuyển thành "가다" mà giữ nguyên từ "가요".
+- Mỗi từ hoặc cụm từ chỉ tối đa 5 từ
 - Tập trung vào các biểu thức hữu ích, phổ biến.
 - KHÔNG bao gồm bất kỳ từ nào đã có trong danh sách "CÁC TỪ ĐÃ HỌC" ở trên.
 - Chỉ chọn từ MỚI mà người dùng chưa học.
