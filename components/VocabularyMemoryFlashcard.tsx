@@ -237,6 +237,13 @@ export const VocabularyMemoryFlashcard: React.FC<VocabularyMemoryFlashcardProps>
           color: '#4ade80',
           bgColor: 'rgba(74, 222, 128, 0.2)'
         };
+      case 4: // Easy
+        return {
+          label: '🤩 Rất dễ',
+          sublabel: `~${Math.max(1, Math.round((review.stability || 1) * 2.5))} ngày`,
+          color: '#38bdf8',
+          bgColor: 'rgba(56, 189, 248, 0.2)'
+        };
     }
   };
 
@@ -388,7 +395,7 @@ export const VocabularyMemoryFlashcard: React.FC<VocabularyMemoryFlashcardProps>
 
           {state === 'answer' && (
             <div className="rating-buttons">
-              {([1, 2, 3] as FSRSRating[]).map(rating => {
+              {([1, 2, 3, 4] as FSRSRating[]).map(rating => {
                 const info = getRatingInfo(rating);
                 return (
                   <button

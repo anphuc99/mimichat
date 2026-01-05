@@ -15,7 +15,8 @@ import {
   getAllVocabulariesWithMemories,
   migrateLegacyToFSRS,
   getNewVocabulariesWithoutReview,
-  getVocabularyStats
+  getVocabularyStats,
+  calculateNewCardInterval
 } from '../utils/spacedRepetition';
 import VocabularyMemoryFlashcard from './VocabularyMemoryFlashcard';
 import VocabularyMemoryEditor from './VocabularyMemoryEditor';
@@ -517,10 +518,11 @@ export const VocabularyMemoryScene: React.FC<VocabularyMemorySceneProps> = ({
     if (!currentItem) return;
 
     // Create initial review with the rating
+    // Use FSRS to calculate the actual interval
     const now = new Date();
-    const intervalDays = rating === 3 ? 7 : rating === 2 ? 3 : 1;
+    const intervalDays = calculateNewCardInterval(rating);
     const initialStability = intervalDays;
-    const initialDifficulty = rating === 3 ? 3 : rating === 2 ? 5 : 7;
+    const initialDifficulty = rating === 4 ? 1 : rating === 3 ? 3 : rating === 2 ? 5 : 7;
     
     const nextReviewDate = new Date(now);
     nextReviewDate.setDate(now.getDate() + intervalDays);
@@ -785,7 +787,7 @@ export const VocabularyMemoryScene: React.FC<VocabularyMemorySceneProps> = ({
                   onClick={() => handleNewWordRating(1)}
                 >
                   <span className="rating-label">😰 Khó</span>
-                  <span className="rating-sublabel">~1 ngày</span>
+                  <span className="rating-sublabel">~{Math.round(calculateNewCardInterval(1))} ngày</span>
                 </button>
                 <button 
                   className="rating-btn"
@@ -793,7 +795,7 @@ export const VocabularyMemoryScene: React.FC<VocabularyMemorySceneProps> = ({
                   onClick={() => handleNewWordRating(2)}
                 >
                   <span className="rating-label">🤔 Bình thường</span>
-                  <span className="rating-sublabel">~3 ngày</span>
+                  <span className="rating-sublabel">~{Math.round(calculateNewCardInterval(2))} ngày</span>
                 </button>
                 <button 
                   className="rating-btn"
@@ -801,7 +803,15 @@ export const VocabularyMemoryScene: React.FC<VocabularyMemorySceneProps> = ({
                   onClick={() => handleNewWordRating(3)}
                 >
                   <span className="rating-label">😊 Dễ</span>
-                  <span className="rating-sublabel">~7 ngày</span>
+                  <span className="rating-sublabel">~{Math.round(calculateNewCardInterval(3))} ngày</span>
+                </button>
+                <button 
+                  className="rating-btn"
+                  style={{ borderColor: '#38bdf8', backgroundColor: 'rgba(56, 189, 248, 0.2)' }}
+                  onClick={() => handleNewWordRating(4)}
+                >
+                  <span className="rating-label">🤩 Rất dễ</span>
+                  <span className="rating-sublabel">~{Math.round(calculateNewCardInterval(4))} ngày</span>
                 </button>
               </div>
             )}

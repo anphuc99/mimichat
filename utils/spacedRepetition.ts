@@ -11,8 +11,8 @@ import { fsrs, createEmptyCard, Rating, State, type Card, type Grade, type FSRS 
 const f: FSRS = fsrs();
 
 /**
- * Map our 3-level rating to ts-fsrs Rating
- * Our: 1=Again, 2=Hard, 3=Good
+ * Map our 4-level rating to ts-fsrs Rating
+ * Our: 1=Again, 2=Hard, 3=Good, 4=Easy
  * ts-fsrs: Again=1, Hard=2, Good=3, Easy=4
  */
 function mapRatingToTsFsrs(rating: FSRSRating): Grade {
@@ -20,6 +20,7 @@ function mapRatingToTsFsrs(rating: FSRSRating): Grade {
     case 1: return Rating.Again;
     case 2: return Rating.Hard;
     case 3: return Rating.Good;
+    case 4: return Rating.Easy;
     default: return Rating.Good;
   }
 }
@@ -87,6 +88,17 @@ export function calculateRetrievability(stability: number, elapsedDays: number):
   const DECAY = -0.5;
   const FACTOR = Math.pow(0.9, 1 / DECAY) - 1;
   return Math.pow(1 + FACTOR * elapsedDays / stability, DECAY);
+}
+
+/**
+ * Calculate interval (in days) for a new card based on FSRS rating
+ * Uses ts-fsrs to compute the actual scheduled interval
+ */
+export function calculateNewCardInterval(rating: FSRSRating): number {
+  const newCard = createEmptyCard();
+  const result = f.repeat(newCard, new Date());
+  const grade = mapRatingToTsFsrs(rating);
+  return result[grade].card.scheduled_days;
 }
 
 /**
@@ -405,26 +417,26 @@ export function initializeFSRSReview(
 
 /**
  * Initialize a new VocabularyReview with user's difficulty rating
- * Maps user rating to FSRS: easy=3 (Good), medium=2 (Hard), hard=1 (Again)
- * Uses fixed intervals: easy=7 days, medium=3 days, hard=1 day
+ * Maps user rating to FSRS: very_easy=4 (Easy), easy=3 (Good), medium=2 (Hard), hard=1 (Again)
+ * Uses fixed intervals: very_easy=14 days, easy=7 days, medium=3 days, hard=1 day
  */
 export function initializeFSRSWithDifficulty(
   vocab: VocabularyItem,
   dailyChatId: string,
-  difficultyRating: 'easy' | 'medium' | 'hard'
+  difficultyRating: 'very_easy' | 'easy' | 'medium' | 'hard'
 ): VocabularyReview {
   const now = new Date();
   
-  // Map difficulty to FSRS rating: easy=3, medium=2, hard=1
-  const fsrsRating: FSRSRating = difficultyRating === 'easy' ? 3 : difficultyRating === 'medium' ? 2 : 1;
+  // Map difficulty to FSRS rating: very_easy=4, easy=3, medium=2, hard=1
+  const fsrsRating: FSRSRating = difficultyRating === 'very_easy' ? 4 : difficultyRating === 'easy' ? 3 : difficultyRating === 'medium' ? 2 : 1;
   
   // Fixed intervals based on difficulty (NOT using ts-fsrs new card which gives 10 minutes)
-  // easy=7 days, medium=3 days, hard=1 day
-  const intervalDays = difficultyRating === 'easy' ? 7 : difficultyRating === 'medium' ? 3 : 1;
+  // very_easy=14 days, easy=7 days, medium=3 days, hard=1 day
+  const intervalDays = difficultyRating === 'very_easy' ? 14 : difficultyRating === 'easy' ? 7 : difficultyRating === 'medium' ? 3 : 1;
   
   // Initial stability based on interval (for FSRS, stability ≈ interval when retention=0.9)
   const initialStability = intervalDays;
-  const initialDifficulty = difficultyRating === 'easy' ? 3 : difficultyRating === 'medium' ? 5 : 7;
+  const initialDifficulty = difficultyRating === 'very_easy' ? 1 : difficultyRating === 'easy' ? 3 : difficultyRating === 'medium' ? 5 : 7;
   
   // Calculate next review date
   const nextReviewDate = new Date(now);

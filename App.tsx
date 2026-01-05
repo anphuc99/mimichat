@@ -12,7 +12,7 @@ import { LevelSelector } from './components/LevelSelector';
 import { AutoChatModal } from './components/AutoChatModal';
 import { RealtimeContextEditor } from './components/RealtimeContextEditor';
 import { VocabularyMemoryScene } from './components/VocabularyMemoryScene';
-import type { Message, ChatJournal, DailyChat, Character, SavedData, CharacterThought, VocabularyItem, VocabularyReview, StreakData, KoreanLevel, StoryMeta, StoriesIndex, FSRSSettings, VocabularyDifficultyRating } from './types';
+import type { Message, ChatJournal, DailyChat, Character, SavedData, CharacterThought, VocabularyItem, VocabularyReview, StreakData, KoreanLevel, StoryMeta, StoriesIndex, FSRSSettings, VocabularyDifficultyRating, FSRSRating } from './types';
 import { DEFAULT_FSRS_SETTINGS } from './types';
 import { initializeGeminiService, initChat, sendMessage, textToSpeech, translateAndExplainText, translateWord, summarizeConversation, generateCharacterThoughts, generateToneDescription, generateRelationshipSummary, generateContextSuggestion, generateMessageSuggestions, generateVocabulary, generateSceneImage, initAutoChatSession, sendAutoChatMessage, uploadAudio, sendAudioMessage } from './services/geminiService';
 import { getVocabulariesDueForReview, initializeFSRSReview, initializeFSRSWithDifficulty, updateFSRSReview, getReviewDueCount, getTotalVocabulariesLearned } from './utils/spacedRepetition';
@@ -1785,8 +1785,8 @@ const App: React.FC = () => {
   const handleVocabDifficultyRated = useCallback(async (vocab: VocabularyItem, rating: VocabularyDifficultyRating, dailyChatId: string) => {
     console.log('[handleVocabDifficultyRated] Called with:', { vocab: vocab.korean, vocabId: vocab.id, rating, dailyChatId });
     
-    // Map difficulty rating to FSRS rating: easy=3 (Good), medium=2 (Hard), hard=1 (Again)
-    const fsrsRating: FSRSRating = rating === 'easy' ? 3 : rating === 'medium' ? 2 : 1;
+    // Map difficulty rating to FSRS rating: very_easy=4 (Easy), easy=3 (Good), medium=2 (Hard), hard=1 (Again)
+    const fsrsRating: FSRSRating = rating === 'very_easy' ? 4 : rating === 'easy' ? 3 : rating === 'medium' ? 2 : 1;
     
     // Find the vocabulary in any daily chat (for review mode, it might be in a different chat)
     let foundChatIndex = -1;

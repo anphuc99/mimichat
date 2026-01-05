@@ -1,10 +1,11 @@
 import React, { useState, useRef, useEffect, useMemo, useCallback } from 'react';
-import type { Character, Message, VocabularyItem, VocabularyReview, DailyChat, VocabularyDifficultyRating } from '../types';
+import type { Character, Message, VocabularyItem, VocabularyReview, DailyChat, VocabularyDifficultyRating, FSRSRating } from '../types';
 import type { Chat, Content } from '@google/genai';
 import { initAutoChatSession, sendAutoChatMessage, textToSpeech, suggestConversationTopic, initChat, sendMessage, sendAudioMessage, uploadAudio } from '../services/geminiService';
 import { MessageBubble } from './MessageBubble';
 import { MessageInput } from './MessageInput';
 import { parseSystemCommand, executeSystemCommand, FormattedJournal } from '../utils/storySearch';
+import { calculateNewCardInterval } from '../utils/spacedRepetition';
 
 type LearningMode = 'passive' | 'active';
 
@@ -213,6 +214,16 @@ export const VocabularyConversation: React.FC<VocabularyConversationProps> = ({
     setPendingVocabRating(null);
     waitingForVocabRatingRef.current = false;
   }, [pendingVocabRating, journal, onVocabDifficultyRated]);
+
+  // Get interval in days for each difficulty rating (calculated by FSRS)
+  const getRatingIntervals = useMemo(() => {
+    return {
+      very_easy: calculateNewCardInterval(4 as FSRSRating),
+      easy: calculateNewCardInterval(3 as FSRSRating),
+      medium: calculateNewCardInterval(2 as FSRSRating),
+      hard: calculateNewCardInterval(1 as FSRSRating)
+    };
+  }, []);
 
   // Tạo topic tự động từ từ vựng đã chọn
   const generateTopicFromVocabularies = (): string => {
@@ -1367,6 +1378,17 @@ export const VocabularyConversation: React.FC<VocabularyConversationProps> = ({
               {/* Rating Buttons */}
               <div className="px-6 pb-6 space-y-3">
                 <button
+                  onClick={() => handleVocabDifficultyRating('very_easy')}
+                  className="w-full py-4 bg-gradient-to-r from-sky-400 to-blue-500 hover:from-sky-500 hover:to-blue-600 text-white font-bold rounded-xl transition-all transform hover:scale-[1.02] flex items-center justify-between px-6"
+                >
+                  <span className="flex items-center gap-2">
+                    <span className="text-2xl">🤩</span>
+                    <span>Rất dễ - Thuộc lòng</span>
+                  </span>
+                  <span className="text-sm opacity-80">~{Math.round(getRatingIntervals.very_easy)} ngày</span>
+                </button>
+                
+                <button
                   onClick={() => handleVocabDifficultyRating('easy')}
                   className="w-full py-4 bg-gradient-to-r from-green-400 to-emerald-500 hover:from-green-500 hover:to-emerald-600 text-white font-bold rounded-xl transition-all transform hover:scale-[1.02] flex items-center justify-between px-6"
                 >
@@ -1374,7 +1396,7 @@ export const VocabularyConversation: React.FC<VocabularyConversationProps> = ({
                     <span className="text-2xl">😊</span>
                     <span>Dễ - Đã biết rồi</span>
                   </span>
-                  <span className="text-sm opacity-80">~7 ngày</span>
+                  <span className="text-sm opacity-80">~{Math.round(getRatingIntervals.easy)} ngày</span>
                 </button>
                 
                 <button
@@ -1385,7 +1407,7 @@ export const VocabularyConversation: React.FC<VocabularyConversationProps> = ({
                     <span className="text-2xl">🤔</span>
                     <span>Trung bình</span>
                   </span>
-                  <span className="text-sm opacity-80">~3 ngày</span>
+                  <span className="text-sm opacity-80">~{Math.round(getRatingIntervals.medium)} ngày</span>
                 </button>
                 
                 <button
@@ -1396,7 +1418,7 @@ export const VocabularyConversation: React.FC<VocabularyConversationProps> = ({
                     <span className="text-2xl">😰</span>
                     <span>Khó - Cần ôn nhiều</span>
                   </span>
-                  <span className="text-sm opacity-80">~1 ngày</span>
+                  <span className="text-sm opacity-80">~{Math.round(getRatingIntervals.hard)} ngày</span>
                 </button>
               </div>
             </div>
@@ -1963,6 +1985,17 @@ export const VocabularyConversation: React.FC<VocabularyConversationProps> = ({
             {/* Rating Buttons */}
             <div className="px-6 pb-6 space-y-3">
               <button
+                onClick={() => handleVocabDifficultyRating('very_easy')}
+                className="w-full py-4 bg-gradient-to-r from-sky-400 to-blue-500 hover:from-sky-500 hover:to-blue-600 text-white font-bold rounded-xl transition-all transform hover:scale-[1.02] flex items-center justify-between px-6"
+              >
+                <span className="flex items-center gap-2">
+                  <span className="text-2xl">🤩</span>
+                  <span>Rất dễ - Thuộc lòng</span>
+                </span>
+                <span className="text-sm opacity-80">~{Math.round(getRatingIntervals.very_easy)} ngày</span>
+              </button>
+              
+              <button
                 onClick={() => handleVocabDifficultyRating('easy')}
                 className="w-full py-4 bg-gradient-to-r from-green-400 to-emerald-500 hover:from-green-500 hover:to-emerald-600 text-white font-bold rounded-xl transition-all transform hover:scale-[1.02] flex items-center justify-between px-6"
               >
@@ -1970,7 +2003,7 @@ export const VocabularyConversation: React.FC<VocabularyConversationProps> = ({
                   <span className="text-2xl">😊</span>
                   <span>Dễ - Đã biết rồi</span>
                 </span>
-                <span className="text-sm opacity-80">~7 ngày</span>
+                <span className="text-sm opacity-80">~{Math.round(getRatingIntervals.easy)} ngày</span>
               </button>
               
               <button
@@ -1981,7 +2014,7 @@ export const VocabularyConversation: React.FC<VocabularyConversationProps> = ({
                   <span className="text-2xl">🤔</span>
                   <span>Trung bình</span>
                 </span>
-                <span className="text-sm opacity-80">~3 ngày</span>
+                <span className="text-sm opacity-80">~{Math.round(getRatingIntervals.medium)} ngày</span>
               </button>
               
               <button
@@ -1992,7 +2025,7 @@ export const VocabularyConversation: React.FC<VocabularyConversationProps> = ({
                   <span className="text-2xl">😰</span>
                   <span>Khó - Cần ôn nhiều</span>
                 </span>
-                <span className="text-sm opacity-80">~1 ngày</span>
+                <span className="text-sm opacity-80">~{Math.round(getRatingIntervals.hard)} ngày</span>
               </button>
             </div>
           </div>

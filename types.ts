@@ -51,11 +51,11 @@ export interface VocabularyItem {
   vietnamese: string;
 }
 
-// FSRS Rating: 1=Again (Quên), 2=Hard (Nhớ qua ký ức), 3=Good (Nhớ ngay)
-export type FSRSRating = 1 | 2 | 3;
+// FSRS Rating: 1=Again (Quên), 2=Hard (Nhớ qua ký ức), 3=Good (Nhớ ngay), 4=Easy (Rất dễ)
+export type FSRSRating = 1 | 2 | 3 | 4;
 
 // Vocabulary Difficulty Rating from user during learning
-export type VocabularyDifficultyRating = 'easy' | 'medium' | 'hard';
+export type VocabularyDifficultyRating = 'very_easy' | 'easy' | 'medium' | 'hard';
 
 export interface FSRSSettings {
   maxReviewsPerDay: number; // Default: 50
