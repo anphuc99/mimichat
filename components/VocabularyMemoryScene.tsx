@@ -68,7 +68,7 @@ export const VocabularyMemoryScene: React.FC<VocabularyMemorySceneProps> = ({
     memory?: VocabularyMemoryEntry;
   } | null>(null);
   const [filterText, setFilterText] = useState('');
-  const [filterMode, setFilterMode] = useState<'all' | 'with-memory' | 'without-memory'>('all');
+  const [filterMode, setFilterMode] = useState<'all' | 'with-memory' | 'without-memory' | 'learned' | 'not-learned'>('all');
   
   // Review tab state
   const [reviewQueue, setReviewQueue] = useState<{
@@ -121,6 +121,10 @@ export const VocabularyMemoryScene: React.FC<VocabularyMemorySceneProps> = ({
       filtered = filtered.filter(v => v.memory !== undefined);
     } else if (filterMode === 'without-memory') {
       filtered = filtered.filter(v => v.memory === undefined);
+    } else if (filterMode === 'learned') {
+      filtered = filtered.filter(v => v.review !== undefined);
+    } else if (filterMode === 'not-learned') {
+      filtered = filtered.filter(v => v.review === undefined);
     }
 
     return filtered;
@@ -221,6 +225,62 @@ export const VocabularyMemoryScene: React.FC<VocabularyMemorySceneProps> = ({
       setIsReviewComplete(true);
     }
   }, [currentReviewIndex, reviewQueue.length]);
+
+  // Handle card direction change - save immediately to journal
+  const handleCardDirectionChange = useCallback((direction: 'kr-vn' | 'vn-kr') => {
+    const currentItem = reviewQueue[currentReviewIndex];
+    if (!currentItem) return;
+
+    // Update journal with new card direction
+    const updatedJournal = journal.map(dc => {
+      if (dc.id === currentItem.dailyChat.id && dc.reviewSchedule) {
+        const newSchedule = dc.reviewSchedule.map(r => 
+          r.vocabularyId === currentItem.review.vocabularyId 
+            ? { ...r, cardDirection: direction }
+            : r
+        );
+        return { ...dc, reviewSchedule: newSchedule };
+      }
+      return dc;
+    });
+    
+    onUpdateJournal(updatedJournal);
+
+    // Also update the review queue so the change persists in current session
+    const updatedQueue = [...reviewQueue];
+    updatedQueue[currentReviewIndex] = {
+      ...updatedQueue[currentReviewIndex],
+      review: { ...updatedQueue[currentReviewIndex].review, cardDirection: direction }
+    };
+    setReviewQueue(updatedQueue);
+  }, [journal, onUpdateJournal, reviewQueue, currentReviewIndex]);
+
+  // Handle reset FSRS - reset stability and difficulty
+  const handleResetFSRS = useCallback((resetReview: VocabularyReview) => {
+    const currentItem = reviewQueue[currentReviewIndex];
+    if (!currentItem) return;
+
+    // Update journal with reset review data
+    const updatedJournal = journal.map(dc => {
+      if (dc.id === currentItem.dailyChat.id && dc.reviewSchedule) {
+        const newSchedule = dc.reviewSchedule.map(r => 
+          r.vocabularyId === resetReview.vocabularyId ? resetReview : r
+        );
+        return { ...dc, reviewSchedule: newSchedule };
+      }
+      return dc;
+    });
+    
+    onUpdateJournal(updatedJournal);
+
+    // Also update the review queue so the change persists in current session
+    const updatedQueue = [...reviewQueue];
+    updatedQueue[currentReviewIndex] = {
+      ...updatedQueue[currentReviewIndex],
+      review: resetReview
+    };
+    setReviewQueue(updatedQueue);
+  }, [journal, onUpdateJournal, reviewQueue, currentReviewIndex]);
 
   // Handle edit memory from review flashcard
   const handleEditMemoryFromReview = useCallback(() => {
@@ -341,6 +401,11 @@ export const VocabularyMemoryScene: React.FC<VocabularyMemorySceneProps> = ({
   const [searchWord, setSearchWord] = useState<string>('');
   const [selectedNewWordCharacterId, setSelectedNewWordCharacterId] = useState<string>('');
   const [isNewWordGeneratingAudio, setIsNewWordGeneratingAudio] = useState(false);
+  const [newWordUserAnswer, setNewWordUserAnswer] = useState('');
+  const [newWordAnswerResult, setNewWordAnswerResult] = useState<'correct' | 'incorrect' | null>(null);
+  // Card direction: 'kr-vn' = Korean front, Vietnamese answer | 'vn-kr' = Vietnamese front, Korean answer
+  // Default to 'kr-vn' for new words (no saved preference yet)
+  const [newWordCardDirection, setNewWordCardDirection] = useState<'kr-vn' | 'vn-kr'>('kr-vn');
 
   // Initialize new words queue when switching to new tab
   useEffect(() => {
@@ -548,7 +613,9 @@ export const VocabularyMemoryScene: React.FC<VocabularyMemorySceneProps> = ({
       }],
       stability: initialStability,
       difficulty: initialDifficulty,
-      lapses: rating === 1 ? 1 : 0
+      lapses: rating === 1 ? 1 : 0,
+      // Save card direction preference
+      cardDirection: newWordCardDirection
     };
 
     // Update journal with new review
@@ -579,12 +646,14 @@ export const VocabularyMemoryScene: React.FC<VocabularyMemorySceneProps> = ({
 
     // Move to next word
     setNewWordState('word');
+    setNewWordUserAnswer('');
+    setNewWordAnswerResult(null);
     if (currentNewWordIndex < newWordsQueue.length - 1) {
       setCurrentNewWordIndex(prev => prev + 1);
     } else {
       setIsNewWordsComplete(true);
     }
-  }, [journal, onUpdateJournal, newWordsQueue, currentNewWordIndex, onStreakUpdate]);
+  }, [journal, onUpdateJournal, newWordsQueue, currentNewWordIndex, onStreakUpdate, newWordCardDirection]);
 
   // Render new words tab
   const renderNewWordsTab = () => {
@@ -656,50 +725,57 @@ export const VocabularyMemoryScene: React.FC<VocabularyMemorySceneProps> = ({
           
           {/* Card Content */}
           <div className="card-content">
-            {/* Word Section - Always visible */}
-            <div className="word-section">
-              <div className="korean-word">{currentItem.vocabulary.korean}</div>
-              
-              {/* Pronunciation controls */}
-              {onGenerateAudio && onPlayAudio && characters.length > 0 && (
-                <div className="pronunciation-controls">
-                  <select
-                    className="character-select"
-                    value={selectedNewWordCharacterId}
-                    onChange={(e) => setSelectedNewWordCharacterId(e.target.value)}
-                  >
-                    <option value="">Chọn giọng...</option>
-                    {characters.map(char => (
-                      <option key={char.id} value={char.id}>
-                        {char.name}
-                      </option>
-                    ))}
-                  </select>
-                  <button
-                    className="pronounce-btn"
-                    onClick={handleNewWordPronounce}
-                    disabled={isNewWordGeneratingAudio || !selectedNewWordCharacterId}
-                    title="Nghe phát âm"
-                  >
-                    {isNewWordGeneratingAudio ? '⏳' : '🔊'}
-                  </button>
-                </div>
-              )}
-              
-              {/* Search word in story button */}
-              {journal && journal.length > 0 && (
-                <button
-                  className="search-word-btn"
-                  onClick={() => {
-                    setSearchWord(currentItem.vocabulary.korean);
-                    setShowSearchPopup(true);
-                  }}
-                  title={`Tìm "${currentItem.vocabulary.korean}" trong story`}
-                >
-                  🔍 Tìm trong story ({currentNewWordUsageCount})
-                </button>
-              )}
+            {/* Direction Toggle */}
+            <div className="direction-toggle">
+              <button
+                className={`toggle-btn ${newWordCardDirection === 'kr-vn' ? 'active' : ''}`}
+                onClick={() => setNewWordCardDirection('kr-vn')}
+              >
+                🇰🇷→🇻🇳
+              </button>
+              <button
+                className={`toggle-btn ${newWordCardDirection === 'vn-kr' ? 'active' : ''}`}
+                onClick={() => setNewWordCardDirection('vn-kr')}
+              >
+                🇻🇳→🇰🇷
+              </button>
             </div>
+
+            {/* Front of card - Question */}
+            <div className="word-section">
+              <div className="section-label">
+                {newWordCardDirection === 'vn-kr' ? '📖 Nghĩa tiếng Việt:' : '🇰🇷 Từ tiếng Hàn:'}
+              </div>
+              <div className={newWordCardDirection === 'vn-kr' ? 'vietnamese-word-front' : 'korean-word-front'}>
+                {newWordCardDirection === 'vn-kr' ? currentItem.vocabulary.vietnamese : currentItem.vocabulary.korean}
+              </div>
+            </div>
+
+            {/* Answer Input - Visible in 'word' state */}
+            {newWordState === 'word' && (
+              <div className="answer-input-section">
+                <div className="section-label">
+                  {newWordCardDirection === 'vn-kr' ? '✍️ Điền từ tiếng Hàn:' : '✍️ Điền nghĩa tiếng Việt:'}
+                </div>
+                <input
+                  type="text"
+                  className={newWordCardDirection === 'vn-kr' ? 'korean-input' : 'vietnamese-input'}
+                  value={newWordUserAnswer}
+                  onChange={(e) => setNewWordUserAnswer(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' && newWordUserAnswer.trim()) {
+                      const normalizedUserAnswer = newWordUserAnswer.trim().toLowerCase();
+                      const correctAnswer = newWordCardDirection === 'vn-kr' ? currentItem.vocabulary.korean : currentItem.vocabulary.vietnamese;
+                      const normalizedCorrectAnswer = correctAnswer.trim().toLowerCase();
+                      setNewWordAnswerResult(normalizedUserAnswer === normalizedCorrectAnswer ? 'correct' : 'incorrect');
+                      setNewWordState('answer');
+                    }
+                  }}
+                  placeholder={newWordCardDirection === 'vn-kr' ? 'Nhập từ tiếng Hàn...' : 'Nhập nghĩa tiếng Việt...'}
+                  autoFocus
+                />
+              </div>
+            )}
 
             {/* Memory section - visible in 'memory' and 'answer' states */}
             {(newWordState === 'memory' || newWordState === 'answer') && (
@@ -742,11 +818,66 @@ export const VocabularyMemoryScene: React.FC<VocabularyMemorySceneProps> = ({
               </div>
             )}
 
-            {/* Answer - visible in 'answer' state */}
+            {/* Answer - visible in 'answer' state (Back of card) */}
             {newWordState === 'answer' && (
               <div className="answer-section">
-                <div className="section-label">📖 Nghĩa:</div>
-                <div className="vietnamese-word">{currentItem.vocabulary.vietnamese}</div>
+                <div className="section-label">
+                  {newWordCardDirection === 'vn-kr' ? '🇰🇷 Đáp án tiếng Hàn:' : '📖 Đáp án tiếng Việt:'}
+                </div>
+                <div className={`${newWordCardDirection === 'vn-kr' ? 'korean-word-answer' : 'vietnamese-word-answer'} ${newWordAnswerResult === 'correct' ? 'correct' : newWordAnswerResult === 'incorrect' ? 'incorrect' : ''}`}>
+                  {newWordCardDirection === 'vn-kr' ? currentItem.vocabulary.korean : currentItem.vocabulary.vietnamese}
+                </div>
+                
+                {/* Show user's answer comparison */}
+                {newWordUserAnswer && newWordAnswerResult && (
+                  <div className={`user-answer-result ${newWordAnswerResult}`}>
+                    {newWordAnswerResult === 'correct' ? (
+                      <span>✅ Chính xác! Bạn đã nhập: {newWordUserAnswer}</span>
+                    ) : (
+                      <span>❌ Bạn đã nhập: <span className="wrong-answer">{newWordUserAnswer}</span></span>
+                    )}
+                  </div>
+                )}
+                
+                {/* Pronunciation controls */}
+                {onGenerateAudio && onPlayAudio && characters.length > 0 && (
+                  <div className="pronunciation-controls">
+                    <select
+                      className="character-select"
+                      value={selectedNewWordCharacterId}
+                      onChange={(e) => setSelectedNewWordCharacterId(e.target.value)}
+                    >
+                      <option value="">Chọn giọng...</option>
+                      {characters.map(char => (
+                        <option key={char.id} value={char.id}>
+                          {char.name}
+                        </option>
+                      ))}
+                    </select>
+                    <button
+                      className="pronounce-btn"
+                      onClick={handleNewWordPronounce}
+                      disabled={isNewWordGeneratingAudio || !selectedNewWordCharacterId}
+                      title="Nghe phát âm"
+                    >
+                      {isNewWordGeneratingAudio ? '⏳' : '🔊'}
+                    </button>
+                  </div>
+                )}
+                
+                {/* Search word in story button */}
+                {journal && journal.length > 0 && (
+                  <button
+                    className="search-word-btn"
+                    onClick={() => {
+                      setSearchWord(currentItem.vocabulary.korean);
+                      setShowSearchPopup(true);
+                    }}
+                    title={`Tìm "${currentItem.vocabulary.korean}" trong story`}
+                  >
+                    🔍 Tìm trong story ({currentNewWordUsageCount})
+                  </button>
+                )}
               </div>
             )}
           </div>
@@ -763,9 +894,15 @@ export const VocabularyMemoryScene: React.FC<VocabularyMemorySceneProps> = ({
                 </button>
                 <button 
                   className="action-btn answer-btn"
-                  onClick={() => setNewWordState('answer')}
+                  onClick={() => {
+                    const normalizedUserAnswer = newWordUserAnswer.trim().toLowerCase();
+                    const correctAnswer = newWordCardDirection === 'vn-kr' ? currentItem.vocabulary.korean : currentItem.vocabulary.vietnamese;
+                    const normalizedCorrectAnswer = correctAnswer.trim().toLowerCase();
+                    setNewWordAnswerResult(normalizedUserAnswer === normalizedCorrectAnswer ? 'correct' : 'incorrect');
+                    setNewWordState('answer');
+                  }}
                 >
-                  👁️ Xem đáp án
+                  ✅ Kiểm tra đáp án
                 </button>
               </>
             )}
@@ -773,9 +910,15 @@ export const VocabularyMemoryScene: React.FC<VocabularyMemorySceneProps> = ({
             {newWordState === 'memory' && (
               <button 
                 className="action-btn answer-btn full-width"
-                onClick={() => setNewWordState('answer')}
+                onClick={() => {
+                  const normalizedUserAnswer = newWordUserAnswer.trim().toLowerCase();
+                  const correctAnswer = newWordCardDirection === 'vn-kr' ? currentItem.vocabulary.korean : currentItem.vocabulary.vietnamese;
+                  const normalizedCorrectAnswer = correctAnswer.trim().toLowerCase();
+                  setNewWordAnswerResult(normalizedUserAnswer === normalizedCorrectAnswer ? 'correct' : 'incorrect');
+                  setNewWordState('answer');
+                }}
               >
-                👁️ Xem đáp án
+                ✅ Kiểm tra đáp án
               </button>
             )}
 
@@ -892,6 +1035,18 @@ export const VocabularyMemoryScene: React.FC<VocabularyMemorySceneProps> = ({
               Tất cả ({allVocabularies.length})
             </button>
             <button 
+              className={`filter-btn ${filterMode === 'learned' ? 'active' : ''}`}
+              onClick={() => setFilterMode('learned')}
+            >
+              Đã học ({allVocabularies.filter(v => v.review).length})
+            </button>
+            <button 
+              className={`filter-btn ${filterMode === 'not-learned' ? 'active' : ''}`}
+              onClick={() => setFilterMode('not-learned')}
+            >
+              Chưa học ({allVocabularies.filter(v => !v.review).length})
+            </button>
+            <button 
               className={`filter-btn ${filterMode === 'with-memory' ? 'active' : ''}`}
               onClick={() => setFilterMode('with-memory')}
             >
@@ -917,13 +1072,108 @@ export const VocabularyMemoryScene: React.FC<VocabularyMemorySceneProps> = ({
               <div 
                 key={item.vocabulary.id}
                 className={`vocab-item ${item.memory ? 'has-memory' : ''}`}
-                onClick={() => setSelectedVocabulary(item)}
               >
-                <div className="vocab-main">
+                <div className="vocab-main" onClick={() => setSelectedVocabulary(item)}>
                   <span className="vocab-korean">{item.vocabulary.korean}</span>
                   <span className="vocab-vietnamese">{item.vocabulary.vietnamese}</span>
                 </div>
-                <div className="vocab-status">
+                
+                {/* FSRS Stats */}
+                <div className="vocab-fsrs-stats">
+                  {item.review ? (
+                    <>
+                      <span className="fsrs-stat" title="Stability">S: {item.review.stability?.toFixed(1) || '0'}</span>
+                      <span className="fsrs-stat" title="Difficulty">D: {item.review.difficulty?.toFixed(1) || '5'}</span>
+                    </>
+                  ) : (
+                    <span className="fsrs-new-badge">🆕 New</span>
+                  )}
+                </div>
+
+                {/* Direction Toggle */}
+                {item.review && (
+                  <div className="vocab-direction-toggle">
+                    <button
+                      className={`mini-toggle-btn ${(item.review.cardDirection || 'kr-vn') === 'kr-vn' ? 'active' : ''}`}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        // Update direction to kr-vn
+                        const updatedJournal = journal.map(dc => {
+                          if (dc.id === item.dailyChat.id && dc.reviewSchedule) {
+                            const newSchedule = dc.reviewSchedule.map(r => 
+                              r.vocabularyId === item.vocabulary.id 
+                                ? { ...r, cardDirection: 'kr-vn' as const }
+                                : r
+                            );
+                            return { ...dc, reviewSchedule: newSchedule };
+                          }
+                          return dc;
+                        });
+                        onUpdateJournal(updatedJournal);
+                      }}
+                      title="Hàn → Việt"
+                    >
+                      🇰🇷
+                    </button>
+                    <button
+                      className={`mini-toggle-btn ${item.review.cardDirection === 'vn-kr' ? 'active' : ''}`}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        // Update direction to vn-kr
+                        const updatedJournal = journal.map(dc => {
+                          if (dc.id === item.dailyChat.id && dc.reviewSchedule) {
+                            const newSchedule = dc.reviewSchedule.map(r => 
+                              r.vocabularyId === item.vocabulary.id 
+                                ? { ...r, cardDirection: 'vn-kr' as const }
+                                : r
+                            );
+                            return { ...dc, reviewSchedule: newSchedule };
+                          }
+                          return dc;
+                        });
+                        onUpdateJournal(updatedJournal);
+                      }}
+                      title="Việt → Hàn"
+                    >
+                      🇻🇳
+                    </button>
+                  </div>
+                )}
+
+                {/* Reset FSRS Button */}
+                {item.review && (
+                  <button
+                    className="vocab-reset-btn"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      if (window.confirm('Bạn có chắc muốn reset lại lịch ôn cho từ này?')) {
+                        const resetReview: VocabularyReview = {
+                          ...item.review!,
+                          stability: 0,
+                          difficulty: 5,
+                          currentIntervalDays: 1,
+                          nextReviewDate: new Date().toISOString(),
+                          lapses: 0
+                        };
+                        const updatedJournal = journal.map(dc => {
+                          if (dc.id === item.dailyChat.id && dc.reviewSchedule) {
+                            const newSchedule = dc.reviewSchedule.map(r => 
+                              r.vocabularyId === item.vocabulary.id ? resetReview : r
+                            );
+                            return { ...dc, reviewSchedule: newSchedule };
+                          }
+                          return dc;
+                        });
+                        onUpdateJournal(updatedJournal);
+                      }
+                    }}
+                    title="Reset lịch ôn"
+                  >
+                    🔄
+                  </button>
+                )}
+
+                <div className="vocab-status" onClick={() => setSelectedVocabulary(item)}>
                   {item.memory ? (
                     <span className="has-memory-badge">💭</span>
                   ) : (
@@ -1003,6 +1253,8 @@ export const VocabularyMemoryScene: React.FC<VocabularyMemorySceneProps> = ({
           setSearchWord(currentItem.vocabulary.korean);
           setShowSearchPopup(true);
         }}
+        onCardDirectionChange={handleCardDirectionChange}
+        onResetFSRS={handleResetFSRS}
         wordUsageCount={currentReviewWordUsageCount}
         currentIndex={currentReviewIndex}
         totalCount={reviewQueue.length}
@@ -1583,6 +1835,171 @@ export const VocabularyMemoryScene: React.FC<VocabularyMemorySceneProps> = ({
           border-style: solid;
         }
 
+        /* Direction toggle */
+        .direction-toggle {
+          display: flex;
+          justify-content: center;
+          gap: 8px;
+          margin-bottom: 8px;
+        }
+
+        .toggle-btn {
+          padding: 6px 12px;
+          border: 1px solid rgba(255, 255, 255, 0.2);
+          border-radius: 20px;
+          background: rgba(255, 255, 255, 0.05);
+          color: #888;
+          font-size: 14px;
+          cursor: pointer;
+          transition: all 0.2s;
+        }
+
+        .toggle-btn:hover {
+          background: rgba(255, 255, 255, 0.1);
+          color: #aaa;
+        }
+
+        .toggle-btn.active {
+          background: linear-gradient(135deg, #667eea, #764ba2);
+          border-color: #667eea;
+          color: #fff;
+        }
+
+        /* Korean word front (for kr-vn mode) */
+        .korean-word-front {
+          font-size: 36px;
+          color: #fff;
+          font-weight: bold;
+          margin-top: 8px;
+        }
+
+        /* Vietnamese word front (for vn-kr mode) */
+        .vietnamese-word-front {
+          font-size: 28px;
+          color: #4ade80;
+          font-weight: bold;
+          margin-top: 8px;
+        }
+
+        /* Answer input section */
+        .answer-input-section {
+          width: 100%;
+          padding: 16px;
+          background: rgba(102, 126, 234, 0.1);
+          border-radius: 12px;
+        }
+
+        .korean-input {
+          width: 100%;
+          padding: 14px 16px;
+          font-size: 24px;
+          text-align: center;
+          border: 2px solid rgba(102, 126, 234, 0.3);
+          border-radius: 12px;
+          background: rgba(255, 255, 255, 0.05);
+          color: #fff;
+          outline: none;
+          margin-top: 8px;
+          transition: border-color 0.2s;
+          box-sizing: border-box;
+        }
+
+        .korean-input:focus {
+          border-color: #667eea;
+        }
+
+        .korean-input::placeholder {
+          color: #666;
+        }
+
+        /* Korean word answer display */
+        .korean-word-answer {
+          font-size: 36px;
+          font-weight: bold;
+          margin-top: 8px;
+          padding: 12px;
+          border-radius: 12px;
+          text-align: center;
+        }
+
+        .korean-word-answer.correct {
+          color: #4ade80;
+          background: rgba(74, 222, 128, 0.1);
+        }
+
+        .korean-word-answer.incorrect {
+          color: #ef4444;
+          background: rgba(239, 68, 68, 0.1);
+        }
+
+        /* Vietnamese word answer display */
+        .vietnamese-word-answer {
+          font-size: 24px;
+          font-weight: bold;
+          margin-top: 8px;
+          padding: 12px;
+          border-radius: 12px;
+          text-align: center;
+        }
+
+        .vietnamese-word-answer.correct {
+          color: #4ade80;
+          background: rgba(74, 222, 128, 0.1);
+        }
+
+        .vietnamese-word-answer.incorrect {
+          color: #ef4444;
+          background: rgba(239, 68, 68, 0.1);
+        }
+
+        /* Vietnamese input */
+        .vietnamese-input {
+          width: 100%;
+          padding: 14px 16px;
+          font-size: 18px;
+          text-align: center;
+          border: 2px solid rgba(74, 222, 128, 0.3);
+          border-radius: 12px;
+          background: rgba(255, 255, 255, 0.05);
+          color: #fff;
+          outline: none;
+          margin-top: 8px;
+          transition: border-color 0.2s;
+          box-sizing: border-box;
+        }
+
+        .vietnamese-input:focus {
+          border-color: #4ade80;
+        }
+
+        .vietnamese-input::placeholder {
+          color: #666;
+        }
+
+        /* User answer result feedback */
+        .user-answer-result {
+          text-align: center;
+          padding: 10px;
+          border-radius: 8px;
+          margin-top: 12px;
+          font-size: 14px;
+        }
+
+        .user-answer-result.correct {
+          background: rgba(74, 222, 128, 0.2);
+          color: #4ade80;
+        }
+
+        .user-answer-result.incorrect {
+          background: rgba(239, 68, 68, 0.2);
+          color: #ef4444;
+        }
+
+        .user-answer-result .wrong-answer {
+          text-decoration: line-through;
+          opacity: 0.7;
+        }
+
         /* Answer section */
         .answer-section {
           width: 100%;
@@ -1711,19 +2128,21 @@ export const VocabularyMemoryScene: React.FC<VocabularyMemorySceneProps> = ({
 
         .filter-buttons {
           display: flex;
-          gap: 8px;
+          gap: 6px;
+          flex-wrap: wrap;
         }
 
         .filter-btn {
-          flex: 1;
-          padding: 8px 12px;
+          flex: 0 1 auto;
+          padding: 6px 10px;
           background: #16213e;
           border: 1px solid #0f3460;
           border-radius: 6px;
           color: #888;
-          font-size: 12px;
+          font-size: 11px;
           cursor: pointer;
           transition: all 0.2s;
+          white-space: nowrap;
         }
 
         .filter-btn:hover {
@@ -1798,6 +2217,82 @@ export const VocabularyMemoryScene: React.FC<VocabularyMemorySceneProps> = ({
           color: #666;
           border-radius: 50%;
           font-size: 16px;
+        }
+
+        /* FSRS Stats in Learn Tab */
+        .vocab-fsrs-stats {
+          display: flex;
+          flex-direction: column;
+          gap: 2px;
+          margin-left: 8px;
+          padding: 4px 8px;
+          background: rgba(102, 126, 234, 0.1);
+          border-radius: 6px;
+          min-width: 60px;
+        }
+
+        .fsrs-stat {
+          font-size: 11px;
+          color: #888;
+          font-family: monospace;
+        }
+
+        .fsrs-new-badge {
+          font-size: 12px;
+          color: #4ade80;
+          white-space: nowrap;
+        }
+
+        /* Direction Toggle in Learn Tab */
+        .vocab-direction-toggle {
+          display: flex;
+          gap: 4px;
+          margin-left: 8px;
+        }
+
+        .mini-toggle-btn {
+          width: 28px;
+          height: 28px;
+          border: 1px solid rgba(255, 255, 255, 0.2);
+          border-radius: 6px;
+          background: rgba(255, 255, 255, 0.05);
+          font-size: 14px;
+          cursor: pointer;
+          transition: all 0.2s;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+        }
+
+        .mini-toggle-btn:hover {
+          background: rgba(255, 255, 255, 0.1);
+        }
+
+        .mini-toggle-btn.active {
+          background: linear-gradient(135deg, #667eea, #764ba2);
+          border-color: #667eea;
+        }
+
+        /* Reset Button in Learn Tab */
+        .vocab-reset-btn {
+          width: 28px;
+          height: 28px;
+          border-radius: 6px;
+          background: rgba(239, 68, 68, 0.15);
+          border: 1px solid rgba(239, 68, 68, 0.3);
+          color: #ef4444;
+          font-size: 12px;
+          cursor: pointer;
+          transition: all 0.2s;
+          margin-left: 8px;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+        }
+
+        .vocab-reset-btn:hover {
+          background: rgba(239, 68, 68, 0.3);
+          transform: rotate(180deg);
         }
 
         .empty-state {

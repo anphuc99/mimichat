@@ -1,4 +1,4 @@
-import React, { useState, useCallback, useMemo } from 'react';
+import React, { useState, useCallback, useMemo, useEffect } from 'react';
 import type { VocabularyItem, VocabularyReview, VocabularyMemoryEntry, FSRSRating, FSRSSettings, DailyChat, Character, ChatJournal } from '../types';
 import { DEFAULT_FSRS_SETTINGS } from '../types';
 import { updateFSRSReview, calculateRetrievability } from '../utils/spacedRepetition';
@@ -25,6 +25,8 @@ interface VocabularyMemoryFlashcardProps {
   onGenerateAudio?: (text: string, tone: string, voiceName: string) => Promise<string | null>;
   onPlayAudio?: (audioData: string, characterName?: string) => void;
   onSearchWord?: () => void;
+  onCardDirectionChange?: (direction: 'kr-vn' | 'vn-kr') => void;
+  onResetFSRS?: (resetReview: VocabularyReview) => void;
   wordUsageCount?: number;
   currentIndex: number;
   totalCount: number;
@@ -46,6 +48,8 @@ export const VocabularyMemoryFlashcard: React.FC<VocabularyMemoryFlashcardProps>
   onGenerateAudio,
   onPlayAudio,
   onSearchWord,
+  onCardDirectionChange,
+  onResetFSRS,
   wordUsageCount = 0,
   currentIndex,
   totalCount
@@ -55,6 +59,22 @@ export const VocabularyMemoryFlashcard: React.FC<VocabularyMemoryFlashcardProps>
   const [showMemoryPopup, setShowMemoryPopup] = useState(false);
   const [selectedCharacterId, setSelectedCharacterId] = useState<string>('');
   const [isGeneratingAudio, setIsGeneratingAudio] = useState(false);
+  const [userAnswer, setUserAnswer] = useState('');
+  const [answerResult, setAnswerResult] = useState<'correct' | 'incorrect' | null>(null);
+  // Card direction: 'kr-vn' = Korean front, Vietnamese answer | 'vn-kr' = Vietnamese front, Korean answer
+  // Default to saved preference or 'kr-vn' if not set
+  const [cardDirection, setCardDirection] = useState<'kr-vn' | 'vn-kr'>(review.cardDirection || 'kr-vn');
+
+  // Sync cardDirection when switching to a different card
+  useEffect(() => {
+    setCardDirection(review.cardDirection || 'kr-vn');
+  }, [review.vocabularyId]);
+
+  // Handle direction change - save immediately
+  const handleDirectionChange = useCallback((newDirection: 'kr-vn' | 'vn-kr') => {
+    setCardDirection(newDirection);
+    onCardDirectionChange?.(newDirection);
+  }, [onCardDirectionChange]);
 
   // Convert memory format [MSG:id][IMG:url] to HTML
   const processedMemoryHtml = useMemo(() => {
@@ -176,21 +196,39 @@ export const VocabularyMemoryFlashcard: React.FC<VocabularyMemoryFlashcardProps>
 
   // Handle showing answer
   const handleShowAnswer = useCallback(() => {
+    // Check user's answer based on card direction
+    const normalizedUserAnswer = userAnswer.trim().toLowerCase();
+    const correctAnswer = cardDirection === 'vn-kr' ? vocabulary.korean : vocabulary.vietnamese;
+    const normalizedCorrectAnswer = correctAnswer.trim().toLowerCase();
+    const isCorrect = normalizedUserAnswer === normalizedCorrectAnswer;
+    setAnswerResult(isCorrect ? 'correct' : 'incorrect');
+    
     setIsAnimating(true);
     setTimeout(() => {
       setState('answer');
       setIsAnimating(false);
     }, 150);
-  }, []);
+  }, [userAnswer, vocabulary.korean, vocabulary.vietnamese, cardDirection]);
+
+  // Handle submit answer with Enter key
+  const handleKeyDown = useCallback((e: React.KeyboardEvent) => {
+    if (e.key === 'Enter' && userAnswer.trim()) {
+      handleShowAnswer();
+    }
+  }, [userAnswer, handleShowAnswer]);
 
   // Handle rating - use unified FSRS logic (same as ASK_VOCAB_DIFFICULTY)
   const handleRating = useCallback((rating: FSRSRating) => {
     const updatedReview = updateFSRSReview(review, rating, settings);
+    // Save card direction preference
+    updatedReview.cardDirection = cardDirection;
     onReviewComplete(updatedReview, rating);
     
     // Reset state for next card
     setState('word');
-  }, [review, settings, onReviewComplete]);
+    setUserAnswer('');
+    setAnswerResult(null);
+  }, [review, settings, onReviewComplete, cardDirection]);
 
   // Handle pronunciation
   const handlePronounce = useCallback(async () => {
@@ -264,6 +302,29 @@ export const VocabularyMemoryFlashcard: React.FC<VocabularyMemoryFlashcardProps>
 
       {/* Card */}
       <div className={`flashcard ${isAnimating ? 'animating' : ''}`}>
+        {/* Reset FSRS Button */}
+        {onResetFSRS && (
+          <button
+            className="reset-fsrs-btn"
+            onClick={() => {
+              if (window.confirm('Bạn có chắc muốn reset lại lịch ôn?')) {
+                const resetReview: VocabularyReview = {
+                  ...review,
+                  stability: 0,
+                  difficulty: 5,
+                  currentIntervalDays: 1,
+                  nextReviewDate: new Date().toISOString(),
+                  lapses: 0
+                };
+                onResetFSRS(resetReview);
+              }
+            }}
+            title="Reset lịch ôn"
+          >
+            🔄
+          </button>
+        )}
+
         {/* Retrievability Badge */}
         {review.stability !== undefined && review.stability > 0 && (
           <div 
@@ -279,47 +340,49 @@ export const VocabularyMemoryFlashcard: React.FC<VocabularyMemoryFlashcardProps>
 
         {/* Card Content */}
         <div className="card-content">
-          {/* Word - Always visible */}
-          <div className="word-section">
-            <div className="korean-word">{vocabulary.korean}</div>
-            
-            {/* Pronunciation controls */}
-            {onGenerateAudio && onPlayAudio && characters.length > 0 && (
-              <div className="pronunciation-controls">
-                <select
-                  className="character-select"
-                  value={selectedCharacterId}
-                  onChange={(e) => setSelectedCharacterId(e.target.value)}
-                >
-                  <option value="">Chọn giọng...</option>
-                  {characters.map(char => (
-                    <option key={char.id} value={char.id}>
-                      {char.name}
-                    </option>
-                  ))}
-                </select>
-                <button
-                  className="pronounce-btn"
-                  onClick={handlePronounce}
-                  disabled={isGeneratingAudio || !selectedCharacterId}
-                  title="Nghe phát âm"
-                >
-                  {isGeneratingAudio ? '⏳' : '🔊'}
-                </button>
-              </div>
-            )}
-            
-            {/* Search word in story button */}
-            {onSearchWord && (
-              <button
-                className="search-word-btn"
-                onClick={onSearchWord}
-                title={`Tìm "${vocabulary.korean}" trong story`}
-              >
-                🔍 Tìm trong story ({wordUsageCount})
-              </button>
-            )}
+          {/* Direction Toggle */}
+          <div className="direction-toggle">
+            <button
+              className={`toggle-btn ${cardDirection === 'kr-vn' ? 'active' : ''}`}
+              onClick={() => handleDirectionChange('kr-vn')}
+            >
+              🇰🇷→🇻🇳
+            </button>
+            <button
+              className={`toggle-btn ${cardDirection === 'vn-kr' ? 'active' : ''}`}
+              onClick={() => handleDirectionChange('vn-kr')}
+            >
+              🇻🇳→🇰🇷
+            </button>
           </div>
+
+          {/* Front of card - Question */}
+          <div className="word-section">
+            <div className="section-label">
+              {cardDirection === 'vn-kr' ? '📖 Nghĩa tiếng Việt:' : '🇰🇷 Từ tiếng Hàn:'}
+            </div>
+            <div className={cardDirection === 'vn-kr' ? 'vietnamese-word-front' : 'korean-word-front'}>
+              {cardDirection === 'vn-kr' ? vocabulary.vietnamese : vocabulary.korean}
+            </div>
+          </div>
+
+          {/* Answer Input - Visible in 'word' state */}
+          {state === 'word' && (
+            <div className="answer-input-section">
+              <div className="section-label">
+                {cardDirection === 'vn-kr' ? '✍️ Điền từ tiếng Hàn:' : '✍️ Điền nghĩa tiếng Việt:'}
+              </div>
+              <input
+                type="text"
+                className={cardDirection === 'vn-kr' ? 'korean-input' : 'vietnamese-input'}
+                value={userAnswer}
+                onChange={(e) => setUserAnswer(e.target.value)}
+                onKeyDown={handleKeyDown}
+                placeholder={cardDirection === 'vn-kr' ? 'Nhập từ tiếng Hàn...' : 'Nhập nghĩa tiếng Việt...'}
+                autoFocus
+              />
+            </div>
+          )}
 
           {/* Memory - Visible in 'memory' and 'answer' states */}
           {(state === 'memory' || state === 'answer') && (
@@ -356,11 +419,63 @@ export const VocabularyMemoryFlashcard: React.FC<VocabularyMemoryFlashcardProps>
             </div>
           )}
 
-          {/* Answer - Visible in 'answer' state */}
+          {/* Answer - Visible in 'answer' state (Back of card) */}
           {state === 'answer' && (
             <div className="answer-section">
-              <div className="section-label">📖 Nghĩa:</div>
-              <div className="vietnamese-word">{vocabulary.vietnamese}</div>
+              <div className="section-label">
+                {cardDirection === 'vn-kr' ? '🇰🇷 Đáp án tiếng Hàn:' : '📖 Đáp án tiếng Việt:'}
+              </div>
+              <div className={`${cardDirection === 'vn-kr' ? 'korean-word-answer' : 'vietnamese-word-answer'} ${answerResult === 'correct' ? 'correct' : 'incorrect'}`}>
+                {cardDirection === 'vn-kr' ? vocabulary.korean : vocabulary.vietnamese}
+              </div>
+              
+              {/* Show user's answer comparison */}
+              {userAnswer && (
+                <div className={`user-answer-result ${answerResult}`}>
+                  {answerResult === 'correct' ? (
+                    <span>✅ Chính xác! Bạn đã nhập: {userAnswer}</span>
+                  ) : (
+                    <span>❌ Bạn đã nhập: <span className="wrong-answer">{userAnswer}</span></span>
+                  )}
+                </div>
+              )}
+              
+              {/* Pronunciation controls */}
+              {onGenerateAudio && onPlayAudio && characters.length > 0 && (
+                <div className="pronunciation-controls">
+                  <select
+                    className="character-select"
+                    value={selectedCharacterId}
+                    onChange={(e) => setSelectedCharacterId(e.target.value)}
+                  >
+                    <option value="">Chọn giọng...</option>
+                    {characters.map(char => (
+                      <option key={char.id} value={char.id}>
+                        {char.name}
+                      </option>
+                    ))}
+                  </select>
+                  <button
+                    className="pronounce-btn"
+                    onClick={handlePronounce}
+                    disabled={isGeneratingAudio || !selectedCharacterId}
+                    title="Nghe phát âm"
+                  >
+                    {isGeneratingAudio ? '⏳' : '🔊'}
+                  </button>
+                </div>
+              )}
+              
+              {/* Search word in story button */}
+              {onSearchWord && (
+                <button
+                  className="search-word-btn"
+                  onClick={onSearchWord}
+                  title={`Tìm "${vocabulary.korean}" trong story`}
+                >
+                  🔍 Tìm trong story ({wordUsageCount})
+                </button>
+              )}
             </div>
           )}
         </div>
@@ -379,7 +494,7 @@ export const VocabularyMemoryFlashcard: React.FC<VocabularyMemoryFlashcardProps>
                 className="action-btn answer-btn"
                 onClick={handleShowAnswer}
               >
-                👁️ Xem đáp án
+                ✅ Kiểm tra đáp án
               </button>
             </>
           )}
@@ -512,6 +627,30 @@ export const VocabularyMemoryFlashcard: React.FC<VocabularyMemoryFlashcardProps>
           opacity: 0.8;
         }
 
+        .reset-fsrs-btn {
+          position: absolute;
+          top: 8px;
+          right: 8px;
+          width: 28px;
+          height: 28px;
+          border-radius: 50%;
+          background: rgba(239, 68, 68, 0.2);
+          border: 1px solid rgba(239, 68, 68, 0.4);
+          color: #ef4444;
+          font-size: 14px;
+          cursor: pointer;
+          transition: all 0.2s;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          z-index: 10;
+        }
+
+        .reset-fsrs-btn:hover {
+          background: rgba(239, 68, 68, 0.4);
+          transform: rotate(180deg);
+        }
+
         .retrievability-badge {
           position: absolute;
           top: -12px;
@@ -542,6 +681,35 @@ export const VocabularyMemoryFlashcard: React.FC<VocabularyMemoryFlashcardProps>
           gap: 16px;
         }
 
+        .direction-toggle {
+          display: flex;
+          justify-content: center;
+          gap: 8px;
+          margin-bottom: 8px;
+        }
+
+        .toggle-btn {
+          padding: 6px 12px;
+          border: 1px solid rgba(255, 255, 255, 0.2);
+          border-radius: 20px;
+          background: rgba(255, 255, 255, 0.05);
+          color: #888;
+          font-size: 14px;
+          cursor: pointer;
+          transition: all 0.2s;
+        }
+
+        .toggle-btn:hover {
+          background: rgba(255, 255, 255, 0.1);
+          color: #aaa;
+        }
+
+        .toggle-btn.active {
+          background: linear-gradient(135deg, #667eea, #764ba2);
+          border-color: #667eea;
+          color: #fff;
+        }
+
         .word-section {
           text-align: center;
           padding: 16px 0;
@@ -551,6 +719,131 @@ export const VocabularyMemoryFlashcard: React.FC<VocabularyMemoryFlashcardProps>
           font-size: 42px;
           color: #fff;
           font-weight: bold;
+        }
+
+        .korean-word-front {
+          font-size: 36px;
+          color: #fff;
+          font-weight: bold;
+          margin-top: 8px;
+        }
+
+        .vietnamese-word-front {
+          font-size: 28px;
+          color: #4ade80;
+          font-weight: bold;
+          margin-top: 8px;
+        }
+
+        .answer-input-section {
+          padding: 16px;
+          background: rgba(102, 126, 234, 0.1);
+          border-radius: 12px;
+        }
+
+        .korean-input {
+          width: 100%;
+          padding: 14px 16px;
+          font-size: 24px;
+          text-align: center;
+          border: 2px solid rgba(102, 126, 234, 0.3);
+          border-radius: 12px;
+          background: rgba(255, 255, 255, 0.05);
+          color: #fff;
+          outline: none;
+          margin-top: 8px;
+          transition: border-color 0.2s;
+        }
+
+        .korean-input:focus {
+          border-color: #667eea;
+        }
+
+        .korean-input::placeholder {
+          color: #666;
+        }
+
+        .vietnamese-input {
+          width: 100%;
+          padding: 14px 16px;
+          font-size: 18px;
+          text-align: center;
+          border: 2px solid rgba(74, 222, 128, 0.3);
+          border-radius: 12px;
+          background: rgba(255, 255, 255, 0.05);
+          color: #fff;
+          outline: none;
+          margin-top: 8px;
+          transition: border-color 0.2s;
+        }
+
+        .vietnamese-input:focus {
+          border-color: #4ade80;
+        }
+
+        .vietnamese-input::placeholder {
+          color: #666;
+        }
+
+        .korean-word-answer {
+          font-size: 36px;
+          font-weight: bold;
+          margin-top: 8px;
+          padding: 12px;
+          border-radius: 12px;
+          text-align: center;
+        }
+
+        .korean-word-answer.correct {
+          color: #4ade80;
+          background: rgba(74, 222, 128, 0.1);
+        }
+
+        .korean-word-answer.incorrect {
+          color: #ef4444;
+          background: rgba(239, 68, 68, 0.1);
+        }
+
+        .vietnamese-word-answer {
+          font-size: 24px;
+          font-weight: bold;
+          margin-top: 8px;
+          padding: 12px;
+          border-radius: 12px;
+          text-align: center;
+        }
+
+        .vietnamese-word-answer.correct {
+          color: #4ade80;
+          background: rgba(74, 222, 128, 0.1);
+        }
+
+        .vietnamese-word-answer.incorrect {
+          color: #ef4444;
+          background: rgba(239, 68, 68, 0.1);
+        }
+
+        .user-answer-result {
+          text-align: center;
+          padding: 10px;
+          border-radius: 8px;
+          margin-top: 12px;
+          font-size: 14px;
+        }
+
+        .user-answer-result.correct {
+          background: rgba(74, 222, 128, 0.2);
+          color: #4ade80;
+        }
+
+        .user-answer-result.incorrect {
+          background: rgba(239, 68, 68, 0.2);
+          color: #ef4444;
+        }
+
+        .user-answer-result .wrong-answer {
+          text-decoration: line-through;
+          opacity: 0.7;
         }
 
         .pronunciation-controls {

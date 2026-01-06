@@ -100,6 +100,8 @@ export interface VocabularyReview {
   stability?: number; // S: Days until R drops to 90%. Higher = better retention
   difficulty?: number; // D: [1, 10]. Higher = harder to remember
   lapses?: number; // Number of times rated "Again"
+  // Card direction preference: 'kr-vn' = Korean→Vietnamese, 'vn-kr' = Vietnamese→Korean
+  cardDirection?: 'kr-vn' | 'vn-kr';
 }
 
 export interface VocabularyProgress {
