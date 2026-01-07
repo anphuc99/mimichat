@@ -331,7 +331,7 @@ export const VocabularyMemoryScene: React.FC<VocabularyMemorySceneProps> = ({
           <input
             type="range"
             min="0"
-            max="50"
+            max="500"
             value={tempSettings.newCardsPerDay || 20}
             onChange={(e) => setTempSettings(prev => ({
               ...prev,
@@ -419,6 +419,27 @@ export const VocabularyMemoryScene: React.FC<VocabularyMemorySceneProps> = ({
     }
   }, [activeTab, newVocabularies, newWordsQueue.length, fsrsSettings.newCardsPerDay]);
 
+  // Handle audio button clicks in memory HTML
+  const handleNewWordMemoryClick = useCallback((e: React.MouseEvent) => {
+    const target = e.target as HTMLElement;
+    if (target.classList.contains('memory-audio-btn')) {
+      e.preventDefault();
+      e.stopPropagation();
+      const msgId = target.getAttribute('data-msg-id');
+      const characterName = target.getAttribute('data-character');
+      if (msgId && onPlayAudio) {
+        // Find message from entire journal
+        for (const dc of journal) {
+          const msg = dc.messages.find(m => m.id === msgId);
+          if (msg?.audioData) {
+            onPlayAudio(msg.audioData, characterName || undefined);
+            break;
+          }
+        }
+      }
+    }
+  }, [onPlayAudio, journal]);
+
   // Process memory HTML for current new word - same as VocabularyMemoryFlashcard
   const newWordProcessedMemoryHtml = useMemo(() => {
     if (newWordsQueue.length === 0 || currentNewWordIndex >= newWordsQueue.length) return '';
@@ -429,14 +450,15 @@ export const VocabularyMemoryScene: React.FC<VocabularyMemorySceneProps> = ({
     let html = '';
     const userMemory = currentItem.memory.userMemory;
     
-    // Build message lookup map from dailyChat
-    const messagesMap = new Map<string, { text: string; characterName: string; date: string }>();
-    if (currentItem.dailyChat) {
-      for (const msg of currentItem.dailyChat.messages) {
+    // Build message lookup map from entire journal (not just currentItem.dailyChat)
+    const messagesMap = new Map<string, { text: string; characterName: string; date: string; audioData?: string }>();
+    for (const dc of journal) {
+      for (const msg of dc.messages) {
         messagesMap.set(msg.id, {
           text: msg.text,
           characterName: msg.sender === 'user' ? 'Bạn' : (msg.characterName || 'Bot'),
-          date: currentItem.dailyChat.date
+          date: dc.date,
+          audioData: msg.audioData
         });
       }
     }
@@ -461,11 +483,15 @@ export const VocabularyMemoryScene: React.FC<VocabularyMemorySceneProps> = ({
       if (type === 'MSG') {
         const linkedMsg = messagesMap.get(value);
         if (linkedMsg) {
+          const audioButton = linkedMsg.audioData 
+            ? `<button class="memory-audio-btn" data-msg-id="${value}" data-character="${escapeHtml(linkedMsg.characterName)}" title="Phát âm thanh">🔊</button>`
+            : '';
           html += `
             <div class="message-block">
               <div class="message-block-header">
                 <span class="character-badge">👤 ${escapeHtml(linkedMsg.characterName)}</span>
                 <span class="date-badge">📅 ${escapeHtml(linkedMsg.date)}</span>
+                ${audioButton}
               </div>
               <div class="message-text">${escapeHtml(linkedMsg.text)}</div>
             </div>
@@ -494,7 +520,7 @@ export const VocabularyMemoryScene: React.FC<VocabularyMemorySceneProps> = ({
     }
 
     return html || '<p class="empty-memory">Chưa có nội dung</p>';
-  }, [newWordsQueue, currentNewWordIndex]);
+  }, [newWordsQueue, currentNewWordIndex, journal]);
 
   // Search for word usage in entire journal - unified for both tabs
   const searchWordUsageResults = useMemo(() => {
@@ -794,6 +820,7 @@ export const VocabularyMemoryScene: React.FC<VocabularyMemorySceneProps> = ({
                     </div>
                     <div 
                       className="memory-text memory-preview"
+                      onClick={handleNewWordMemoryClick}
                       dangerouslySetInnerHTML={{ __html: newWordProcessedMemoryHtml }}
                     />
                   </>
@@ -989,6 +1016,7 @@ export const VocabularyMemoryScene: React.FC<VocabularyMemorySceneProps> = ({
               <div className="memory-popup-content">
                 <div 
                   className="memory-full-content"
+                  onClick={handleNewWordMemoryClick}
                   dangerouslySetInnerHTML={{ __html: newWordProcessedMemoryHtml }}
                 />
               </div>
@@ -2497,12 +2525,28 @@ export const VocabularyMemoryScene: React.FC<VocabularyMemorySceneProps> = ({
           display: flex;
           gap: 12px;
           margin-bottom: 8px;
+          align-items: center;
         }
 
         .memory-full-content .character-badge,
         .memory-full-content .date-badge {
           font-size: 12px;
           color: #888;
+        }
+
+        .memory-full-content .memory-audio-btn {
+          background: rgba(102, 126, 234, 0.3);
+          border: none;
+          border-radius: 4px;
+          padding: 2px 6px;
+          font-size: 12px;
+          cursor: pointer;
+          margin-left: auto;
+          transition: background 0.2s;
+        }
+
+        .memory-full-content .memory-audio-btn:hover {
+          background: rgba(102, 126, 234, 0.5);
         }
 
         .memory-full-content .message-text {
@@ -2713,12 +2757,28 @@ export const VocabularyMemoryScene: React.FC<VocabularyMemorySceneProps> = ({
           display: flex;
           gap: 10px;
           margin-bottom: 6px;
+          align-items: center;
         }
 
         .message-block .character-badge,
         .message-block .date-badge {
           font-size: 11px;
           color: #888;
+        }
+
+        .memory-audio-btn {
+          background: rgba(102, 126, 234, 0.3);
+          border: none;
+          border-radius: 4px;
+          padding: 2px 6px;
+          font-size: 12px;
+          cursor: pointer;
+          margin-left: auto;
+          transition: background 0.2s;
+        }
+
+        .memory-audio-btn:hover {
+          background: rgba(102, 126, 234, 0.5);
         }
 
         .message-block .message-text {

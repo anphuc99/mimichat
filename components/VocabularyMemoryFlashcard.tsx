@@ -70,6 +70,27 @@ export const VocabularyMemoryFlashcard: React.FC<VocabularyMemoryFlashcardProps>
     setCardDirection(review.cardDirection || 'kr-vn');
   }, [review.vocabularyId]);
 
+  // Handle audio button clicks in memory HTML
+  const handleMemoryClick = useCallback((e: React.MouseEvent) => {
+    const target = e.target as HTMLElement;
+    if (target.classList.contains('memory-audio-btn')) {
+      e.preventDefault();
+      e.stopPropagation();
+      const msgId = target.getAttribute('data-msg-id');
+      const characterName = target.getAttribute('data-character');
+      if (msgId && onPlayAudio) {
+        // Find message from entire journal
+        for (const dc of journal) {
+          const msg = dc.messages.find(m => m.id === msgId);
+          if (msg?.audioData) {
+            onPlayAudio(msg.audioData, characterName || undefined);
+            break;
+          }
+        }
+      }
+    }
+  }, [journal, onPlayAudio]);
+
   // Handle direction change - save immediately
   const handleDirectionChange = useCallback((newDirection: 'kr-vn' | 'vn-kr') => {
     setCardDirection(newDirection);
@@ -84,14 +105,15 @@ export const VocabularyMemoryFlashcard: React.FC<VocabularyMemoryFlashcardProps>
     let html = '';
     const userMemory = memory.userMemory;
     
-    // Build message lookup map from dailyChat
-    const messagesMap = new Map<string, { text: string; characterName: string; date: string }>();
-    if (dailyChat) {
-      for (const msg of dailyChat.messages) {
+    // Build message lookup map from entire journal (not just dailyChat)
+    const messagesMap = new Map<string, { text: string; characterName: string; date: string; audioData?: string }>();
+    for (const dc of journal) {
+      for (const msg of dc.messages) {
         messagesMap.set(msg.id, {
           text: msg.text,
           characterName: msg.sender === 'user' ? 'Bạn' : (msg.characterName || 'Bot'),
-          date: dailyChat.date
+          date: dc.date,
+          audioData: msg.audioData
         });
       }
     }
@@ -116,11 +138,15 @@ export const VocabularyMemoryFlashcard: React.FC<VocabularyMemoryFlashcardProps>
       if (type === 'MSG') {
         const linkedMsg = messagesMap.get(value);
         if (linkedMsg) {
+          const audioButton = linkedMsg.audioData 
+            ? `<button class="memory-audio-btn" data-msg-id="${value}" data-character="${escapeHtml(linkedMsg.characterName)}" title="Phát âm thanh">🔊</button>`
+            : '';
           html += `
             <div class="message-block">
               <div class="message-block-header">
                 <span class="character-badge">👤 ${escapeHtml(linkedMsg.characterName)}</span>
                 <span class="date-badge">📅 ${escapeHtml(linkedMsg.date)}</span>
+                ${audioButton}
               </div>
               <div class="message-text">${escapeHtml(linkedMsg.text)}</div>
             </div>
@@ -150,7 +176,7 @@ export const VocabularyMemoryFlashcard: React.FC<VocabularyMemoryFlashcardProps>
     }
 
     return html || '<p class="empty-memory">Chưa có nội dung</p>';
-  }, [memory?.userMemory, dailyChat]);
+  }, [memory?.userMemory, journal]);
 
   // Calculate current retrievability for display
   const getRetrievabilityInfo = useCallback(() => {
@@ -401,6 +427,7 @@ export const VocabularyMemoryFlashcard: React.FC<VocabularyMemoryFlashcardProps>
                   </div>
                   <div 
                     className="memory-text memory-preview"
+                    onClick={handleMemoryClick}
                     dangerouslySetInnerHTML={{ __html: processedMemoryHtml }}
                   />
                 </>
@@ -566,6 +593,7 @@ export const VocabularyMemoryFlashcard: React.FC<VocabularyMemoryFlashcardProps>
             <div className="memory-popup-content">
               <div 
                 className="memory-full-content"
+                onClick={handleMemoryClick}
                 dangerouslySetInnerHTML={{ __html: processedMemoryHtml }}
               />
             </div>
@@ -991,6 +1019,30 @@ export const VocabularyMemoryFlashcard: React.FC<VocabularyMemoryFlashcardProps>
         .memory-full-content .message-block .message-text {
           margin-top: 8px;
           color: #ccc;
+        }
+
+        .memory-text .message-block .message-block-header,
+        .memory-full-content .message-block .message-block-header {
+          display: flex;
+          align-items: center;
+          gap: 8px;
+          flex-wrap: wrap;
+        }
+
+        .memory-audio-btn {
+          background: rgba(102, 126, 234, 0.3);
+          border: 1px solid #667eea;
+          border-radius: 6px;
+          padding: 4px 8px;
+          font-size: 14px;
+          cursor: pointer;
+          transition: all 0.2s;
+          margin-left: auto;
+        }
+
+        .memory-audio-btn:hover {
+          background: rgba(102, 126, 234, 0.5);
+          transform: scale(1.1);
         }
 
         /* Memory Popup Modal */
