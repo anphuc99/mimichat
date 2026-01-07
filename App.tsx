@@ -132,6 +132,9 @@ const App: React.FC = () => {
   // AI Search state - for story research
   const [isAISearching, setIsAISearching] = useState(false);
 
+  // Listening practice mode - hide all text to practice listening
+  const [isListeningMode, setIsListeningMode] = useState(false);
+
   // FSRS settings state - for vocabulary memory system
   const [fsrsSettings, setFsrsSettings] = useState<FSRSSettings>(() => {
     // Try to load from localStorage
@@ -2923,6 +2926,8 @@ const App: React.FC = () => {
             onRegenerateImage={handleRegenerateImage}
             onDeleteMessage={handleDeleteMessage}
             characters={characters}
+            isListeningMode={isListeningMode}
+            onToggleListeningMode={() => setIsListeningMode(!isListeningMode)}
           />
           <div className="p-2 bg-white border-t border-gray-200 relative">
             <div className="flex items-center space-x-2 justify-center">

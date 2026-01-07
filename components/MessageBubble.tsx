@@ -82,6 +82,7 @@ interface MessageBubbleProps {
   onRegenerateImage?: (messageId: string) => Promise<void>;
   onDeleteMessage?: (messageId: string) => void;
   avatarUrl?: string;
+  isListeningMode?: boolean;
 }
 
 export const MessageBubble: React.FC<MessageBubbleProps> = ({ 
@@ -101,6 +102,7 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({
     onRegenerateImage,
     onDeleteMessage,
     avatarUrl,
+    isListeningMode = false,
 }) => {
   const isUser = message.sender === 'user';
   const mimiAvatarUrl = avatar
@@ -120,6 +122,7 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({
   const [isSaving, setIsSaving] = useState(false);
   const [isRegeneratingTone, setIsRegeneratingTone] = useState(false);
   const [isRegeneratingImage, setIsRegeneratingImage] = useState(false);
+  const [isTextRevealed, setIsTextRevealed] = useState(false);
 
   const isEditing = editingMessageId === message.id;
   
@@ -529,10 +532,25 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({
                   )}
                 </div>
               )}
-              <p 
-                className="whitespace-pre-wrap"
-                dangerouslySetInnerHTML={{ __html: renderBoldText(message.text) }}
-              />
+              {/* Text content with listening mode support */}
+              {isListeningMode && !isTextRevealed ? (
+                <button
+                  onClick={() => setIsTextRevealed(true)}
+                  className="w-full text-left py-2 px-3 bg-gray-300 hover:bg-gray-400 rounded-lg transition-colors cursor-pointer"
+                >
+                  <div className="flex items-center gap-2 text-gray-600">
+                    <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M13.875 18.825A10.05 10.05 0 0112 19c-4.478 0-8.268-2.943-9.543-7a9.97 9.97 0 011.563-3.029m5.858.908a3 3 0 114.243 4.243M9.878 9.878l4.242 4.242M9.88 9.88l-3.29-3.29m7.532 7.532l3.29 3.29M3 3l3.59 3.59m0 0A9.953 9.953 0 0112 5c4.478 0 8.268 2.943 9.543 7a10.025 10.025 0 01-4.132 5.411m0 0L21 21" />
+                    </svg>
+                    <span className="text-sm font-medium">Nhấn để hiện chữ</span>
+                  </div>
+                </button>
+              ) : (
+                <p 
+                  className="whitespace-pre-wrap"
+                  dangerouslySetInnerHTML={{ __html: renderBoldText(message.text) }}
+                />
+              )}
               {isExpanded && !message.isError && (
                 <div className="mt-3 pt-3 border-t border-gray-500/20 text-left">
                   {isWaitingTranslation ? (
