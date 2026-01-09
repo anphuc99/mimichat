@@ -68,6 +68,12 @@ export const VocabularyMemoryScene: React.FC<VocabularyMemorySceneProps> = ({
     memory?: VocabularyMemoryEntry;
   } | null>(null);
   const [filterText, setFilterText] = useState('');
+  const [editingVocab, setEditingVocab] = useState<{
+    vocabulary: VocabularyItem;
+    dailyChatId: string;
+    korean: string;
+    vietnamese: string;
+  } | null>(null);
   const [filterMode, setFilterMode] = useState<'all' | 'with-memory' | 'without-memory' | 'learned' | 'not-learned'>('all');
   
   // Review tab state
@@ -313,6 +319,69 @@ export const VocabularyMemoryScene: React.FC<VocabularyMemorySceneProps> = ({
       setIsReviewComplete(false);
     }
   }, [journal, fsrsSettings]);
+
+  // Handle delete vocabulary
+  const handleDeleteVocabulary = useCallback((vocabularyId: string, dailyChatId: string) => {
+    if (!window.confirm('Bạn có chắc muốn xóa từ vựng này? Hành động này không thể hoàn tác.')) {
+      return;
+    }
+
+    const updatedJournal = journal.map(dc => {
+      if (dc.id === dailyChatId) {
+        return {
+          ...dc,
+          // Remove from vocabularies
+          vocabularies: dc.vocabularies?.filter(v => v.id !== vocabularyId) || [],
+          // Remove from review schedule
+          reviewSchedule: dc.reviewSchedule?.filter(r => r.vocabularyId !== vocabularyId) || [],
+          // Remove from vocabulary memories
+          vocabularyMemories: dc.vocabularyMemories?.filter(m => m.vocabularyId !== vocabularyId) || []
+        };
+      }
+      return dc;
+    });
+
+    onUpdateJournal(updatedJournal);
+  }, [journal, onUpdateJournal]);
+
+  // Handle edit vocabulary
+  const handleEditVocabulary = useCallback((vocabulary: VocabularyItem, dailyChatId: string) => {
+    setEditingVocab({
+      vocabulary,
+      dailyChatId,
+      korean: vocabulary.korean,
+      vietnamese: vocabulary.vietnamese
+    });
+  }, []);
+
+  // Handle save edited vocabulary
+  const handleSaveEditedVocabulary = useCallback(() => {
+    if (!editingVocab) return;
+    
+    const { vocabulary, dailyChatId, korean, vietnamese } = editingVocab;
+    
+    if (!korean.trim() || !vietnamese.trim()) {
+      alert('Vui lòng nhập đầy đủ từ vựng và nghĩa.');
+      return;
+    }
+
+    const updatedJournal = journal.map(dc => {
+      if (dc.id === dailyChatId) {
+        return {
+          ...dc,
+          vocabularies: dc.vocabularies?.map(v => 
+            v.id === vocabulary.id 
+              ? { ...v, korean: korean.trim(), vietnamese: vietnamese.trim() }
+              : v
+          ) || []
+        };
+      }
+      return dc;
+    });
+
+    onUpdateJournal(updatedJournal);
+    setEditingVocab(null);
+  }, [editingVocab, journal, onUpdateJournal]);
 
   // Handle save settings
   const handleSaveSettings = useCallback(() => {
@@ -1201,6 +1270,30 @@ export const VocabularyMemoryScene: React.FC<VocabularyMemorySceneProps> = ({
                   </button>
                 )}
 
+                {/* Edit Vocabulary Button */}
+                <button
+                  className="vocab-edit-btn"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    handleEditVocabulary(item.vocabulary, item.dailyChat.id);
+                  }}
+                  title="Sửa từ vựng"
+                >
+                  ✏️
+                </button>
+
+                {/* Delete Vocabulary Button */}
+                <button
+                  className="vocab-delete-btn"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    handleDeleteVocabulary(item.vocabulary.id, item.dailyChat.id);
+                  }}
+                  title="Xóa từ vựng"
+                >
+                  🗑️
+                </button>
+
                 <div className="vocab-status" onClick={() => setSelectedVocabulary(item)}>
                   {item.memory ? (
                     <span className="has-memory-badge">💭</span>
@@ -1434,6 +1527,48 @@ export const VocabularyMemoryScene: React.FC<VocabularyMemorySceneProps> = ({
                   })}
                 </div>
               )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Edit Vocabulary Modal */}
+      {editingVocab && (
+        <div className="edit-vocab-modal-overlay" onClick={() => setEditingVocab(null)}>
+          <div className="edit-vocab-modal" onClick={e => e.stopPropagation()}>
+            <div className="edit-vocab-header">
+              <h3>✏️ Sửa từ vựng</h3>
+              <button className="popup-close-btn" onClick={() => setEditingVocab(null)}>✕</button>
+            </div>
+            <div className="edit-vocab-content">
+              <div className="edit-vocab-field">
+                <label>Tiếng Hàn:</label>
+                <input
+                  type="text"
+                  value={editingVocab.korean}
+                  onChange={(e) => setEditingVocab(prev => prev ? { ...prev, korean: e.target.value } : null)}
+                  placeholder="Nhập từ tiếng Hàn..."
+                  autoFocus
+                />
+              </div>
+              <div className="edit-vocab-field">
+                <label>Nghĩa tiếng Việt:</label>
+                <input
+                  type="text"
+                  value={editingVocab.vietnamese}
+                  onChange={(e) => setEditingVocab(prev => prev ? { ...prev, vietnamese: e.target.value } : null)}
+                  placeholder="Nhập nghĩa tiếng Việt..."
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') {
+                      handleSaveEditedVocabulary();
+                    }
+                  }}
+                />
+              </div>
+            </div>
+            <div className="edit-vocab-actions">
+              <button className="cancel-btn" onClick={() => setEditingVocab(null)}>Hủy</button>
+              <button className="save-btn" onClick={handleSaveEditedVocabulary}>Lưu</button>
             </div>
           </div>
         </div>
@@ -2321,6 +2456,183 @@ export const VocabularyMemoryScene: React.FC<VocabularyMemorySceneProps> = ({
         .vocab-reset-btn:hover {
           background: rgba(239, 68, 68, 0.3);
           transform: rotate(180deg);
+        }
+
+        /* Edit Button in Learn Tab */
+        .vocab-edit-btn {
+          width: 28px;
+          height: 28px;
+          border-radius: 6px;
+          background: rgba(59, 130, 246, 0.1);
+          border: 1px solid rgba(59, 130, 246, 0.2);
+          color: #3b82f6;
+          font-size: 12px;
+          cursor: pointer;
+          transition: all 0.2s;
+          margin-left: 4px;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          opacity: 0.6;
+        }
+
+        .vocab-edit-btn:hover {
+          background: rgba(59, 130, 246, 0.25);
+          border-color: rgba(59, 130, 246, 0.4);
+          opacity: 1;
+          transform: scale(1.1);
+        }
+
+        .vocab-item:hover .vocab-edit-btn {
+          opacity: 1;
+        }
+
+        /* Delete Button in Learn Tab */
+        .vocab-delete-btn {
+          width: 28px;
+          height: 28px;
+          border-radius: 6px;
+          background: rgba(220, 38, 38, 0.1);
+          border: 1px solid rgba(220, 38, 38, 0.2);
+          color: #dc2626;
+          font-size: 12px;
+          cursor: pointer;
+          transition: all 0.2s;
+          margin-left: 4px;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          opacity: 0.6;
+        }
+
+        .vocab-delete-btn:hover {
+          background: rgba(220, 38, 38, 0.25);
+          border-color: rgba(220, 38, 38, 0.4);
+          opacity: 1;
+          transform: scale(1.1);
+        }
+
+        .vocab-item:hover .vocab-delete-btn {
+          opacity: 1;
+        }
+
+        /* Edit Vocabulary Modal */
+        .edit-vocab-modal-overlay {
+          position: fixed;
+          top: 0;
+          left: 0;
+          right: 0;
+          bottom: 0;
+          background: rgba(0, 0, 0, 0.7);
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          z-index: 1000;
+          padding: 20px;
+        }
+
+        .edit-vocab-modal {
+          background: linear-gradient(135deg, #1e1e3f, #2d2d5a);
+          border-radius: 16px;
+          width: 100%;
+          max-width: 400px;
+          border: 1px solid rgba(255, 255, 255, 0.1);
+          box-shadow: 0 20px 40px rgba(0, 0, 0, 0.4);
+        }
+
+        .edit-vocab-header {
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          padding: 16px 20px;
+          border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+        }
+
+        .edit-vocab-header h3 {
+          margin: 0;
+          color: #fff;
+          font-size: 18px;
+        }
+
+        .edit-vocab-content {
+          padding: 20px;
+        }
+
+        .edit-vocab-field {
+          margin-bottom: 16px;
+        }
+
+        .edit-vocab-field:last-child {
+          margin-bottom: 0;
+        }
+
+        .edit-vocab-field label {
+          display: block;
+          color: rgba(255, 255, 255, 0.7);
+          font-size: 13px;
+          margin-bottom: 6px;
+        }
+
+        .edit-vocab-field input {
+          width: 100%;
+          padding: 12px 14px;
+          background: rgba(255, 255, 255, 0.1);
+          border: 1px solid rgba(255, 255, 255, 0.2);
+          border-radius: 8px;
+          color: #fff;
+          font-size: 16px;
+          outline: none;
+          transition: all 0.2s;
+          box-sizing: border-box;
+        }
+
+        .edit-vocab-field input:focus {
+          border-color: #667eea;
+          background: rgba(255, 255, 255, 0.15);
+        }
+
+        .edit-vocab-field input::placeholder {
+          color: rgba(255, 255, 255, 0.4);
+        }
+
+        .edit-vocab-actions {
+          display: flex;
+          gap: 12px;
+          padding: 16px 20px;
+          border-top: 1px solid rgba(255, 255, 255, 0.1);
+          justify-content: flex-end;
+        }
+
+        .edit-vocab-actions .cancel-btn {
+          padding: 10px 20px;
+          border-radius: 8px;
+          background: rgba(255, 255, 255, 0.1);
+          border: 1px solid rgba(255, 255, 255, 0.2);
+          color: rgba(255, 255, 255, 0.8);
+          font-size: 14px;
+          cursor: pointer;
+          transition: all 0.2s;
+        }
+
+        .edit-vocab-actions .cancel-btn:hover {
+          background: rgba(255, 255, 255, 0.2);
+        }
+
+        .edit-vocab-actions .save-btn {
+          padding: 10px 24px;
+          border-radius: 8px;
+          background: linear-gradient(135deg, #667eea, #764ba2);
+          border: none;
+          color: #fff;
+          font-size: 14px;
+          font-weight: 600;
+          cursor: pointer;
+          transition: all 0.2s;
+        }
+
+        .edit-vocab-actions .save-btn:hover {
+          transform: translateY(-1px);
+          box-shadow: 0 4px 12px rgba(102, 126, 234, 0.4);
         }
 
         .empty-state {

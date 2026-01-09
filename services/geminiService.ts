@@ -109,6 +109,8 @@ Hãy cố gắng sử dụng ít nhất một số từ này một cách tự nh
 - **ĐỊNH DẠNG IN ĐẬM**: Khi sử dụng bất kỳ từ vựng nào trong "Text", bọc chúng bằng **dấu sao** như **từ**
 - **IN ĐẬM PHẦN DỊCH**: Trong trường "Translation", cũng bọc bản dịch tiếng Việt của các từ vựng đó bằng **dấu sao**
 - Ví dụ: Nếu từ vựng là "사랑", Text: "나는 **사랑**해요", Translation: "Tôi **yêu** bạn"
+- Các từ vựng đôi khi là góc từ hãy cứ chia động từ hoặc tính từ nếu cần thiết để sử dụng trong ngữ cảnh.
+- ví dụ: từ 귀엽다 có thể chia thành 귀여워요, 귀엽지 않아요, 귀엽게, v.v.
 ` : ''}
 DANH SÁCH TÊN NHÂN VẬT (CHỈ ĐƯỢC DÙNG CÁC TÊN NÀY):
 ${characterNames}
