@@ -232,6 +232,7 @@ export interface SavedData {
   realtimeContext?: string; // Ngữ cảnh realtime có thể thay đổi trong lúc chat
   storyPlot?: string; // Mô tả cốt truyện
   fsrsSettings?: FSRSSettings; // FSRS algorithm settings
+  chatReviewVocabularies?: VocabularyItem[]; // Manually selected vocabularies for chat review
 }
 
 // Story types for multi-story support

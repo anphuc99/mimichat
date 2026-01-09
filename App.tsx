@@ -1763,6 +1763,7 @@ const App: React.FC = () => {
         context,
         relationshipSummary,
         currentLevel,
+        chatReviewVocabularies,
       };
       if (currentStoryId) {
         await http.put(`${API_URL.API_STORY}/${currentStoryId}`, { data: dataToSave });
@@ -1780,7 +1781,7 @@ const App: React.FC = () => {
     setView('journal');
     setVocabLearningVocabs([]);
     setSelectedDailyChatId(null);
-  }, [selectedDailyChatId, journal, characters, activeCharacterIds, context, relationshipSummary, handleStreakUpdate, currentStoryId, currentLevel]);
+  }, [selectedDailyChatId, journal, characters, activeCharacterIds, context, relationshipSummary, handleStreakUpdate, currentStoryId, currentLevel, chatReviewVocabularies]);
 
   const handleBackFromVocabulary = useCallback(() => {
     setView('journal');
@@ -1875,7 +1876,8 @@ const App: React.FC = () => {
         currentLevel,
         realtimeContext,
         storyPlot,
-        fsrsSettings
+        fsrsSettings,
+        chatReviewVocabularies,
       };
       if (currentStoryId) {
         console.log('[handleVocabDifficultyRated] Saving to story:', currentStoryId);
@@ -1888,7 +1890,7 @@ const App: React.FC = () => {
     } catch (error) {
       console.error("[handleVocabDifficultyRated] Failed to save vocabulary FSRS review:", error);
     }
-  }, [journal, characters, activeCharacterIds, context, relationshipSummary, currentLevel, realtimeContext, storyPlot, fsrsSettings, currentStoryId]);
+  }, [journal, characters, activeCharacterIds, context, relationshipSummary, currentLevel, realtimeContext, storyPlot, fsrsSettings, currentStoryId, chatReviewVocabularies]);
 
   // FSRS Settings handlers
   const handleUpdateFsrsSettings = useCallback((settings: FSRSSettings) => {
@@ -1919,7 +1921,8 @@ const App: React.FC = () => {
         currentLevel,
         realtimeContext,
         storyPlot,
-        fsrsSettings
+        fsrsSettings,
+        chatReviewVocabularies,
       };
       http.put(`${API_URL.API_STORY}/${currentStoryId}`, savedData).catch(err => {
         console.error("Failed to auto-save from memory scene:", err);
@@ -1987,6 +1990,7 @@ const App: React.FC = () => {
         relationshipSummary,
         currentLevel: newLevel,
         storyPlot,
+        chatReviewVocabularies,
       };
       if (currentStoryId) {
         await http.put(`${API_URL.API_STORY}/${currentStoryId}`, { data: dataToSave });
@@ -1996,7 +2000,7 @@ const App: React.FC = () => {
     } catch (error) {
       console.error("Failed to save level:", error);
     }
-  }, [currentLevel, journal, characters, activeCharacterIds, context, relationshipSummary, getActiveCharacters, getCurrentChat, currentStoryId, storyPlot]);
+  }, [currentLevel, journal, characters, activeCharacterIds, context, relationshipSummary, getActiveCharacters, getCurrentChat, currentStoryId, storyPlot, chatReviewVocabularies]);
 
   const handleSaveJournal = async () => {
     try {
@@ -2009,6 +2013,7 @@ const App: React.FC = () => {
         relationshipSummary,
         currentLevel,
         storyPlot,
+        chatReviewVocabularies,
       };
       
       let rs;
@@ -2037,6 +2042,7 @@ const App: React.FC = () => {
         context,
         relationshipSummary,
         currentLevel,
+        chatReviewVocabularies,
       };
       const jsonString = JSON.stringify(dataToSave, null, 2);
       const blob = new Blob([jsonString], { type: 'application/json' });
@@ -2271,6 +2277,9 @@ const App: React.FC = () => {
     // Load storyPlot
     const loadedStoryPlot = loadedData.storyPlot || '';
 
+    // Load chatReviewVocabularies directly
+    const loadedChatReviewVocabularies = loadedData.chatReviewVocabularies || [];
+
     if (!Array.isArray(loadedJournal) || loadedJournal.length === 0) throw new Error("Dữ liệu nhật ký không hợp lệ.");
 
     setJournal(loadedJournal);
@@ -2282,6 +2291,7 @@ const App: React.FC = () => {
     setCurrentStoryId(storyId);
     setRealtimeContext(loadedRealtimeContext);
     setStoryPlot(loadedStoryPlot);
+    setChatReviewVocabularies(loadedChatReviewVocabularies);
 
     const lastChat = loadedJournal[loadedJournal.length - 1];
     const previousSummary = loadedJournal.length > 1 ? loadedJournal[loadedJournal.length - 2].summary : '';
@@ -2293,7 +2303,7 @@ const App: React.FC = () => {
 
     const activeChars = loadedCharacters.filter(c => loadedActiveIds.includes(c.id));
     
-    chatRef.current = await initChat(activeChars, loadedContext, history, previousSummary, loadedRelationshipSummary, loadedLevel, chatReviewVocabularies, loadedStoryPlot, checkPronunciation);
+    chatRef.current = await initChat(activeChars, loadedContext, history, previousSummary, loadedRelationshipSummary, loadedLevel, loadedChatReviewVocabularies, loadedStoryPlot, checkPronunciation);
 
     setView('journal');
     setIsDataLoaded(true);
@@ -2489,6 +2499,7 @@ const App: React.FC = () => {
       relationshipSummary,
       currentLevel,
       storyPlot,
+      chatReviewVocabularies,
     };
 
     try {
@@ -2560,6 +2571,9 @@ const App: React.FC = () => {
 
         if (!Array.isArray(loadedJournal) || loadedJournal.length === 0) throw new Error("Dữ liệu nhật ký không hợp lệ.");
 
+        // Load chatReviewVocabularies directly
+        const loadedChatReviewVocabularies = loadedData.chatReviewVocabularies || [];
+
         setJournal(loadedJournal);
         setCharacters(loadedCharacters);
         setActiveCharacterIds(loadedActiveIds);
@@ -2568,6 +2582,7 @@ const App: React.FC = () => {
         setStreak(loadedStreak);
         setCurrentLevel(loadedLevel);
         setStoryPlot(loadedStoryPlot);
+        setChatReviewVocabularies(loadedChatReviewVocabularies);
 
         const lastChat = loadedJournal[loadedJournal.length - 1];
         const previousSummary = loadedJournal.length > 1 ? loadedJournal[loadedJournal.length - 2].summary : '';
@@ -2579,7 +2594,7 @@ const App: React.FC = () => {
 
         const activeChars = loadedCharacters.filter(c => loadedActiveIds.includes(c.id));
         
-        chatRef.current = await initChat(activeChars, loadedContext, history, previousSummary, loadedRelationshipSummary, loadedLevel, chatReviewVocabularies, loadedStoryPlot, checkPronunciation);
+        chatRef.current = await initChat(activeChars, loadedContext, history, previousSummary, loadedRelationshipSummary, loadedLevel, loadedChatReviewVocabularies, loadedStoryPlot, checkPronunciation);
 
         setView('journal');
 
@@ -2609,6 +2624,7 @@ const App: React.FC = () => {
           currentLevel,
           realtimeContext,
           storyPlot,
+          chatReviewVocabularies,
         };
         
         if (currentStoryId) {
@@ -2626,7 +2642,7 @@ const App: React.FC = () => {
     const timeoutId = setTimeout(saveData, 3000); // Debounce 3s
 
     return () => clearTimeout(timeoutId);
-  }, [journal, characters, activeCharacterIds, context, relationshipSummary, currentLevel, isDataLoaded, currentStoryId, realtimeContext, storyPlot]);
+  }, [journal, characters, activeCharacterIds, context, relationshipSummary, currentLevel, isDataLoaded, currentStoryId, realtimeContext, storyPlot, chatReviewVocabularies]);
 
   const currentMessages = getCurrentChat()?.messages || [];
 
@@ -3201,3 +3217,4 @@ const App: React.FC = () => {
 };
 
 export default App;
+
