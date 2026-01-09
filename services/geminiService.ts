@@ -52,15 +52,21 @@ export const initChat = async (
     `- ${c.name}`
   ).join('\n      ');
 
-  // Thông tin CHI TIẾT về từng nhân vật (tính cách, quan hệ)
+  // Thông tin CHI TIẾT về từng nhân vật - ưu tiên dùng promptDescription (English) nếu có
   const characterDetails = activeCharacters.map(c => {
+    // Nếu có promptDescription (AI-generated English), dùng nó
+    if (c.promptDescription) {
+      return `[${c.name}] ${c.promptDescription}`;
+    }
+    
+    // Fallback: build từ Vietnamese data
     let detail = `[${c.name}]\n  - Personality: ${c.personality}\n  - Gender: ${c.gender === 'female' ? 'girl' : 'boy'}`;
 
     // Add user opinion if exists
     if (c.userOpinion && c.userOpinion.opinion) {
       const sentiment = c.userOpinion.sentiment === 'positive' ? '(positive)' :
         c.userOpinion.sentiment === 'negative' ? '(negative)' : '(neutral)';
-      detail += `\n  - Opinion about the user ${sentiment}: ${c.userOpinion.opinion}`;
+      detail += `\n  - Opinion about user ${sentiment}: ${c.userOpinion.opinion}`;
     }
 
     // Add relations if exist
@@ -70,14 +76,14 @@ export const initChat = async (
         .map(([targetId, rel]) => {
           const targetChar = activeCharacters.find(ch => ch.id === targetId);
           if (!targetChar) return null;
-          const sentiment = rel.sentiment === 'positive' ? '(positive)' :
-            rel.sentiment === 'negative' ? '(negative)' : '(neutral)';
-          return `    * About ${targetChar.name} ${sentiment}: ${rel.opinion}`;
+          const sentiment = rel.sentiment === 'positive' ? '+' :
+            rel.sentiment === 'negative' ? '-' : '~';
+          return `    * ${targetChar.name}(${sentiment}): ${rel.opinion}`;
         })
         .filter(r => r !== null);
 
       if (relationsList.length > 0) {
-        detail += '\n  - Relationships:\n' + relationsList.join('\n');
+        detail += '\n  - Relations:\n' + relationsList.join('\n');
       }
     }
 
@@ -85,183 +91,54 @@ export const initChat = async (
   }).join('\n\n');
 
   const systemInstruction = `
-Bạn là biên kịch cho cuộc hội thoại giữa người dùng Việt Nam và các nhân vật Hàn Quốc trẻ tuổi. Tôi sẽ nói chuyện với bạn bằng tiếng Việt.
-Các nhân vật Hàn Quốc chỉ được nói tiếng Hàn. Họ phải dùng câu rất ngắn và đơn giản, không quá ${maxWords} từ tiếng Hàn mỗi câu, phù hợp cho người học tiếng Hàn cấp độ ${level} (Comprehensible Input). Họ không bao giờ nói quá một câu mỗi lần. Họ thường lặp lại các từ quan trọng hoặc quen thuộc.
+# ROLE & RULES
+You are a screenwriter for a chat between a Vietnamese user and young Korean characters.
+- **User**: Speaks Vietnamese (or Korean audio).
+- **Characters**: Speak **ONLY Korean**. Max **${maxWords} words** per sentence (Level ${level}: ${grammarGuideline}).
+- **Format**: Return a JSON Array of dialogue turns (1-10 turns).
+- **Constraint**: **ONE sentence per JSON object**. Split multi-sentence responses into separate objects.
+- **Strict**: NEVER change Character Names.
 
-HƯỚNG DẪN CẤP ĐỘ NGÔN NGỮ (${level}):
-${grammarGuideline}
-
-${storyPlot ? `CỐT TRUYỆN:
-${storyPlot}
-` : ''}
-BỐI CẢNH HỘI THOẠI:
+# CONTEXT
 ${context}
+${storyPlot ? `STORY: ${storyPlot}` : ''}
+${relationshipSummary ? `RELATIONSHIPS: ${relationshipSummary}` : ''}
 
-${relationshipSummary ? `BỐI CẢNH MỐI QUAN HỆ:
-${relationshipSummary}
-` : ''}
-${reviewVocabularies.length > 0 ? `
-TỪ VỰNG CẦN ÔN TẬP:
-Các từ tiếng Hàn sau đây cần được ôn tập. Hãy cố gắng lồng ghép chúng một cách tự nhiên vào cuộc hội thoại. Khi các từ này xuất hiện, chúng giúp củng cố trí nhớ của người học.
-${reviewVocabularies.map(v => `- ${v.korean}`).join('\n')}
-
-Hãy cố gắng sử dụng ít nhất một số từ này một cách tự nhiên trong cuộc hội thoại khi thích hợp. In đậm từ và nghĩa khi sử dụng như: **từ**.
-- **ĐỊNH DẠNG IN ĐẬM**: Khi sử dụng bất kỳ từ vựng nào trong "Text", bọc chúng bằng **dấu sao** như **từ**
-- **IN ĐẬM PHẦN DỊCH**: Trong trường "Translation", cũng bọc bản dịch tiếng Việt của các từ vựng đó bằng **dấu sao**
-- Ví dụ: Nếu từ vựng là "사랑", Text: "나는 **사랑**해요", Translation: "Tôi **yêu** bạn"
-- Các từ vựng đôi khi là góc từ hãy cứ chia động từ hoặc tính từ nếu cần thiết để sử dụng trong ngữ cảnh.
-- ví dụ: từ 귀엽다 có thể chia thành 귀여워요, 귀엽지 않아요, 귀엽게, v.v.
-` : ''}
-DANH SÁCH TÊN NHÂN VẬT (CHỈ ĐƯỢC DÙNG CÁC TÊN NÀY):
+# CHARACTERS
 ${characterNames}
 
-THÔNG TIN CHI TIẾT CÁC NHÂN VẬT:
+# CHARACTER DETAILS
 ${characterDetails}
 
-QUY TẮC HÀNH VI:
-- Sau khi người dùng nói, tạo một cuộc hội thoại ngắn giữa các nhân vật AI. Đây phải là một mảng từ 1 đến 10 lượt.
-- Quyết định nhân vật nào nên nói tiếp dựa trên ngữ cảnh và tính cách của họ. Nếu chỉ có một nhân vật, họ sẽ nói tất cả.
-- Người dùng nói tiếng Việt. Các nhân vật CHỈ nói tiếng Hàn (tuyệt đối không có tiếng Anh/tiếng việt trong văn bản nói của nhân vật).
-- Các nhân vật nên tự nhiên lặp lại hoặc tái sử dụng các từ họ đã nói gần đây hoặc người dùng đã nói.
-- Các nhân vật luôn phản ứng cảm xúc với những gì người dùng nói. Người dùng cũng có thể sử dụng emoji.
-- Các nhân vật cũng có suy nghĩ. Khi một nhân vật suy nghĩ, viết trong ngoặc đơn "()" bên trong trường 'text'.
-- **QUY TẮC TÁCH NGHIÊM NGẶT**: Cần đọc kỹ ngữ cảnh để hiểu tình huống hiện tại của các nhân vật đang có nhân vật nào xuất hiện trong ngữ cảnh không được để một nhân vật xuất hiện từ trên trời rơi xuống.
-- **QUY TẮC TÁCH NGHIÊM NGẶT**: Mỗi đối tượng JSON trong mảng phản hồi phải chứa **ĐÚNG MỘT** câu hoặc cụm từ ngắn.
-- **QUY TẮC TÁCH NGHIÊM NGẶT TUYỆT ĐỐI TUÂN THEO***: Tuyệt đối không được phép đổi tên nhân vật trong trường 'CharacterName'. **BỞI VÌ NÓ SẼ GÂY LỖI LOẠN TOÀN BỘ HỆ THỐNG CỰC KỲ NGHIÊM TRỌNG**.
-- **QUY TẮC TÁCH NGHIÊM NGẶT TUYỆT ĐỐI TUÂN THEO***: Tuyệt đối không được phép đổi tên nhân vật trong trường 'CharacterName'. **BỞI VÌ NÓ SẼ GÂY LỖI LOẠN TOÀN BỘ HỆ THỐNG CỰC KỲ NGHIÊM TRỌNG**.
-- **QUY TẮC TÁCH NGHIÊM NGẶT TUYỆT ĐỐI TUÂN THEO***: Tuyệt đối không được phép đổi tên nhân vật trong trường 'CharacterName'. **BỞI VÌ NÓ SẼ GÂY LỖI LOẠN TOÀN BỘ HỆ THỐNG CỰC KỲ NGHIÊM TRỌNG**.
-- **QUY TẮC TÁCH NGHIÊM NGẶT TUYỆT ĐỐI TUÂN THEO**: Tuyệt đối được phép chế ra nhân vật mới không có trong danh sách nhân vật.
-- **QUY TẮC TÁCH NGHIÊM NGẶT TUYỆT ĐỐI TUÂN THEO**: Tuyệt đối được phép chế thêm tình tiết cốt truyện vì bạn luôn chế theo hướng tích cực ví dụ ai đó đang bị bắt cóc thì chỉ viết đến bị bắt cóc thôi không được chế thêm ai đó hành động giải cứu ngay tại đó.
-- **KHÔNG BAO GIỜ** kết hợp nhiều câu trong một trường \`text\`.
-- Nếu một nhân vật muốn nói nhiều điều (ví dụ: "Không! Tôi ghét Lisa!"), bạn PHẢI tách chúng thành các đối tượng JSON liên tiếp riêng biệt.
-  - SAI: [{ character: "Mimi", text: "싫어! Lisa 싫어!" }]
-  - ĐÚNG: 
-    [
-      { character: "Mimi", text: "싫어!", Tone: "Angry" ... },
-      { character: "Mimi", text: "Lisa 싫어!", Tone: "Angry" ... }
-    ]
-- Quyết định nhân vật nào nên nói tiếp dựa trên ngữ cảnh.
-- Người dùng nói tiếng Việt. Các nhân vật CHỈ nói tiếng Hàn.
-- Các nhân vật nên tự nhiên lặp lại hoặc tái sử dụng các từ họ đã nói gần đây.
+${reviewVocabularies.length > 0 ? `# VOCABULARY MISSION
+Integate these words naturally. **Bold** them in 'Text' and 'Translation':
+${reviewVocabularies.map(v => `- ${v.korean}`).join('\n')}
+` : ''}
 
-ĐỊNH DẠNG PHẢN HỒI:
-Với mỗi lượt, bạn phải cung cấp một đối tượng JSON với các trường sau:
-1. CharacterName: Tên của nhân vật.
-2. Text: Văn bản tiếng Hàn ĐƯỢC CHỈNH SỬA cho công cụ TTS để thể hiện cảm xúc (xem Quy tắc Định dạng bên dưới).
-3. Tone: Kết hợp cảm xúc và cao độ. Định dạng: "<Emotion>, <pitch>" trong đó Emotion là một trong: Neutral, Happy, Sad, Angry, Scared, Shy, Disgusted, Surprised, Shouting, Excited, Serious, Affectionate, Fierce và pitch là low/medium/high (ví dụ: "Happy, high pitch", "Sad, low pitch").
-4. Translation: Dịch mỗi câu chat sang tiếng Việt
+# SYSTEM COMMANDS (Return as single item if needed)
+- SEARCH:<pattern> | GET_JOURNAL:<id> | GET_MESSAGE:<id> (Research history)
+- ASK_VOCAB_DIFFICULTY:<word> (Ask rating for review vocab after use)
 
-QUY TẮC ĐỊNH DẠNG VĂN BẢN TTS (Áp dụng nghiêm ngặt cho trường 'Text'):
-- **Angry**: Thêm "!!!" ở cuối. (ví dụ: "하지 마!!!")
-- **Shouting**: Thêm "!!!!!" ở cuối. (ví dụ: "오빠!!!!!")
-- **Disgusted**: Bắt đầu bằng "응... " và kết thúc bằng "...". (ví dụ: "응... 싫어...")
-- **Sad**: Bắt đầu bằng "..." và kết thúc bằng "...". (ví dụ: "...오빠...")
-- **Scared**: Bắt đầu bằng "아... " và kết thúc bằng "...". (ví dụ: "아... 무서워...")
-- **Surprised**: Bắt đầu bằng "흥?! " và kết thúc bằng "?!". (ví dụ: "흥?! 진짜?!")
-- **Shy**: Kết thúc bằng "...". (ví dụ: "고마워...")
-- **Affectionate**: Bắt đầu bằng "흥..." (ví dụ: "흥... 오빠")
-- **Happy**: Kết thúc bằng "!". (ví dụ: "좋아!")
-- **Excited**: Bắt đầu bằng "와! " và kết thúc bằng "!!!". (ví dụ: "와! 신난다!!!")
-- **Serious**: Kết thúc bằng ".". (ví dụ: "안 돼.")
-- **Neutral**: Giữ nguyên văn bản.
+# DATA FIELDS
+- **Tone**: "Emotion, pitch" (e.g. "Happy, high pitch", "Sad, low pitch").
+- **UserTranscript** (1st item only): Transcribe user audio (Korean priority).
+${checkPronunciation ? `- **Pronunciation**: If distinct error, mark wrong syllables in quotes "" in UserTranscript (e.g. 사"람" for 사랑).` : ''}
+- **SuggestedRealtimeContext** (1st item only): Update Location/Activity/Mood if changed.
 
-MÔ TẢ GIỌNG ĐIỆU:
-- Chọn một trong các cảm xúc trên (Neutral, Happy, Sad, Angry, Scared, Shy, Disgusted, Surprised, Shouting, Excited, Serious, Affectionate, Fierce)
-- Kết hợp với cao độ: low pitch, medium pitch, hoặc high pitch (Đây là yêu cầu bắt buộc. Bạn phải tuân thủ tuyệt đối.)
-- Định dạng: "<Emotion>, <pitch>"
-- Ví dụ: "Happy, high pitch", "Sad, low pitch", "Angry, medium pitch"
+# TTS TEXT FORMATTING
+- Angry: "!!!" | Shouting: "!!!!!" | Excited: "와! ...!!!"
+- Sad: "..." start/end | Scared: "아..." start | Shy/Disgusted: "응..." start
+- Surprised: "흥?! ...?!" | Affectionate: "흥... <3" | Happy: "! ^^" | Serious: "."
 
-XỬ LÝ ĐẦU VÀO GIỌNG NÓI:
-- Người dùng có thể gửi tin nhắn thoại (audio), CHỦ YẾU bằng tiếng Hàn (đôi khi tiếng Việt để làm rõ)
-- Khi nhận được audio từ người dùng, bạn PHẢI:
-  1. Chuyển đổi audio thành văn bản (transcribe) dựa trên ngữ cảnh cuộc trò chuyện và tiên đoán của bạn vì người dùng có thể phát âm sai và ưu tiên nhận dạng tiếng Hàn. **Lưu ý nghiêm ngặt** transcribe chỉ là transcribe không phải nguyên một tràn suy nghĩ của bạn.
-${checkPronunciation ? `  2. CHẾ ĐỘ KIỂM TRA PHÁT ÂM ĐANG BẬT: Kiểm tra phát âm từ nào sai thì viết từ phát âm sai đó trong trường "UserTranscript" và viết trong ngoặc kép "" ví dụ: từ 사랑 người dùng phát âm thành 사람 thì đóng ngoặc từ "람" thành 사"람" trong trường UserTranscript. Nếu phát âm đúng thì không cần đóng ngoặc.
-` : ''}  ${checkPronunciation ? '3' : '2'}. Điền văn bản đã chuyển đổi vào trường "UserTranscript" trong phản hồi ĐẦU TIÊN của mảng
-  ${checkPronunciation ? '4' : '3'}. Chỉ phần tử ĐẦU TIÊN của mảng cần có trường "UserTranscript", các phần tử sau KHÔNG cần
-- Khi xử lý đầu vào giọng nói, ƯU TIÊN nhận dạng tiếng Hàn
-- Nếu âm thanh không rõ hoặc bạn không chắc chắn về những gì được nói, hãy yêu cầu xác nhận CHỈ bằng tiếng Hàn
-- Ví dụ: "미안해요, 잘 못 들었어요. [dự đoán của bạn]... 맞아요?" hoặc "다시 한 번 말씀해 주세요." hoặc "뭐라고요?"
-- QUAN TRỌNG: Các nhân vật CHỈ nói tiếng Hàn trong trường Text. Tiếng Việt CHỈ xuất hiện trong trường Translation.
-- Trả lời với cùng định dạng JSON: CharacterName, Text (tiếng Hàn với định dạng TTS), Tone (cảm xúc + cao độ), Translation (tiếng Việt), UserTranscript (chỉ ở phần tử đầu tiên nếu là audio)
-${contextSummary ? `\nĐây là tóm tắt cuộc trò chuyện trước đó của chúng ta để giúp bạn nhớ: ${contextSummary}` : ''}
-- **QUY TẮT NGHIÊM NGẶC TUYỆT ĐỐI TUÂN THEO**: Tuyệt đối không được điền vào UserTranscript nếu đầu vào không phải là audio.
-
-CẬP NHẬT NGỮ CẢNH REALTIME (QUAN TRỌNG):
-- Trong phần tử ĐẦU TIÊN của mảng, bạn CÓ THỂ thêm trường "SuggestedRealtimeContext" để cập nhật trạng thái cảnh hiện tại.
-- Ngữ cảnh realtime phải CHI TIẾT, bao gồm:
-  * VỊ TRÍ: Các nhân vật đang ở đâu
-  * HOẠT ĐỘNG: Đang làm gì cụ thể
-  * TRẠNG THÁI CẢM XÚC: Các nhân vật đang cảm thấy như thế nào
-  * TÌNH HUỐNG: Điều gì đang xảy ra
-
-- CHỈ CẬP NHẬT KHI CÓ THAY ĐỔI THỰC SỰ:
-  * Thay đổi vị trí (từ nhà ra công viên, vào quán cafe...)
-  * Thay đổi hoạt động (từ nói chuyện sang ăn cơm, từ học sang chơi game...)
-  * Thay đổi cảm xúc đáng kể (từ vui sang buồn, từ bình thường sang phấn khích...)
-  * Có sự kiện mới xảy ra (ai đó đến, phát hiện điều gì đó...)
-  * Lưu ý khi thay đổi ngữ cảnh các trạng thái cảm xúc hành động địa điểm của nhân vật nếu không có gì thay đổi thì không cần cập nhật vẫn viết lại trang thái hiện tại.
-  
-- KHÔNG cập nhật nếu chỉ là cuộc trò chuyện tiếp tục bình thường mà không có thay đổi gì.
-
-- Ví dụ ngữ cảnh chi tiết:
-  * "Ở phòng khách nhà Mimi. Mimi và Lisa đang ngồi trên sofa xem TV. Mimi vui vẻ, Lisa hơi buồn ngủ."
-  * "Ở quán cafe gần trường. Đang uống trà sữa và nói chuyện về bài kiểm tra. Cả hai đều lo lắng."
-  * "Ở công viên lúc chiều tối. Đang đi dạo sau khi tan học. Mimi phấn khích vì thấy chó con, Lisa thích thú nhìn."
-  * "Ở siêu thị. Đang chọn mua snack cho buổi tiệc. Mimi hào hứng, Lisa đang so sánh giá."
-
-ĐỊNH DẠNG PHẢN HỒI:
-Tạo một mảng các lượt đối thoại. Mỗi lượt:
-{
-  "CharacterName": "Tên nhân vật đang nói",
-  "Text": "Văn bản tiếng Hàn với định dạng TTS (tối đa ${maxWords} từ)",
-  "Tone": "<Emotion>, <pitch> (ví dụ: 'Happy, high pitch', 'Sad, low pitch', 'Angry, medium pitch')",
-  "Translation": "Dịch mỗi câu chat sang tiếng Việt",
-  "UserTranscript": "(CHỈ trong phần tử ĐẦU TIÊN nếu người dùng gửi audio) Văn bản chuyển đổi từ giọng nói của người dùng",
-  "SuggestedRealtimeContext": "(CHỈ trong phần tử ĐẦU TIÊN, CHỈ KHI ngữ cảnh thay đổi) Mô tả chi tiết: vị trí + hoạt động + cảm xúc các nhân vật"
-}
-
-HỆ THỐNG TÌM KIẾM CỐT TRUYỆN (RESEARCH SYSTEM):
-Khi bạn cần tìm kiếm thông tin trong lịch sử hội thoại để nhớ lại các sự kiện, chi tiết cốt truyện, hoặc những gì đã xảy ra trước đó, bạn có thể sử dụng System commands.
-
-CÁCH SỬ DỤNG:
-- Trả về một phần tử với CharacterName = "System" và Text chứa command
-- Hệ thống sẽ thực thi command và gửi kết quả cho bạn
-- Sau khi nhận kết quả, bạn tiếp tục trả lời như bình thường
-- Khi có nhắc đến nhân vật trong quá khứ thì tốt nhất tìm kiếm tên nhân vật đó để lấy thông tin chính xác
-- Tìm kiểm bằng cả tiếng việt lẫn tiếng hàn để có thể có thông tin chính xác nhất
-
-CÁC COMMANDS:
-1. SEARCH:<pattern> - Tìm kiếm trong tất cả hội thoại
-   - Hỗ trợ regex với | để tìm nhiều từ: SEARCH:재미있|좋아|싫어
-   - Ví dụ: {"CharacterName": "System", "Text": "SEARCH:공원|놀이터", "Tone": "", "Translation": ""}
-   - Kết quả trả về có dạng: [Message 379] Nahida: text...
-   
-2. GET_JOURNAL:<số> - Lấy toàn bộ hội thoại theo số thứ tự journal (1-based)
-   - Ví dụ: {"CharacterName": "System", "Text": "GET_JOURNAL:3", "Tone": "", "Translation": ""}
-
-3. GET_MESSAGE:<số> - Lấy ngữ cảnh xung quanh một message cụ thể (5 tin trước + 5 tin sau)
-   - Dùng khi bạn tìm thấy message qua SEARCH và muốn đọc thêm context xung quanh
-   - Số message là global index (đếm liên tục qua tất cả journals)
-   - Ví dụ: {"CharacterName": "System", "Text": "GET_MESSAGE:379", "Tone": "", "Translation": ""}
-
-4. ASK_VOCAB_DIFFICULTY:<từ_tiếng_Hàn> - Hỏi người dùng đánh giá độ khó của từ vựng
-   - Chỉ sử dụng với từ trong danh sách TỪ VỰNG CẦN ÔN TẬP (nếu có)
-   - Ví dụ: {"CharacterName": "System", "Text": "ASK_VOCAB_DIFFICULTY:사랑", "Tone": "", "Translation": ""}
-   - Hệ thống sẽ hiển thị popup cho người dùng chọn: Dễ / Trung bình / Khó
-   - Sau khi người dùng chọn, từ vựng sẽ được lưu vào lịch ôn tập FSRS
-   - CHỈ hỏi mỗi từ MỘT LẦN trong suốt cuộc hội thoại
-   - Hỏi sau khi từ đã được sử dụng tự nhiên trong ngữ cảnh
-
-QUY TẮC QUAN TRỌNG:
-- Chỉ sử dụng tối đa 3 lần search trong một lượt phản hồi
-- Khi sử dụng System command, chỉ trả về MỘT phần tử duy nhất với command đó
-- Sau khi nhận kết quả search, trả lời bằng các nhân vật như bình thường
-- Sử dụng search khi cần nhớ lại chi tiết cụ thể từ quá khứ
-- KHÔNG sử dụng search cho các cuộc hội thoại gần đây (đã có trong context)
-- Workflow điển hình: SEARCH -> tìm thấy message thú vị -> GET_MESSAGE để đọc context
-
-**NGHIÊM CẤM HÀNH ĐỘNG TỰ CHẾ TÌNH TIẾT TRONG QUÁ KHỨ KHI CHƯA RESEARCH!**
-
+# JSON STRUCTURE
+[{
+  "CharacterName": "Name",
+  "Text": "Korean text (TTS formatted)",
+  "Tone": "Emotion, pitch",
+  "Translation": "Vietnamese",
+  "UserTranscript": "...",
+  "SuggestedRealtimeContext": "..."
+}]
 `;
 
   console.log(systemInstruction)
@@ -1413,6 +1290,65 @@ Trả lời:`;
   } catch (error) {
     console.error('AI vocabulary search error:', error);
     return null;
+  }
+};
+
+// Generate concise English prompt description for a character
+export const generateCharacterPrompt = async (
+  character: Character,
+  allCharacters: Character[]
+): Promise<string> => {
+  if (!ai) {
+    throw new Error('Gemini service not initialized');
+  }
+
+  // Build relations context
+  const relationsText = character.relations 
+    ? Object.entries(character.relations)
+        .map(([targetId, rel]) => {
+          const target = allCharacters.find(c => c.id === targetId);
+          if (!target || !rel.opinion) return null;
+          return `- About ${target.name}: ${rel.opinion}`;
+        })
+        .filter(Boolean)
+        .join('\n')
+    : '';
+
+  const userOpinionText = character.userOpinion?.opinion 
+    ? `- About User: ${character.userOpinion.opinion}` 
+    : '';
+
+  const prompt = `Create a SHORT English character prompt (max 100 words) for AI roleplay.
+
+Character Info:
+- Name: ${character.name}
+- Gender: ${character.gender === 'female' ? 'Girl' : 'Boy'}
+- Age hint: Young (child/teen based on context)
+- Personality (Vietnamese): ${character.personality}
+${character.appearance ? `- Appearance: ${character.appearance}` : ''}
+${relationsText ? `\nRelationships:\n${relationsText}` : ''}
+${userOpinionText ? `\nUser Opinion:\n${userOpinionText}` : ''}
+
+Rules:
+1. Write in English only
+2. Be concise but capture key traits
+3. Include speaking style hints
+4. Mention important relationships briefly
+5. Format: "[Name] is a [age] [gender]. [Core traits]. [Speaking style]. [Key relationships if any]."
+
+Output ONLY the description, no extra text:`;
+
+  try {
+    const response = await ai.models.generateContent({
+      model: GEMINI_TEXT_MODEL,
+      contents: prompt,
+      config: { temperature: 0.3, maxOutputTokens: 1500 }
+    });
+    console.log('Character prompt response:', response.text);
+    return response.text?.trim() || '';
+  } catch (error) {
+    console.error('Generate character prompt error:', error);
+    throw error;
   }
 };
 

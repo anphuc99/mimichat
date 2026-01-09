@@ -19,6 +19,7 @@ export interface Character {
   avatar?: string;
   relations?: { [targetCharacterId: string]: RelationInfo };
   userOpinion?: RelationInfo;
+  promptDescription?: string; // AI-generated short English description for system prompt
 }
 
 export interface Message {
