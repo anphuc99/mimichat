@@ -2,7 +2,6 @@
 import React, { useState } from 'react';
 import type { Character, RelationInfo } from '../types';
 import http, { API_URL } from '../services/HTTPService';
-import { generateCharacterPrompt } from '../services/geminiService';
 
 interface CharacterManagerProps {
   isOpen: boolean;
@@ -63,11 +62,9 @@ export const CharacterManager: React.FC<CharacterManagerProps> = ({
   const [editedAppearance, setEditedAppearance] = useState('');
   const [editedRelations, setEditedRelations] = useState<{ [targetCharacterId: string]: RelationInfo }>({});
   const [editedUserOpinion, setEditedUserOpinion] = useState<RelationInfo>({ opinion: '', sentiment: 'neutral', closeness: 0 });
-  const [editedPromptDescription, setEditedPromptDescription] = useState('');
   const [showOpinionsSection, setShowOpinionsSection] = useState(false);
 
   const [isPreviewing, setIsPreviewing] = useState<string | null>(null);
-  const [isGeneratingPrompt, setIsGeneratingPrompt] = useState(false);
 
 
   if (!isOpen) return null;
@@ -171,7 +168,6 @@ export const CharacterManager: React.FC<CharacterManagerProps> = ({
     setEditedAppearance(char.appearance || '');
     setEditedRelations(char.relations || {});
     setEditedUserOpinion(char.userOpinion || { opinion: '', sentiment: 'neutral', closeness: 0 });
-    setEditedPromptDescription(char.promptDescription || '');
     setShowOpinionsSection(false);
   };
 
@@ -182,7 +178,6 @@ export const CharacterManager: React.FC<CharacterManagerProps> = ({
 
   const saveChanges = () => {
     if (!editingCharId || !editedName.trim() || !editedPersonality.trim()) return;
-    
     setCharacters(prev => 
       prev.map(char => 
         char.id === editingCharId 
@@ -198,42 +193,12 @@ export const CharacterManager: React.FC<CharacterManagerProps> = ({
               appearance: editedAppearance,
               relations: editedRelations,
               userOpinion: editedUserOpinion,
-              promptDescription: editedPromptDescription || undefined,
             }
           : char
       )
     );
     setEditingCharId(null);
     setShowOpinionsSection(false);
-  };
-
-  const handleGeneratePrompt = async () => {
-    if (!editingCharId) return;
-    
-    setIsGeneratingPrompt(true);
-    try {
-      const tempCharacter: Character = {
-        id: editingCharId,
-        name: editedName,
-        personality: editedPersonality,
-        gender: editedGender,
-        voiceName: editedVoiceName,
-        pitch: editedPitch,
-        speakingRate: editedSpeakingRate,
-        avatar: editedAvatar,
-        appearance: editedAppearance,
-        relations: editedRelations,
-        userOpinion: editedUserOpinion,
-      };
-
-      const prompt = await generateCharacterPrompt(tempCharacter, characters);
-      setEditedPromptDescription(prompt);
-    } catch (err) {
-      console.error('Failed to generate character prompt:', err);
-      alert('Không thể tạo prompt. Vui lòng thử lại.');
-    } finally {
-      setIsGeneratingPrompt(false);
-    }
   };
 
   const isPredefined = (charId: string) => ['mimi', 'lisa', 'klee'].includes(charId);
@@ -443,43 +408,11 @@ export const CharacterManager: React.FC<CharacterManagerProps> = ({
                           )}
                         </div>
 
-                        {/* AI Prompt Description Section */}
-                        <div className="border-t pt-3 mt-3">
-                          <div className="flex items-center justify-between mb-2">
-                            <label className="block text-sm font-medium text-gray-700">
-                              AI Prompt (Tiếng Anh)
-                            </label>
-                            <button
-                              type="button"
-                              onClick={handleGeneratePrompt}
-                              disabled={isGeneratingPrompt}
-                              className="px-2 py-1 text-xs bg-purple-500 text-white rounded hover:bg-purple-600 disabled:opacity-50 flex items-center gap-1"
-                            >
-                              {isGeneratingPrompt ? (
-                                <>
-                                  <svg className="animate-spin h-3 w-3" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none"/><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/></svg>
-                                  Đang tạo...
-                                </>
-                              ) : '🤖 Tạo bằng AI'}
-                            </button>
-                          </div>
-                          <textarea
-                            value={editedPromptDescription}
-                            onChange={(e) => setEditedPromptDescription(e.target.value)}
-                            placeholder="Để trống sẽ dùng mô tả mặc định từ tính cách..."
-                            rows={3}
-                            className="w-full px-3 py-2 text-sm border border-gray-300 rounded-md focus:ring-purple-500 focus:border-purple-500"
-                          />
-                          <p className="text-xs text-gray-400 mt-1">
-                            Mô tả ngắn gọn bằng tiếng Anh để AI hiểu nhân vật. Để trống = dùng mặc định.
-                          </p>
-                        </div>
-
                         <div className="flex justify-between items-center">
-                          <button type="button" onClick={() => handlePreviewAudio(char.id, editedVoiceName, editedPitch, editedSpeakingRate)} disabled={isPreviewing !== null || isGeneratingPrompt} className="px-3 py-1 text-sm bg-gray-200 text-gray-700 rounded-md hover:bg-gray-300 disabled:opacity-50">Nghe thử</button>
+                          <button type="button" onClick={() => handlePreviewAudio(char.id, editedVoiceName, editedPitch, editedSpeakingRate)} disabled={isPreviewing !== null} className="px-3 py-1 text-sm bg-gray-200 text-gray-700 rounded-md hover:bg-gray-300 disabled:opacity-50">Nghe thử</button>
                           <div className="flex space-x-2">
-                            <button onClick={cancelEditing} disabled={isGeneratingPrompt} className="px-3 py-1 text-sm bg-gray-200 text-gray-700 rounded-md hover:bg-gray-300 disabled:opacity-50">Hủy</button>
-                            <button onClick={saveChanges} disabled={isGeneratingPrompt} className="px-3 py-1 text-sm bg-blue-500 text-white rounded-md hover:bg-blue-600 disabled:opacity-50">Lưu</button>
+                            <button onClick={cancelEditing} className="px-3 py-1 text-sm bg-gray-200 text-gray-700 rounded-md hover:bg-gray-300">Hủy</button>
+                            <button onClick={saveChanges} className="px-3 py-1 text-sm bg-blue-500 text-white rounded-md hover:bg-blue-600">Lưu</button>
                           </div>
                         </div>
                       </div>
