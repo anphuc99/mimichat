@@ -992,3 +992,63 @@ export function getAllVocabulariesWithMemories(
   
   return result;
 }
+
+/**
+ * Get difficult vocabularies that were rated Hard (2) or Again (1) today
+ * These are words the user struggled with and should review again
+ * This does NOT update FSRS - it's just for extra practice
+ */
+export function getDifficultVocabulariesToday(
+  journal: DailyChat[]
+): {
+  vocabulary: VocabularyItem;
+  review: VocabularyReview;
+  dailyChat: DailyChat;
+  memory?: import('../types').VocabularyMemoryEntry;
+  todayRating: 1 | 2; // The rating given today (Again or Hard)
+}[] {
+  const todayStr = getVietnamDateString(new Date());
+  
+  const difficultVocabs: {
+    vocabulary: VocabularyItem;
+    review: VocabularyReview;
+    dailyChat: DailyChat;
+    memory?: import('../types').VocabularyMemoryEntry;
+    todayRating: 1 | 2;
+  }[] = [];
+  
+  for (const dailyChat of journal) {
+    if (!dailyChat.reviewSchedule || !dailyChat.vocabularies) continue;
+    
+    for (const review of dailyChat.reviewSchedule) {
+      if (!review.reviewHistory || review.reviewHistory.length === 0) continue;
+      
+      // Check if there's a Hard or Again rating from today
+      const todayDifficultReview = review.reviewHistory.find(h => {
+        const reviewDateStr = getVietnamDateString(new Date(h.date));
+        return reviewDateStr === todayStr && h.rating !== undefined && (h.rating === 1 || h.rating === 2);
+      });
+      
+      if (todayDifficultReview && todayDifficultReview.rating) {
+        const vocabulary = dailyChat.vocabularies.find(v => v.id === review.vocabularyId);
+        
+        if (vocabulary) {
+          const memory = dailyChat.vocabularyMemories?.find(m => m.vocabularyId === vocabulary.id);
+          
+          difficultVocabs.push({
+            vocabulary,
+            review: migrateLegacyToFSRS(review),
+            dailyChat,
+            memory,
+            todayRating: todayDifficultReview.rating as 1 | 2
+          });
+        }
+      }
+    }
+  }
+  
+  // Sort by rating: Again (1) first, then Hard (2)
+  difficultVocabs.sort((a, b) => a.todayRating - b.todayRating);
+  
+  return difficultVocabs;
+}

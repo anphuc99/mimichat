@@ -16,7 +16,8 @@ import {
   migrateLegacyToFSRS,
   getNewVocabulariesWithoutReview,
   getVocabularyStats,
-  calculateNewCardInterval
+  calculateNewCardInterval,
+  getDifficultVocabulariesToday
 } from '../utils/spacedRepetition';
 import VocabularyMemoryFlashcard from './VocabularyMemoryFlashcard';
 import VocabularyMemoryEditor from './VocabularyMemoryEditor';
@@ -29,7 +30,7 @@ const escapeHtml = (text: string): string => {
   return div.innerHTML;
 };
 
-type Tab = 'new' | 'review' | 'learn';
+type Tab = 'new' | 'review' | 'difficult' | 'learn';
 
 interface VocabularyMemorySceneProps {
   journal: ChatJournal;
@@ -140,6 +141,11 @@ export const VocabularyMemoryScene: React.FC<VocabularyMemorySceneProps> = ({
   const dueReviews = useMemo(() => {
     return getVocabulariesDueForMemoryReview(journal, fsrsSettings);
   }, [journal, fsrsSettings]);
+
+  // Get difficult vocabularies (Hard/Again rated today)
+  const difficultVocabularies = useMemo(() => {
+    return getDifficultVocabulariesToday(journal);
+  }, [journal]);
 
   // Initialize review queue when switching to review tab (NO auto-add - user learns new words in New tab)
   useEffect(() => {
@@ -477,6 +483,29 @@ export const VocabularyMemoryScene: React.FC<VocabularyMemorySceneProps> = ({
   // Whether the front word is revealed (initially hidden, click to reveal)
   const [isNewWordRevealed, setIsNewWordRevealed] = useState(false);
 
+  // State for difficult words tab (Hard/Again rated today)
+  const [difficultQueue, setDifficultQueue] = useState<{
+    vocabulary: VocabularyItem;
+    review: VocabularyReview;
+    dailyChat: DailyChat;
+    memory?: VocabularyMemoryEntry;
+    todayRating: 1 | 2;
+  }[]>([]);
+  const [currentDifficultIndex, setCurrentDifficultIndex] = useState(0);
+  const [difficultWordState, setDifficultWordState] = useState<'word' | 'memory' | 'answer'>('word');
+  const [difficultSessionStats, setDifficultSessionStats] = useState({
+    total: 0,
+    practiced: 0
+  });
+  const [isDifficultComplete, setIsDifficultComplete] = useState(false);
+  const [showDifficultMemoryPopup, setShowDifficultMemoryPopup] = useState(false);
+  const [selectedDifficultCharacterId, setSelectedDifficultCharacterId] = useState<string>(characters[0]?.id || '');
+  const [isDifficultGeneratingAudio, setIsDifficultGeneratingAudio] = useState(false);
+  const [difficultUserAnswer, setDifficultUserAnswer] = useState('');
+  const [difficultAnswerResult, setDifficultAnswerResult] = useState<'correct' | 'incorrect' | null>(null);
+  const [difficultCardDirection, setDifficultCardDirection] = useState<'kr-vn' | 'vn-kr'>('kr-vn');
+  const [isDifficultWordRevealed, setIsDifficultWordRevealed] = useState(false);
+
   // Initialize new words queue when switching to new tab
   useEffect(() => {
     if (activeTab === 'new' && newWordsQueue.length === 0 && newVocabularies.length > 0) {
@@ -490,17 +519,37 @@ export const VocabularyMemoryScene: React.FC<VocabularyMemorySceneProps> = ({
     }
   }, [activeTab, newVocabularies, newWordsQueue.length, fsrsSettings.newCardsPerDay]);
 
+  // Initialize difficult queue when switching to difficult tab
+  useEffect(() => {
+    if (activeTab === 'difficult' && difficultQueue.length === 0 && difficultVocabularies.length > 0) {
+      setDifficultQueue([...difficultVocabularies]);
+      setCurrentDifficultIndex(0);
+      setDifficultWordState('word');
+      setDifficultSessionStats({ total: difficultVocabularies.length, practiced: 0 });
+      setIsDifficultComplete(false);
+      setIsDifficultWordRevealed(false);
+    }
+  }, [activeTab, difficultVocabularies, difficultQueue.length]);
+
   // Reset isNewWordRevealed when switching to next word
   useEffect(() => {
     setIsNewWordRevealed(false);
   }, [currentNewWordIndex]);
+
+  // Reset isDifficultWordRevealed when switching to next difficult word
+  useEffect(() => {
+    setIsDifficultWordRevealed(false);
+  }, [currentDifficultIndex]);
 
   // Auto-select first character if none selected
   useEffect(() => {
     if (!selectedNewWordCharacterId && characters.length > 0) {
       setSelectedNewWordCharacterId(characters[0].id);
     }
-  }, [characters, selectedNewWordCharacterId]);
+    if (!selectedDifficultCharacterId && characters.length > 0) {
+      setSelectedDifficultCharacterId(characters[0].id);
+    }
+  }, [characters, selectedNewWordCharacterId, selectedDifficultCharacterId]);
 
   // Handle audio button clicks in memory HTML
   const handleNewWordMemoryClick = useCallback((e: React.MouseEvent) => {
@@ -764,6 +813,164 @@ export const VocabularyMemoryScene: React.FC<VocabularyMemorySceneProps> = ({
       setIsNewWordsComplete(true);
     }
   }, [journal, onUpdateJournal, newWordsQueue, currentNewWordIndex, onStreakUpdate, newWordCardDirection]);
+
+  // Get word usage count for current difficult word
+  const currentDifficultWordUsageCount = useMemo(() => {
+    if (difficultQueue.length === 0 || currentDifficultIndex >= difficultQueue.length) return 0;
+    if (!journal || journal.length === 0) return 0;
+    
+    const koreanWord = difficultQueue[currentDifficultIndex].vocabulary.korean;
+    let count = 0;
+    
+    for (const dc of journal) {
+      for (const message of dc.messages) {
+        if (message.text.includes(koreanWord)) {
+          count++;
+        }
+      }
+    }
+    
+    return count;
+  }, [journal, difficultQueue, currentDifficultIndex]);
+
+  // Handle pronunciation for difficult word
+  const handleDifficultPronounce = useCallback(async () => {
+    if (!onGenerateAudio || !onPlayAudio || isDifficultGeneratingAudio) return;
+    if (difficultQueue.length === 0 || currentDifficultIndex >= difficultQueue.length) return;
+    
+    const currentItem = difficultQueue[currentDifficultIndex];
+    const selectedChar = characters.find(c => c.id === selectedDifficultCharacterId);
+    const voiceName = selectedChar?.voiceName || 'echo';
+    
+    setIsDifficultGeneratingAudio(true);
+    try {
+      const audioData = await onGenerateAudio(currentItem.vocabulary.korean, 'slowly and clearly', voiceName);
+      if (audioData) {
+        onPlayAudio(audioData, selectedChar?.name);
+      }
+    } catch (error) {
+      console.error('Failed to generate pronunciation:', error);
+    } finally {
+      setIsDifficultGeneratingAudio(false);
+    }
+  }, [onGenerateAudio, onPlayAudio, difficultQueue, currentDifficultIndex, characters, selectedDifficultCharacterId, isDifficultGeneratingAudio]);
+
+  // Handle "Got it" for difficult word - NO FSRS update, just move to next
+  const handleDifficultGotIt = useCallback(() => {
+    // Update stats
+    setDifficultSessionStats(prev => ({
+      ...prev,
+      practiced: prev.practiced + 1
+    }));
+
+    // Move to next word - NO FSRS update
+    setDifficultWordState('word');
+    setDifficultUserAnswer('');
+    setDifficultAnswerResult(null);
+    setIsDifficultWordRevealed(false);
+    if (currentDifficultIndex < difficultQueue.length - 1) {
+      setCurrentDifficultIndex(prev => prev + 1);
+    } else {
+      setIsDifficultComplete(true);
+    }
+  }, [difficultQueue.length, currentDifficultIndex]);
+
+  // Process memory HTML for difficult word
+  const difficultProcessedMemoryHtml = useMemo(() => {
+    if (difficultQueue.length === 0 || currentDifficultIndex >= difficultQueue.length) return '';
+    const currentItem = difficultQueue[currentDifficultIndex];
+    if (!currentItem.memory?.userMemory) return '';
+    
+    const baseUrl = HTTPService.getBaseUrl();
+    let html = '';
+    const userMemory = currentItem.memory.userMemory;
+    
+    const messagesMap = new Map<string, { text: string; characterName: string; date: string; audioData?: string }>();
+    for (const dc of journal) {
+      for (const msg of dc.messages) {
+        messagesMap.set(msg.id, {
+          text: msg.text,
+          characterName: msg.sender === 'user' ? 'Bạn' : (msg.characterName || 'Bot'),
+          date: dc.date,
+          audioData: msg.audioData
+        });
+      }
+    }
+    
+    const regex = /\[(MSG|IMG):([^\]]+)\]/g;
+    let lastIndex = 0;
+    let match;
+
+    while ((match = regex.exec(userMemory)) !== null) {
+      if (match.index > lastIndex) {
+        const textContent = userMemory.slice(lastIndex, match.index).trim();
+        if (textContent) {
+          html += `<p>${escapeHtml(textContent)}</p>`;
+        }
+      }
+
+      const type = match[1];
+      const value = match[2];
+
+      if (type === 'MSG') {
+        const linkedMsg = messagesMap.get(value);
+        if (linkedMsg) {
+          const audioButton = linkedMsg.audioData 
+            ? `<button class="memory-audio-btn" data-msg-id="${value}" data-character="${escapeHtml(linkedMsg.characterName)}" title="Phát âm thanh">🔊</button>`
+            : '';
+          html += `
+            <div class="message-block">
+              <div class="message-block-header">
+                <span class="character-badge">👤 ${escapeHtml(linkedMsg.characterName)}</span>
+                <span class="date-badge">📅 ${escapeHtml(linkedMsg.date)}</span>
+                ${audioButton}
+              </div>
+              <div class="message-text">${escapeHtml(linkedMsg.text)}</div>
+            </div>
+          `;
+        }
+      } else if (type === 'IMG') {
+        let imgSrc = value;
+        if (imgSrc.startsWith('/')) {
+          imgSrc = baseUrl + imgSrc;
+        } else if (imgSrc.startsWith('http://localhost')) {
+          imgSrc = imgSrc.replace(/http:\/\/localhost:\d+/, baseUrl);
+        }
+        html += `<div class="memory-image"><img src="${imgSrc}" alt="Memory image" /></div>`;
+      }
+
+      lastIndex = regex.lastIndex;
+    }
+
+    if (lastIndex < userMemory.length) {
+      const textContent = userMemory.slice(lastIndex).trim();
+      if (textContent) {
+        html += `<p>${escapeHtml(textContent)}</p>`;
+      }
+    }
+
+    return html || '<p class="empty-memory">Chưa có nội dung</p>';
+  }, [difficultQueue, currentDifficultIndex, journal]);
+
+  // Handle memory click for difficult word
+  const handleDifficultMemoryClick = useCallback((e: React.MouseEvent) => {
+    const target = e.target as HTMLElement;
+    if (target.classList.contains('memory-audio-btn')) {
+      e.preventDefault();
+      e.stopPropagation();
+      const msgId = target.getAttribute('data-msg-id');
+      const characterName = target.getAttribute('data-character');
+      if (msgId && onPlayAudio) {
+        for (const dc of journal) {
+          const msg = dc.messages.find(m => m.id === msgId);
+          if (msg?.audioData) {
+            onPlayAudio(msg.audioData, characterName || undefined);
+            break;
+          }
+        }
+      }
+    }
+  }, [onPlayAudio, journal]);
 
   // Render new words tab
   const renderNewWordsTab = () => {
@@ -1145,6 +1352,325 @@ export const VocabularyMemoryScene: React.FC<VocabularyMemorySceneProps> = ({
     );
   };
 
+  // Render difficult words tab (Hard/Again rated today - NO FSRS update)
+  const renderDifficultTab = () => {
+    if (difficultVocabularies.length === 0) {
+      return (
+        <div className="empty-state">
+          <div className="empty-icon">✨</div>
+          <h3>Không có từ khó</h3>
+          <p>Bạn chưa có từ nào được đánh dấu "Khó" hoặc "Quên" hôm nay.</p>
+          <p className="hint">Hãy ôn tập trước, những từ khó sẽ xuất hiện ở đây!</p>
+        </div>
+      );
+    }
+
+    if (isDifficultComplete) {
+      return (
+        <div className="session-complete">
+          <div className="complete-icon">💪</div>
+          <h3>Hoàn thành ôn từ khó!</h3>
+          <div className="complete-stats">
+            <p>Đã luyện tập <strong>{difficultSessionStats.practiced}</strong> từ khó</p>
+          </div>
+          <button 
+            className="restart-btn"
+            onClick={() => {
+              setDifficultQueue([]);
+              setIsDifficultComplete(false);
+            }}
+          >
+            🔄 Luyện lại
+          </button>
+          <button 
+            className="go-review-btn"
+            onClick={() => setActiveTab('review')}
+          >
+            Tiếp tục ôn tập →
+          </button>
+        </div>
+      );
+    }
+
+    if (difficultQueue.length === 0) {
+      return (
+        <div className="loading-state">
+          <div className="loading-spinner">⏳</div>
+        </div>
+      );
+    }
+
+    const currentItem = difficultQueue[currentDifficultIndex];
+    
+    return (
+      <div className="difficult-words-tab">
+        {/* Progress */}
+        <div className="flashcard-progress">
+          <div className="progress-text">
+            {currentDifficultIndex + 1} / {difficultQueue.length}
+          </div>
+          <div className="progress-bar">
+            <div 
+              className="progress-fill difficult"
+              style={{ width: `${((currentDifficultIndex + 1) / difficultQueue.length) * 100}%` }}
+            />
+          </div>
+        </div>
+
+        {/* Difficult Word Card */}
+        <div className="difficult-word-card flashcard">
+          <div className="difficult-badge">
+            {currentItem.todayRating === 1 ? '😔 Quên' : '🤔 Khó'}
+          </div>
+          
+          {/* Card Content */}
+          <div className="card-content">
+            {/* Direction Toggle */}
+            <div className="direction-toggle">
+              <button
+                className={`toggle-btn ${difficultCardDirection === 'kr-vn' ? 'active' : ''}`}
+                onClick={() => setDifficultCardDirection('kr-vn')}
+              >
+                🇰🇷→🇻🇳
+              </button>
+              <button
+                className={`toggle-btn ${difficultCardDirection === 'vn-kr' ? 'active' : ''}`}
+                onClick={() => setDifficultCardDirection('vn-kr')}
+              >
+                🇻🇳→🇰🇷
+              </button>
+            </div>
+
+            {/* Front of card - Question with Audio First */}
+            <div className="word-section">
+              <div className="section-label">
+                {difficultCardDirection === 'vn-kr' ? '📖 Nghĩa tiếng Việt:' : '🇰🇷 Từ tiếng Hàn:'}
+              </div>
+              
+              {/* Audio button - Always visible on front */}
+              {difficultWordState === 'word' && onGenerateAudio && onPlayAudio && (
+                <div className="front-audio-section">
+                  <button
+                    className="front-pronounce-btn"
+                    onClick={handleDifficultPronounce}
+                    disabled={isDifficultGeneratingAudio}
+                    title="Nghe phát âm"
+                  >
+                    {isDifficultGeneratingAudio ? '⏳ Đang tạo...' : '🔊 Nghe phát âm'}
+                  </button>
+                  <select
+                    className="front-character-select"
+                    value={selectedDifficultCharacterId}
+                    onChange={(e) => setSelectedDifficultCharacterId(e.target.value)}
+                  >
+                    {characters.map(char => (
+                      <option key={char.id} value={char.id}>
+                        {char.name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              )}
+              
+              {/* Word - Hidden until revealed */}
+              <div 
+                className={`${difficultCardDirection === 'vn-kr' ? 'vietnamese-word-front' : 'korean-word-front'} ${!isDifficultWordRevealed && difficultWordState === 'word' ? 'word-hidden' : ''}`}
+                onClick={() => !isDifficultWordRevealed && difficultWordState === 'word' && setIsDifficultWordRevealed(true)}
+              >
+                {!isDifficultWordRevealed && difficultWordState === 'word' ? (
+                  <span className="reveal-hint">👆 Bấm để xem chữ</span>
+                ) : (
+                  difficultCardDirection === 'vn-kr' ? currentItem.vocabulary.vietnamese : currentItem.vocabulary.korean
+                )}
+              </div>
+            </div>
+
+            {/* Answer Input - Visible in 'word' state */}
+            {difficultWordState === 'word' && (
+              <div className="answer-input-section">
+                <div className="section-label">
+                  {difficultCardDirection === 'vn-kr' ? '✍️ Điền từ tiếng Hàn:' : '✍️ Điền nghĩa tiếng Việt:'}
+                </div>
+                <input
+                  type="text"
+                  className={difficultCardDirection === 'vn-kr' ? 'korean-input' : 'vietnamese-input'}
+                  value={difficultUserAnswer}
+                  onChange={(e) => setDifficultUserAnswer(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' && difficultUserAnswer.trim()) {
+                      const normalizedUserAnswer = difficultUserAnswer.trim().toLowerCase();
+                      const correctAnswer = difficultCardDirection === 'vn-kr' ? currentItem.vocabulary.korean : currentItem.vocabulary.vietnamese;
+                      const normalizedCorrectAnswer = correctAnswer.trim().toLowerCase();
+                      setDifficultAnswerResult(normalizedUserAnswer === normalizedCorrectAnswer ? 'correct' : 'incorrect');
+                      setDifficultWordState('answer');
+                    }
+                  }}
+                  placeholder={difficultCardDirection === 'vn-kr' ? 'Nhập từ tiếng Hàn...' : 'Nhập nghĩa tiếng Việt...'}
+                  autoFocus
+                />
+              </div>
+            )}
+
+            {/* Memory section - visible in 'memory' and 'answer' states */}
+            {(difficultWordState === 'memory' || difficultWordState === 'answer') && (
+              <div className="memory-section">
+                {currentItem.memory ? (
+                  <>
+                    <div className="section-header">
+                      <div className="section-label">💭 Ký ức của bạn:</div>
+                      <button 
+                        className="expand-memory-btn"
+                        onClick={() => setShowDifficultMemoryPopup(true)}
+                        title="Xem đầy đủ"
+                      >
+                        🔍 Xem đầy đủ
+                      </button>
+                    </div>
+                    <div 
+                      className="memory-text memory-preview"
+                      onClick={handleDifficultMemoryClick}
+                      dangerouslySetInnerHTML={{ __html: difficultProcessedMemoryHtml }}
+                    />
+                  </>
+                ) : (
+                  <div className="no-memory">
+                    <span>📝 Chưa có ký ức</span>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* Answer - visible in 'answer' state (Back of card) */}
+            {difficultWordState === 'answer' && (
+              <div className="answer-section">
+                <div className="section-label">
+                  {difficultCardDirection === 'vn-kr' ? '🇰🇷 Đáp án tiếng Hàn:' : '📖 Đáp án tiếng Việt:'}
+                </div>
+                <div className={`${difficultCardDirection === 'vn-kr' ? 'korean-word-answer' : 'vietnamese-word-answer'} ${difficultAnswerResult === 'correct' ? 'correct' : difficultAnswerResult === 'incorrect' ? 'incorrect' : ''}`}>
+                  {difficultCardDirection === 'vn-kr' ? currentItem.vocabulary.korean : currentItem.vocabulary.vietnamese}
+                </div>
+                
+                {/* Show user's answer comparison */}
+                {difficultUserAnswer && difficultAnswerResult && (
+                  <div className={`user-answer-result ${difficultAnswerResult}`}>
+                    {difficultAnswerResult === 'correct' ? (
+                      <span>✅ Chính xác! Bạn đã nhập: {difficultUserAnswer}</span>
+                    ) : (
+                      <span>❌ Bạn đã nhập: <span className="wrong-answer">{difficultUserAnswer}</span></span>
+                    )}
+                  </div>
+                )}
+                
+                {/* Search word in story button */}
+                {journal && journal.length > 0 && (
+                  <button
+                    className="search-word-btn"
+                    onClick={() => {
+                      setSearchWord(currentItem.vocabulary.korean);
+                      setShowSearchPopup(true);
+                    }}
+                    title={`Tìm "${currentItem.vocabulary.korean}" trong story`}
+                  >
+                    🔍 Tìm trong story ({currentDifficultWordUsageCount})
+                  </button>
+                )}
+              </div>
+            )}
+          </div>
+
+          {/* Actions */}
+          <div className="card-actions">
+            {difficultWordState === 'word' && (
+              <>
+                <button 
+                  className="action-btn memory-btn"
+                  onClick={() => setDifficultWordState('memory')}
+                >
+                  💭 Xem ký ức
+                </button>
+                <button 
+                  className="action-btn answer-btn"
+                  onClick={() => {
+                    const normalizedUserAnswer = difficultUserAnswer.trim().toLowerCase();
+                    const correctAnswer = difficultCardDirection === 'vn-kr' ? currentItem.vocabulary.korean : currentItem.vocabulary.vietnamese;
+                    const normalizedCorrectAnswer = correctAnswer.trim().toLowerCase();
+                    setDifficultAnswerResult(normalizedUserAnswer === normalizedCorrectAnswer ? 'correct' : 'incorrect');
+                    setDifficultWordState('answer');
+                  }}
+                >
+                  ✅ Kiểm tra đáp án
+                </button>
+              </>
+            )}
+
+            {difficultWordState === 'memory' && (
+              <button 
+                className="action-btn answer-btn full-width"
+                onClick={() => {
+                  const normalizedUserAnswer = difficultUserAnswer.trim().toLowerCase();
+                  const correctAnswer = difficultCardDirection === 'vn-kr' ? currentItem.vocabulary.korean : currentItem.vocabulary.vietnamese;
+                  const normalizedCorrectAnswer = correctAnswer.trim().toLowerCase();
+                  setDifficultAnswerResult(normalizedUserAnswer === normalizedCorrectAnswer ? 'correct' : 'incorrect');
+                  setDifficultWordState('answer');
+                }}
+              >
+                ✅ Kiểm tra đáp án
+              </button>
+            )}
+
+            {difficultWordState === 'answer' && (
+              <button 
+                className="action-btn got-it-btn full-width"
+                onClick={handleDifficultGotIt}
+              >
+                ✅ Đã nhớ, tiếp tục!
+              </button>
+            )}
+          </div>
+        </div>
+
+        {/* Skip */}
+        <button 
+          className="skip-btn"
+          onClick={() => {
+            setDifficultWordState('word');
+            setDifficultUserAnswer('');
+            setDifficultAnswerResult(null);
+            setIsDifficultWordRevealed(false);
+            if (currentDifficultIndex < difficultQueue.length - 1) {
+              setCurrentDifficultIndex(prev => prev + 1);
+            } else {
+              setIsDifficultComplete(true);
+            }
+          }}
+        >
+          Bỏ qua →
+        </button>
+
+        {/* Memory Popup Modal */}
+        {showDifficultMemoryPopup && currentItem.memory && (
+          <div className="memory-popup-overlay" onClick={() => setShowDifficultMemoryPopup(false)}>
+            <div className="memory-popup" onClick={e => e.stopPropagation()}>
+              <div className="memory-popup-header">
+                <div className="memory-popup-title">
+                  <span className="popup-word">{currentItem.vocabulary.korean}</span>
+                </div>
+                <button className="popup-close-btn" onClick={() => setShowDifficultMemoryPopup(false)}>✕</button>
+              </div>
+              <div className="memory-popup-content">
+                <div 
+                  className="memory-full-content"
+                  onClick={handleDifficultMemoryClick}
+                  dangerouslySetInnerHTML={{ __html: difficultProcessedMemoryHtml }}
+                />
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
+    );
+  };
+
   const renderLearnTab = () => {
     if (selectedVocabulary) {
       return (
@@ -1486,6 +2012,15 @@ export const VocabularyMemoryScene: React.FC<VocabularyMemorySceneProps> = ({
           )}
         </button>
         <button 
+          className={`tab ${activeTab === 'difficult' ? 'active' : ''}`}
+          onClick={() => setActiveTab('difficult')}
+        >
+          🔥 Từ khó
+          {difficultVocabularies.length > 0 && (
+            <span className="badge difficult">{difficultVocabularies.length}</span>
+          )}
+        </button>
+        <button 
           className={`tab ${activeTab === 'learn' ? 'active' : ''}`}
           onClick={() => setActiveTab('learn')}
         >
@@ -1495,7 +2030,9 @@ export const VocabularyMemoryScene: React.FC<VocabularyMemorySceneProps> = ({
 
       {/* Content */}
       <div className="tab-content">
-        {activeTab === 'new' ? renderNewWordsTab() : activeTab === 'learn' ? renderLearnTab() : renderReviewTab()}
+        {activeTab === 'new' ? renderNewWordsTab() : 
+         activeTab === 'difficult' ? renderDifficultTab() :
+         activeTab === 'learn' ? renderLearnTab() : renderReviewTab()}
       </div>
 
       {/* Settings Modal */}
@@ -1757,6 +2294,10 @@ export const VocabularyMemoryScene: React.FC<VocabularyMemorySceneProps> = ({
           background: #28a745;
         }
 
+        .tab .badge.difficult {
+          background: #ff6b35;
+        }
+
         .tab-content {
           flex: 1;
           overflow: hidden;
@@ -1772,6 +2313,51 @@ export const VocabularyMemoryScene: React.FC<VocabularyMemorySceneProps> = ({
           align-items: center;
           padding: 20px;
           overflow-y: auto;
+        }
+
+        /* Difficult Words Tab */
+        .difficult-words-tab {
+          flex: 1;
+          display: flex;
+          flex-direction: column;
+          align-items: center;
+          padding: 20px;
+          overflow-y: auto;
+        }
+
+        .difficult-word-card {
+          width: 100%;
+          max-width: 400px;
+          background: #16213e;
+          border-radius: 16px;
+          padding: 24px;
+          box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
+          display: flex;
+          flex-direction: column;
+          align-items: center;
+          gap: 20px;
+        }
+
+        .difficult-badge {
+          background: linear-gradient(135deg, #ff6b35, #e94560);
+          color: white;
+          padding: 6px 16px;
+          border-radius: 20px;
+          font-size: 14px;
+          font-weight: bold;
+        }
+
+        .progress-fill.difficult {
+          background: linear-gradient(90deg, #ff6b35, #e94560);
+        }
+
+        .got-it-btn {
+          background: linear-gradient(135deg, #28a745, #20c997) !important;
+          color: white !important;
+        }
+
+        .got-it-btn:hover {
+          opacity: 0.9;
         }
 
         .new-word-card {
@@ -2751,6 +3337,91 @@ export const VocabularyMemoryScene: React.FC<VocabularyMemorySceneProps> = ({
           padding: 40px;
           text-align: center;
           color: #888;
+        }
+
+        .empty-state .empty-icon {
+          font-size: 64px;
+          margin-bottom: 16px;
+        }
+
+        .empty-state h3 {
+          color: #fff;
+          margin: 0 0 8px 0;
+        }
+
+        .empty-state p {
+          color: #888;
+          margin: 4px 0;
+        }
+
+        /* Session Complete */
+        .session-complete {
+          flex: 1;
+          display: flex;
+          flex-direction: column;
+          align-items: center;
+          justify-content: center;
+          padding: 40px;
+          text-align: center;
+        }
+
+        .session-complete .complete-icon {
+          font-size: 64px;
+          margin-bottom: 16px;
+        }
+
+        .session-complete h3 {
+          color: #fff;
+          margin: 0 0 16px 0;
+          font-size: 24px;
+        }
+
+        .session-complete .complete-stats {
+          margin-bottom: 24px;
+        }
+
+        .session-complete .complete-stats p {
+          color: #ccc;
+          font-size: 16px;
+        }
+
+        .session-complete .complete-stats strong {
+          color: #4ade80;
+          font-size: 20px;
+        }
+
+        .session-complete .restart-btn {
+          padding: 12px 24px;
+          background: linear-gradient(135deg, #667eea, #764ba2);
+          border: none;
+          border-radius: 12px;
+          color: white;
+          font-size: 16px;
+          font-weight: bold;
+          cursor: pointer;
+          margin-bottom: 12px;
+          transition: all 0.2s;
+        }
+
+        .session-complete .restart-btn:hover {
+          transform: scale(1.05);
+          box-shadow: 0 4px 20px rgba(102, 126, 234, 0.4);
+        }
+
+        .session-complete .go-review-btn {
+          padding: 12px 24px;
+          background: transparent;
+          border: 2px solid #667eea;
+          border-radius: 12px;
+          color: #667eea;
+          font-size: 16px;
+          font-weight: bold;
+          cursor: pointer;
+          transition: all 0.2s;
+        }
+
+        .session-complete .go-review-btn:hover {
+          background: rgba(102, 126, 234, 0.1);
         }
 
         /* Review Tab */
