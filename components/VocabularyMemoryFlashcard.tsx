@@ -57,18 +57,28 @@ export const VocabularyMemoryFlashcard: React.FC<VocabularyMemoryFlashcardProps>
   const [state, setState] = useState<FlashcardState>('word');
   const [isAnimating, setIsAnimating] = useState(false);
   const [showMemoryPopup, setShowMemoryPopup] = useState(false);
-  const [selectedCharacterId, setSelectedCharacterId] = useState<string>('');
+  const [selectedCharacterId, setSelectedCharacterId] = useState<string>(characters[0]?.id || '');
   const [isGeneratingAudio, setIsGeneratingAudio] = useState(false);
   const [userAnswer, setUserAnswer] = useState('');
   const [answerResult, setAnswerResult] = useState<'correct' | 'incorrect' | null>(null);
+  // Whether the front word is revealed (initially hidden, click to reveal)
+  const [isWordRevealed, setIsWordRevealed] = useState(false);
   // Card direction: 'kr-vn' = Korean front, Vietnamese answer | 'vn-kr' = Vietnamese front, Korean answer
   // Default to saved preference or 'kr-vn' if not set
   const [cardDirection, setCardDirection] = useState<'kr-vn' | 'vn-kr'>(review.cardDirection || 'kr-vn');
 
-  // Sync cardDirection when switching to a different card
+  // Sync cardDirection and reset isWordRevealed when switching to a different card
   useEffect(() => {
     setCardDirection(review.cardDirection || 'kr-vn');
+    setIsWordRevealed(false);
   }, [review.vocabularyId]);
+
+  // Auto-select first character if none selected
+  useEffect(() => {
+    if (!selectedCharacterId && characters.length > 0) {
+      setSelectedCharacterId(characters[0].id);
+    }
+  }, [characters, selectedCharacterId]);
 
   // Handle audio button clicks in memory HTML
   const handleMemoryClick = useCallback((e: React.MouseEvent) => {
@@ -254,6 +264,7 @@ export const VocabularyMemoryFlashcard: React.FC<VocabularyMemoryFlashcardProps>
     setState('word');
     setUserAnswer('');
     setAnswerResult(null);
+    setIsWordRevealed(false);
   }, [review, settings, onReviewComplete, cardDirection]);
 
   // Handle pronunciation
@@ -382,13 +393,47 @@ export const VocabularyMemoryFlashcard: React.FC<VocabularyMemoryFlashcardProps>
             </button>
           </div>
 
-          {/* Front of card - Question */}
+          {/* Front of card - Question with Audio First */}
           <div className="word-section">
             <div className="section-label">
               {cardDirection === 'vn-kr' ? '📖 Nghĩa tiếng Việt:' : '🇰🇷 Từ tiếng Hàn:'}
             </div>
-            <div className={cardDirection === 'vn-kr' ? 'vietnamese-word-front' : 'korean-word-front'}>
-              {cardDirection === 'vn-kr' ? vocabulary.vietnamese : vocabulary.korean}
+            
+            {/* Audio button - Always visible on front */}
+            {state === 'word' && onGenerateAudio && onPlayAudio && (
+              <div className="front-audio-section">
+                <button
+                  className="front-pronounce-btn"
+                  onClick={handlePronounce}
+                  disabled={isGeneratingAudio}
+                  title="Nghe phát âm"
+                >
+                  {isGeneratingAudio ? '⏳ Đang tạo...' : '🔊 Nghe phát âm'}
+                </button>
+                <select
+                  className="front-character-select"
+                  value={selectedCharacterId}
+                  onChange={(e) => setSelectedCharacterId(e.target.value)}
+                >
+                  {characters.map(char => (
+                    <option key={char.id} value={char.id}>
+                      {char.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            )}
+            
+            {/* Word - Hidden until revealed */}
+            <div 
+              className={`${cardDirection === 'vn-kr' ? 'vietnamese-word-front' : 'korean-word-front'} ${!isWordRevealed && state === 'word' ? 'word-hidden' : ''}`}
+              onClick={() => !isWordRevealed && state === 'word' && setIsWordRevealed(true)}
+            >
+              {!isWordRevealed && state === 'word' ? (
+                <span className="reveal-hint">👆 Bấm để xem chữ</span>
+              ) : (
+                cardDirection === 'vn-kr' ? vocabulary.vietnamese : vocabulary.korean
+              )}
             </div>
           </div>
 
@@ -741,6 +786,68 @@ export const VocabularyMemoryFlashcard: React.FC<VocabularyMemoryFlashcardProps>
         .word-section {
           text-align: center;
           padding: 16px 0;
+        }
+
+        .front-audio-section {
+          display: flex;
+          flex-direction: column;
+          align-items: center;
+          gap: 12px;
+          margin-bottom: 16px;
+        }
+
+        .front-pronounce-btn {
+          width: 100%;
+          padding: 16px 24px;
+          font-size: 20px;
+          background: linear-gradient(135deg, #667eea, #764ba2);
+          border: none;
+          border-radius: 12px;
+          color: #fff;
+          cursor: pointer;
+          transition: all 0.2s;
+          font-weight: bold;
+        }
+
+        .front-pronounce-btn:hover:not(:disabled) {
+          transform: scale(1.02);
+          box-shadow: 0 4px 20px rgba(102, 126, 234, 0.4);
+        }
+
+        .front-pronounce-btn:disabled {
+          opacity: 0.7;
+          cursor: not-allowed;
+        }
+
+        .front-character-select {
+          padding: 8px 16px;
+          font-size: 14px;
+          border: 1px solid rgba(255, 255, 255, 0.2);
+          border-radius: 20px;
+          background: rgba(255, 255, 255, 0.05);
+          color: #ccc;
+          cursor: pointer;
+          outline: none;
+        }
+
+        .word-hidden {
+          background: linear-gradient(135deg, rgba(102, 126, 234, 0.2), rgba(118, 75, 162, 0.2));
+          border: 2px dashed rgba(102, 126, 234, 0.5);
+          border-radius: 12px;
+          padding: 20px;
+          cursor: pointer;
+          transition: all 0.2s;
+        }
+
+        .word-hidden:hover {
+          background: linear-gradient(135deg, rgba(102, 126, 234, 0.3), rgba(118, 75, 162, 0.3));
+          border-color: rgba(102, 126, 234, 0.7);
+        }
+
+        .reveal-hint {
+          color: #888;
+          font-size: 16px;
+          font-weight: normal;
         }
 
         .korean-word {

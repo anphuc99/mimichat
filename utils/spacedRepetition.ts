@@ -838,8 +838,16 @@ export function getVocabulariesDueForMemoryReview(
     }
   }
   
-  // Sort by stability (lower = more urgent)
-  dueVocabularies.sort((a, b) => (a.review.stability || 0) - (b.review.stability || 0));
+  // Sort by lastReviewDate (most recently reviewed first - closest to today)
+  // Example: today=12/1, lastReview=11/1 (1 day ago) comes BEFORE lastReview=10/1 (2 days ago)
+  const now = Date.now();
+  dueVocabularies.sort((a, b) => {
+    const lastA = a.review.lastReviewDate ? new Date(a.review.lastReviewDate).getTime() : 0;
+    const lastB = b.review.lastReviewDate ? new Date(b.review.lastReviewDate).getTime() : 0;
+    
+    // Sort descending by lastReviewDate (most recent first)
+    return lastB - lastA;
+  });
   
   // Apply maxReviewsPerDay limit
   return dueVocabularies.slice(0, settings.maxReviewsPerDay);

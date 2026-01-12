@@ -144,11 +144,10 @@ export const VocabularyMemoryScene: React.FC<VocabularyMemorySceneProps> = ({
   // Initialize review queue when switching to review tab (NO auto-add - user learns new words in New tab)
   useEffect(() => {
     if (activeTab === 'review' && reviewQueue.length === 0 && dueReviews.length > 0) {
-      // Shuffle the queue
-      const shuffled = [...dueReviews].sort(() => Math.random() - 0.5);
-      setReviewQueue(shuffled);
+      // Keep sorted order (already sorted by nextReviewDate - most overdue first)
+      setReviewQueue([...dueReviews]);
       setCurrentReviewIndex(0);
-      setReviewSessionStats({ total: shuffled.length, remembered: 0, forgot: 0 });
+      setReviewSessionStats({ total: dueReviews.length, remembered: 0, forgot: 0 });
       setIsReviewComplete(false);
     }
   }, [activeTab, dueReviews, reviewQueue.length]);
@@ -468,13 +467,15 @@ export const VocabularyMemoryScene: React.FC<VocabularyMemorySceneProps> = ({
   const [showNewWordMemoryPopup, setShowNewWordMemoryPopup] = useState(false);
   const [showSearchPopup, setShowSearchPopup] = useState(false);
   const [searchWord, setSearchWord] = useState<string>('');
-  const [selectedNewWordCharacterId, setSelectedNewWordCharacterId] = useState<string>('');
+  const [selectedNewWordCharacterId, setSelectedNewWordCharacterId] = useState<string>(characters[0]?.id || '');
   const [isNewWordGeneratingAudio, setIsNewWordGeneratingAudio] = useState(false);
   const [newWordUserAnswer, setNewWordUserAnswer] = useState('');
   const [newWordAnswerResult, setNewWordAnswerResult] = useState<'correct' | 'incorrect' | null>(null);
   // Card direction: 'kr-vn' = Korean front, Vietnamese answer | 'vn-kr' = Vietnamese front, Korean answer
   // Default to 'kr-vn' for new words (no saved preference yet)
   const [newWordCardDirection, setNewWordCardDirection] = useState<'kr-vn' | 'vn-kr'>('kr-vn');
+  // Whether the front word is revealed (initially hidden, click to reveal)
+  const [isNewWordRevealed, setIsNewWordRevealed] = useState(false);
 
   // Initialize new words queue when switching to new tab
   useEffect(() => {
@@ -485,8 +486,21 @@ export const VocabularyMemoryScene: React.FC<VocabularyMemorySceneProps> = ({
       setNewWordState('word');
       setNewWordsSessionStats({ total: toLearn.length, learned: 0 });
       setIsNewWordsComplete(false);
+      setIsNewWordRevealed(false);
     }
   }, [activeTab, newVocabularies, newWordsQueue.length, fsrsSettings.newCardsPerDay]);
+
+  // Reset isNewWordRevealed when switching to next word
+  useEffect(() => {
+    setIsNewWordRevealed(false);
+  }, [currentNewWordIndex]);
+
+  // Auto-select first character if none selected
+  useEffect(() => {
+    if (!selectedNewWordCharacterId && characters.length > 0) {
+      setSelectedNewWordCharacterId(characters[0].id);
+    }
+  }, [characters, selectedNewWordCharacterId]);
 
   // Handle audio button clicks in memory HTML
   const handleNewWordMemoryClick = useCallback((e: React.MouseEvent) => {
@@ -743,6 +757,7 @@ export const VocabularyMemoryScene: React.FC<VocabularyMemorySceneProps> = ({
     setNewWordState('word');
     setNewWordUserAnswer('');
     setNewWordAnswerResult(null);
+    setIsNewWordRevealed(false);
     if (currentNewWordIndex < newWordsQueue.length - 1) {
       setCurrentNewWordIndex(prev => prev + 1);
     } else {
@@ -836,13 +851,47 @@ export const VocabularyMemoryScene: React.FC<VocabularyMemorySceneProps> = ({
               </button>
             </div>
 
-            {/* Front of card - Question */}
+            {/* Front of card - Question with Audio First */}
             <div className="word-section">
               <div className="section-label">
                 {newWordCardDirection === 'vn-kr' ? '📖 Nghĩa tiếng Việt:' : '🇰🇷 Từ tiếng Hàn:'}
               </div>
-              <div className={newWordCardDirection === 'vn-kr' ? 'vietnamese-word-front' : 'korean-word-front'}>
-                {newWordCardDirection === 'vn-kr' ? currentItem.vocabulary.vietnamese : currentItem.vocabulary.korean}
+              
+              {/* Audio button - Always visible on front */}
+              {newWordState === 'word' && onGenerateAudio && onPlayAudio && (
+                <div className="front-audio-section">
+                  <button
+                    className="front-pronounce-btn"
+                    onClick={handleNewWordPronounce}
+                    disabled={isNewWordGeneratingAudio}
+                    title="Nghe phát âm"
+                  >
+                    {isNewWordGeneratingAudio ? '⏳ Đang tạo...' : '🔊 Nghe phát âm'}
+                  </button>
+                  <select
+                    className="front-character-select"
+                    value={selectedNewWordCharacterId}
+                    onChange={(e) => setSelectedNewWordCharacterId(e.target.value)}
+                  >
+                    {characters.map(char => (
+                      <option key={char.id} value={char.id}>
+                        {char.name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              )}
+              
+              {/* Word - Hidden until revealed */}
+              <div 
+                className={`${newWordCardDirection === 'vn-kr' ? 'vietnamese-word-front' : 'korean-word-front'} ${!isNewWordRevealed && newWordState === 'word' ? 'word-hidden' : ''}`}
+                onClick={() => !isNewWordRevealed && newWordState === 'word' && setIsNewWordRevealed(true)}
+              >
+                {!isNewWordRevealed && newWordState === 'word' ? (
+                  <span className="reveal-hint">👆 Bấm để xem chữ</span>
+                ) : (
+                  newWordCardDirection === 'vn-kr' ? currentItem.vocabulary.vietnamese : currentItem.vocabulary.korean
+                )}
               </div>
             </div>
 
@@ -2042,6 +2091,69 @@ export const VocabularyMemoryScene: React.FC<VocabularyMemorySceneProps> = ({
           color: #4ade80;
           font-weight: bold;
           margin-top: 8px;
+        }
+
+        /* Front audio section - Audio first, word hidden */
+        .front-audio-section {
+          display: flex;
+          flex-direction: column;
+          align-items: center;
+          gap: 12px;
+          margin-bottom: 16px;
+        }
+
+        .front-pronounce-btn {
+          width: 100%;
+          padding: 16px 24px;
+          font-size: 20px;
+          background: linear-gradient(135deg, #667eea, #764ba2);
+          border: none;
+          border-radius: 12px;
+          color: #fff;
+          cursor: pointer;
+          transition: all 0.2s;
+          font-weight: bold;
+        }
+
+        .front-pronounce-btn:hover:not(:disabled) {
+          transform: scale(1.02);
+          box-shadow: 0 4px 20px rgba(102, 126, 234, 0.4);
+        }
+
+        .front-pronounce-btn:disabled {
+          opacity: 0.7;
+          cursor: not-allowed;
+        }
+
+        .front-character-select {
+          padding: 8px 16px;
+          font-size: 14px;
+          border: 1px solid rgba(255, 255, 255, 0.2);
+          border-radius: 20px;
+          background: rgba(255, 255, 255, 0.05);
+          color: #ccc;
+          cursor: pointer;
+          outline: none;
+        }
+
+        .word-hidden {
+          background: linear-gradient(135deg, rgba(102, 126, 234, 0.2), rgba(118, 75, 162, 0.2));
+          border: 2px dashed rgba(102, 126, 234, 0.5);
+          border-radius: 12px;
+          padding: 20px;
+          cursor: pointer;
+          transition: all 0.2s;
+        }
+
+        .word-hidden:hover {
+          background: linear-gradient(135deg, rgba(102, 126, 234, 0.3), rgba(118, 75, 162, 0.3));
+          border-color: rgba(102, 126, 234, 0.7);
+        }
+
+        .reveal-hint {
+          color: #888;
+          font-size: 16px;
+          font-weight: normal;
         }
 
         /* Answer input section */
