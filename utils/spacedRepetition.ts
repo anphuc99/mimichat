@@ -1052,3 +1052,138 @@ export function getDifficultVocabulariesToday(
   
   return difficultVocabs;
 }
+
+/**
+ * Get difficult vocabularies today for Review Scene (with messages)
+ * This is for "Tổng ôn" feature - only reviews words rated Hard/Again today
+ */
+export function getDifficultVocabulariesForReview(
+  journal: DailyChat[]
+): {
+  vocabulary: VocabularyItem;
+  review: VocabularyReview;
+  dailyChat: DailyChat;
+  messages: Message[];
+}[] {
+  const todayStr = getVietnamDateString(new Date());
+  
+  const difficultVocabs: {
+    vocabulary: VocabularyItem;
+    review: VocabularyReview;
+    dailyChat: DailyChat;
+    messages: Message[];
+  }[] = [];
+  
+  for (const dailyChat of journal) {
+    if (!dailyChat.reviewSchedule || !dailyChat.vocabularies) continue;
+    
+    for (const review of dailyChat.reviewSchedule) {
+      if (!review.reviewHistory || review.reviewHistory.length === 0) continue;
+      
+      // Check if there's a Hard or Again rating from today
+      const todayDifficultReview = review.reviewHistory.find(h => {
+        const reviewDateStr = getVietnamDateString(new Date(h.date));
+        return reviewDateStr === todayStr && h.rating !== undefined && (h.rating === 1 || h.rating === 2);
+      });
+      
+      if (todayDifficultReview && todayDifficultReview.rating) {
+        const vocabulary = dailyChat.vocabularies.find(v => v.id === review.vocabularyId);
+        
+        if (vocabulary) {
+          difficultVocabs.push({
+            vocabulary,
+            review: migrateLegacyToFSRS(review),
+            dailyChat,
+            messages: dailyChat.messages
+          });
+        }
+      }
+    }
+  }
+  
+  // Sort by: rating (Again=1 first, then Hard=2), then stability (lower=more urgent), then difficulty (higher=harder)
+  difficultVocabs.sort((a, b) => {
+    // Get today's rating for both
+    const todayStr = getVietnamDateString(new Date());
+    const ratingA = a.review.reviewHistory.find(h => {
+      const reviewDateStr = getVietnamDateString(new Date(h.date));
+      return reviewDateStr === todayStr && (h.rating === 1 || h.rating === 2);
+    })?.rating || 0;
+    
+    const ratingB = b.review.reviewHistory.find(h => {
+      const reviewDateStr = getVietnamDateString(new Date(h.date));
+      return reviewDateStr === todayStr && (h.rating === 1 || h.rating === 2);
+    })?.rating || 0;
+    
+    // First, sort by rating (1=Again comes first, then 2=Hard)
+    if (ratingA !== ratingB) {
+      return ratingA - ratingB;
+    }
+    
+    // Then, sort by stability (lower stability = more urgent, comes first)
+    const stabilityA = a.review.stability || 0;
+    const stabilityB = b.review.stability || 0;
+    if (stabilityA !== stabilityB) {
+      return stabilityA - stabilityB;
+    }
+    
+    // Finally, sort by difficulty (higher difficulty = harder, comes first)
+    const difficultyA = a.review.difficulty || 5;
+    const difficultyB = b.review.difficulty || 5;
+    return difficultyB - difficultyA;
+  });
+  
+  return difficultVocabs;
+}
+
+/**
+ * Get count of difficult vocabularies today
+ */
+export function getDifficultVocabulariesCount(journal: DailyChat[]): number {
+  return getDifficultVocabulariesToday(journal).length;
+}
+
+/**
+ * Get ALL vocabularies that have been learned (have reviewSchedule)
+ * This is for "Tổng ôn" feature - reviews all learned words, not just due ones
+ */
+export function getAllLearnedVocabulariesForReview(
+  journal: DailyChat[]
+): {
+  vocabulary: VocabularyItem;
+  review: VocabularyReview;
+  dailyChat: DailyChat;
+  messages: Message[];
+}[] {
+  const learnedVocabularies: {
+    vocabulary: VocabularyItem;
+    review: VocabularyReview;
+    dailyChat: DailyChat;
+    messages: Message[];
+  }[] = [];
+  
+  for (const dailyChat of journal) {
+    if (!dailyChat.reviewSchedule || !dailyChat.vocabularies) continue;
+    
+    for (const review of dailyChat.reviewSchedule) {
+      const vocabulary = dailyChat.vocabularies.find(v => v.id === review.vocabularyId);
+      
+      if (vocabulary) {
+        learnedVocabularies.push({
+          vocabulary,
+          review,
+          dailyChat,
+          messages: dailyChat.messages
+        });
+      }
+    }
+  }
+  
+  // Shuffle the array for variety
+  for (let i = learnedVocabularies.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [learnedVocabularies[i], learnedVocabularies[j]] = [learnedVocabularies[j], learnedVocabularies[i]];
+  }
+  
+  return learnedVocabularies;
+}

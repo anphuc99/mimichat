@@ -16,7 +16,7 @@ import { ChatVocabularyModal } from './components/ChatVocabularyModal';
 import type { Message, ChatJournal, DailyChat, Character, SavedData, CharacterThought, VocabularyItem, VocabularyReview, StreakData, KoreanLevel, StoryMeta, StoriesIndex, FSRSSettings, VocabularyDifficultyRating, FSRSRating } from './types';
 import { DEFAULT_FSRS_SETTINGS } from './types';
 import { initializeGeminiService, initChat, sendMessage, textToSpeech, translateAndExplainText, translateWord, summarizeConversation, generateCharacterThoughts, generateToneDescription, generateRelationshipSummary, generateContextSuggestion, generateMessageSuggestions, generateVocabulary, generateSceneImage, initAutoChatSession, sendAutoChatMessage, uploadAudio, sendAudioMessage } from './services/geminiService';
-import { getVocabulariesDueForReview, initializeFSRSReview, initializeFSRSWithDifficulty, updateFSRSReview, getReviewDueCount, getTotalVocabulariesLearned } from './utils/spacedRepetition';
+import { getVocabulariesDueForReview, initializeFSRSReview, initializeFSRSWithDifficulty, updateFSRSReview, getReviewDueCount, getTotalVocabulariesLearned, getDifficultVocabulariesForReview, getDifficultVocabulariesCount } from './utils/spacedRepetition';
 import { initializeStreak, updateStreak, checkStreakStatus } from './utils/streakManager';
 import { formatJournalForSearch, parseSystemCommand, executeSystemCommand, type FormattedJournal } from './utils/storySearch';
 import { KOREAN_LEVELS } from './types';
@@ -1932,10 +1932,11 @@ const App: React.FC = () => {
 
   // Review mode handlers
   const handleStartReview = useCallback(() => {
-    const reviewItems = getVocabulariesDueForReview(journal, []);
+    // Get difficult vocabularies (Hard/Again) from today for review
+    const reviewItems = getDifficultVocabulariesForReview(journal);
     
     if (reviewItems.length === 0) {
-      alert('Không có từ vựng nào cần ôn tập hôm nay!');
+      alert('Không có từ khó nào cần ôn tập hôm nay!');
       return;
     }
     
@@ -3180,7 +3181,7 @@ const App: React.FC = () => {
           onStartVocabulary={handleStartVocabulary}
           onStartReview={handleStartReview}
           onStartMemory={handleStartMemory}
-          reviewDueCount={getReviewDueCount(journal)}
+          reviewDueCount={getDifficultVocabulariesCount(journal)}
           streak={streak}
           onCollectVocabulary={handleCollectVocabulary}
           onDownloadTxt={handleDownloadTxt}

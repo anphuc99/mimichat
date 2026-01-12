@@ -875,6 +875,56 @@ export const VocabularyMemoryScene: React.FC<VocabularyMemorySceneProps> = ({
     }
   }, [difficultQueue.length, currentDifficultIndex]);
 
+  // Handle "Nhớ" (Remember) - remove from queue and move to next
+  const handleDifficultRemember = useCallback(() => {
+    setDifficultSessionStats(prev => ({
+      ...prev,
+      practiced: prev.practiced + 1
+    }));
+
+    // Remove current item from queue
+    const newQueue = [...difficultQueue];
+    newQueue.splice(currentDifficultIndex, 1);
+    setDifficultQueue(newQueue);
+
+    // Reset state for next card
+    setDifficultWordState('word');
+    setDifficultUserAnswer('');
+    setDifficultAnswerResult(null);
+    setIsDifficultWordRevealed(false);
+
+    // Check if complete
+    if (newQueue.length === 0) {
+      setIsDifficultComplete(true);
+    }
+    // currentDifficultIndex stays same (next item shifts into this position)
+    // but if we're at the end, we need to go back
+    else if (currentDifficultIndex >= newQueue.length) {
+      setCurrentDifficultIndex(newQueue.length - 1);
+    }
+  }, [difficultQueue, currentDifficultIndex]);
+
+  // Handle "Quên" (Forgot) - move to end of queue
+  const handleDifficultForgot = useCallback(() => {
+    // Move current item to end of queue
+    const newQueue = [...difficultQueue];
+    const currentItem = newQueue.splice(currentDifficultIndex, 1)[0];
+    newQueue.push(currentItem);
+    setDifficultQueue(newQueue);
+
+    // Reset state for next card
+    setDifficultWordState('word');
+    setDifficultUserAnswer('');
+    setDifficultAnswerResult(null);
+    setIsDifficultWordRevealed(false);
+
+    // If we were at the last item (now moved to end), wrap around
+    if (currentDifficultIndex >= newQueue.length - 1) {
+      // Stay at same index, next item shifted into position
+    }
+    // currentDifficultIndex stays same (next item shifts into this position)
+  }, [difficultQueue, currentDifficultIndex]);
+
   // Process memory HTML for difficult word
   const difficultProcessedMemoryHtml = useMemo(() => {
     if (difficultQueue.length === 0 || currentDifficultIndex >= difficultQueue.length) return '';
@@ -1619,12 +1669,20 @@ export const VocabularyMemoryScene: React.FC<VocabularyMemorySceneProps> = ({
             )}
 
             {difficultWordState === 'answer' && (
-              <button 
-                className="action-btn got-it-btn full-width"
-                onClick={handleDifficultGotIt}
-              >
-                ✅ Đã nhớ, tiếp tục!
-              </button>
+              <div className="difficult-rating-buttons">
+                <button 
+                  className="action-btn forgot-btn"
+                  onClick={handleDifficultForgot}
+                >
+                  😔 Quên
+                </button>
+                <button 
+                  className="action-btn remember-btn"
+                  onClick={handleDifficultRemember}
+                >
+                  😊 Nhớ
+                </button>
+              </div>
             )}
           </div>
         </div>
@@ -2358,6 +2416,39 @@ export const VocabularyMemoryScene: React.FC<VocabularyMemorySceneProps> = ({
 
         .got-it-btn:hover {
           opacity: 0.9;
+        }
+
+        /* Difficult rating buttons */
+        .difficult-rating-buttons {
+          display: flex;
+          gap: 12px;
+          width: 100%;
+        }
+
+        .forgot-btn {
+          flex: 1;
+          background: linear-gradient(135deg, #ef4444, #dc2626) !important;
+          color: white !important;
+          padding: 14px !important;
+          font-size: 16px !important;
+        }
+
+        .forgot-btn:hover {
+          opacity: 0.9;
+          transform: scale(1.02);
+        }
+
+        .remember-btn {
+          flex: 1;
+          background: linear-gradient(135deg, #4ade80, #22c55e) !important;
+          color: white !important;
+          padding: 14px !important;
+          font-size: 16px !important;
+        }
+
+        .remember-btn:hover {
+          opacity: 0.9;
+          transform: scale(1.02);
         }
 
         .new-word-card {
