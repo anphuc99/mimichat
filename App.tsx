@@ -16,7 +16,7 @@ import { ChatVocabularyModal } from './components/ChatVocabularyModal';
 import type { Message, ChatJournal, DailyChat, Character, SavedData, CharacterThought, VocabularyItem, VocabularyReview, StreakData, KoreanLevel, StoryMeta, StoriesIndex, FSRSSettings, VocabularyDifficultyRating, FSRSRating } from './types';
 import { DEFAULT_FSRS_SETTINGS } from './types';
 import { initializeGeminiService, initChat, sendMessage, textToSpeech, translateAndExplainText, translateWord, summarizeConversation, generateCharacterThoughts, generateToneDescription, generateRelationshipSummary, generateContextSuggestion, generateMessageSuggestions, generateVocabulary, generateSceneImage, initAutoChatSession, sendAutoChatMessage, uploadAudio, sendAudioMessage } from './services/geminiService';
-import { getVocabulariesDueForReview, initializeFSRSReview, initializeFSRSWithDifficulty, updateFSRSReview, getReviewDueCount, getTotalVocabulariesLearned, getDifficultVocabulariesForReview, getDifficultVocabulariesCount } from './utils/spacedRepetition';
+import { getVocabulariesDueForReview, initializeFSRSReview, initializeFSRSWithDifficulty, updateFSRSReview, getReviewDueCount, getTotalVocabulariesLearned, getDifficultVocabulariesForReview, getDifficultVocabulariesCount, getStarredVocabulariesForReview, getStarredVocabulariesCount, toggleVocabularyStar } from './utils/spacedRepetition';
 import { initializeStreak, updateStreak, checkStreakStatus } from './utils/streakManager';
 import { formatJournalForSearch, parseSystemCommand, executeSystemCommand, type FormattedJournal } from './utils/storySearch';
 import { KOREAN_LEVELS } from './types';
@@ -1945,6 +1945,19 @@ const App: React.FC = () => {
     setView('review');
   }, [journal]);
 
+  // Handler for starred vocabularies review
+  const handleStartStarredReview = useCallback(() => {
+    const reviewItems = getStarredVocabulariesForReview(journal);
+    
+    if (reviewItems.length === 0) {
+      alert('Chưa có từ vựng nào được đánh dấu sao!');
+      return;
+    }
+    
+    setCurrentReviewItems(reviewItems);
+    setView('review');
+  }, [journal]);
+
   // Handler for completing review (just return to journal, FSRS updates are done via ASK_VOCAB_DIFFICULTY)
   const handleReviewComplete = useCallback(async () => {
     // Update streak after completing review
@@ -3180,8 +3193,10 @@ const App: React.FC = () => {
           onGenerateVocabulary={handleGenerateVocabulary}
           onStartVocabulary={handleStartVocabulary}
           onStartReview={handleStartReview}
+          onStartStarredReview={handleStartStarredReview}
           onStartMemory={handleStartMemory}
           reviewDueCount={getDifficultVocabulariesCount(journal)}
+          starredCount={getStarredVocabulariesCount(journal)}
           streak={streak}
           onCollectVocabulary={handleCollectVocabulary}
           onDownloadTxt={handleDownloadTxt}

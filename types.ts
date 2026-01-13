@@ -102,6 +102,8 @@ export interface VocabularyReview {
   lapses?: number; // Number of times rated "Again"
   // Card direction preference: 'kr-vn' = Korean→Vietnamese, 'vn-kr' = Vietnamese→Korean
   cardDirection?: 'kr-vn' | 'vn-kr';
+  // Star/Favorite marking
+  isStarred?: boolean; // User can mark important/favorite words
 }
 
 export interface VocabularyProgress {

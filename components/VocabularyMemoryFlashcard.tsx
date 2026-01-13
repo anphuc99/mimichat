@@ -27,6 +27,7 @@ interface VocabularyMemoryFlashcardProps {
   onSearchWord?: () => void;
   onCardDirectionChange?: (direction: 'kr-vn' | 'vn-kr') => void;
   onResetFSRS?: (resetReview: VocabularyReview) => void;
+  onToggleStar?: (vocabularyId: string) => void;
   wordUsageCount?: number;
   currentIndex: number;
   totalCount: number;
@@ -50,6 +51,7 @@ export const VocabularyMemoryFlashcard: React.FC<VocabularyMemoryFlashcardProps>
   onSearchWord,
   onCardDirectionChange,
   onResetFSRS,
+  onToggleStar,
   wordUsageCount = 0,
   currentIndex,
   totalCount
@@ -339,6 +341,17 @@ export const VocabularyMemoryFlashcard: React.FC<VocabularyMemoryFlashcardProps>
 
       {/* Card */}
       <div className={`flashcard ${isAnimating ? 'animating' : ''}`}>
+        {/* Star Button */}
+        {onToggleStar && (
+          <button
+            className={`star-btn ${review.isStarred ? 'starred' : ''}`}
+            onClick={() => onToggleStar(vocabulary.id)}
+            title={review.isStarred ? 'Bỏ đánh dấu sao' : 'Đánh dấu sao'}
+          >
+            {review.isStarred ? '⭐' : '☆'}
+          </button>
+        )}
+
         {/* Reset FSRS Button */}
         {onResetFSRS && (
           <button
@@ -698,6 +711,40 @@ export const VocabularyMemoryFlashcard: React.FC<VocabularyMemoryFlashcardProps>
         .flashcard.animating {
           transform: scale(0.98);
           opacity: 0.8;
+        }
+
+        .star-btn {
+          position: absolute;
+          top: 8px;
+          left: 8px;
+          width: 32px;
+          height: 32px;
+          border-radius: 50%;
+          background: rgba(234, 179, 8, 0.1);
+          border: 1px solid rgba(234, 179, 8, 0.3);
+          color: #9ca3af;
+          font-size: 18px;
+          cursor: pointer;
+          transition: all 0.2s;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          z-index: 10;
+        }
+
+        .star-btn:hover {
+          background: rgba(234, 179, 8, 0.3);
+          transform: scale(1.1);
+        }
+
+        .star-btn.starred {
+          background: rgba(234, 179, 8, 0.3);
+          border-color: rgba(234, 179, 8, 0.6);
+          color: #eab308;
+        }
+
+        .star-btn.starred:hover {
+          background: rgba(234, 179, 8, 0.5);
         }
 
         .reset-fsrs-btn {

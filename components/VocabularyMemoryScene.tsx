@@ -7,7 +7,8 @@ import type {
   DailyChat,
   FSRSRating,
   FSRSSettings,
-  Character
+  Character,
+  Message
 } from '../types';
 import { DEFAULT_FSRS_SETTINGS } from '../types';
 import { 
@@ -17,7 +18,10 @@ import {
   getNewVocabulariesWithoutReview,
   getVocabularyStats,
   calculateNewCardInterval,
-  getDifficultVocabulariesToday
+  getDifficultVocabulariesToday,
+  toggleVocabularyStar,
+  getStarredVocabulariesForReview,
+  getStarredVocabulariesCount
 } from '../utils/spacedRepetition';
 import VocabularyMemoryFlashcard from './VocabularyMemoryFlashcard';
 import VocabularyMemoryEditor from './VocabularyMemoryEditor';
@@ -30,7 +34,7 @@ const escapeHtml = (text: string): string => {
   return div.innerHTML;
 };
 
-type Tab = 'new' | 'review' | 'difficult' | 'learn';
+type Tab = 'new' | 'review' | 'difficult' | 'starred' | 'learn';
 
 interface VocabularyMemorySceneProps {
   journal: ChatJournal;
@@ -75,7 +79,7 @@ export const VocabularyMemoryScene: React.FC<VocabularyMemorySceneProps> = ({
     korean: string;
     vietnamese: string;
   } | null>(null);
-  const [filterMode, setFilterMode] = useState<'all' | 'with-memory' | 'without-memory' | 'learned' | 'not-learned'>('all');
+  const [filterMode, setFilterMode] = useState<'all' | 'with-memory' | 'without-memory' | 'learned' | 'not-learned' | 'starred'>('all');
   
   // Review tab state
   const [reviewQueue, setReviewQueue] = useState<{
@@ -132,10 +136,17 @@ export const VocabularyMemoryScene: React.FC<VocabularyMemorySceneProps> = ({
       filtered = filtered.filter(v => v.review !== undefined);
     } else if (filterMode === 'not-learned') {
       filtered = filtered.filter(v => v.review === undefined);
+    } else if (filterMode === 'starred') {
+      filtered = filtered.filter(v => v.review?.isStarred === true);
     }
 
     return filtered;
   }, [allVocabularies, filterText, filterMode]);
+
+  // Get starred vocabularies count
+  const starredCount = useMemo(() => {
+    return getStarredVocabulariesCount(journal);
+  }, [journal]);
 
   // Get due reviews
   const dueReviews = useMemo(() => {
@@ -292,6 +303,27 @@ export const VocabularyMemoryScene: React.FC<VocabularyMemorySceneProps> = ({
     };
     setReviewQueue(updatedQueue);
   }, [journal, onUpdateJournal, reviewQueue, currentReviewIndex]);
+
+  // Handle toggle star for vocabulary
+  const handleToggleStar = useCallback((vocabularyId: string) => {
+    const result = toggleVocabularyStar(journal, vocabularyId);
+    if (result) {
+      onUpdateJournal(result.updatedJournal);
+      
+      // Update the review queue so the change reflects immediately
+      const updatedReviewQueue = reviewQueue.map(item => {
+        if (item.review.vocabularyId === vocabularyId) {
+          return {
+            ...item,
+            review: { ...item.review, isStarred: result.isStarred },
+            isStarred: result.isStarred
+          };
+        }
+        return item;
+      });
+      setReviewQueue(updatedReviewQueue);
+    }
+  }, [journal, onUpdateJournal, reviewQueue]);
 
   // Handle edit memory from review flashcard
   const handleEditMemoryFromReview = useCallback(() => {
@@ -506,6 +538,29 @@ export const VocabularyMemoryScene: React.FC<VocabularyMemorySceneProps> = ({
   const [difficultCardDirection, setDifficultCardDirection] = useState<'kr-vn' | 'vn-kr'>('kr-vn');
   const [isDifficultWordRevealed, setIsDifficultWordRevealed] = useState(false);
 
+  // State for starred words tab
+  const [starredQueue, setStarredQueue] = useState<{
+    vocabulary: VocabularyItem;
+    review: VocabularyReview;
+    dailyChat: DailyChat;
+    memory?: VocabularyMemoryEntry;
+    isStarred?: boolean;
+  }[]>([]);
+  const [currentStarredIndex, setCurrentStarredIndex] = useState(0);
+  const [starredWordState, setStarredWordState] = useState<'word' | 'memory' | 'answer'>('word');
+  const [starredSessionStats, setStarredSessionStats] = useState({
+    total: 0,
+    practiced: 0
+  });
+  const [isStarredComplete, setIsStarredComplete] = useState(false);
+  const [showStarredMemoryPopup, setShowStarredMemoryPopup] = useState(false);
+  const [selectedStarredCharacterId, setSelectedStarredCharacterId] = useState<string>(characters[0]?.id || '');
+  const [isStarredGeneratingAudio, setIsStarredGeneratingAudio] = useState(false);
+  const [starredUserAnswer, setStarredUserAnswer] = useState('');
+  const [starredAnswerResult, setStarredAnswerResult] = useState<'correct' | 'incorrect' | null>(null);
+  const [starredCardDirection, setStarredCardDirection] = useState<'kr-vn' | 'vn-kr'>('kr-vn');
+  const [isStarredWordRevealed, setIsStarredWordRevealed] = useState(false);
+
   // Initialize new words queue when switching to new tab
   useEffect(() => {
     if (activeTab === 'new' && newWordsQueue.length === 0 && newVocabularies.length > 0) {
@@ -531,6 +586,21 @@ export const VocabularyMemoryScene: React.FC<VocabularyMemorySceneProps> = ({
     }
   }, [activeTab, difficultVocabularies, difficultQueue.length]);
 
+  // Initialize starred queue when switching to starred tab
+  useEffect(() => {
+    if (activeTab === 'starred' && starredQueue.length === 0) {
+      const starredItems = getStarredVocabulariesForReview(journal);
+      if (starredItems.length > 0) {
+        setStarredQueue(starredItems);
+        setCurrentStarredIndex(0);
+        setStarredWordState('word');
+        setStarredSessionStats({ total: starredItems.length, practiced: 0 });
+        setIsStarredComplete(false);
+        setIsStarredWordRevealed(false);
+      }
+    }
+  }, [activeTab, journal, starredQueue.length]);
+
   // Reset isNewWordRevealed when switching to next word
   useEffect(() => {
     setIsNewWordRevealed(false);
@@ -541,6 +611,11 @@ export const VocabularyMemoryScene: React.FC<VocabularyMemorySceneProps> = ({
     setIsDifficultWordRevealed(false);
   }, [currentDifficultIndex]);
 
+  // Reset isStarredWordRevealed when switching to next starred word
+  useEffect(() => {
+    setIsStarredWordRevealed(false);
+  }, [currentStarredIndex]);
+
   // Auto-select first character if none selected
   useEffect(() => {
     if (!selectedNewWordCharacterId && characters.length > 0) {
@@ -549,7 +624,55 @@ export const VocabularyMemoryScene: React.FC<VocabularyMemorySceneProps> = ({
     if (!selectedDifficultCharacterId && characters.length > 0) {
       setSelectedDifficultCharacterId(characters[0].id);
     }
-  }, [characters, selectedNewWordCharacterId, selectedDifficultCharacterId]);
+    if (!selectedStarredCharacterId && characters.length > 0) {
+      setSelectedStarredCharacterId(characters[0].id);
+    }
+  }, [characters, selectedNewWordCharacterId, selectedDifficultCharacterId, selectedStarredCharacterId]);
+
+  // Update difficult and starred queues when journal changes (for star status updates)
+  useEffect(() => {
+    if (difficultQueue.length > 0) {
+      const updatedDifficultQueue = difficultQueue.map(item => {
+        // Find current star status from journal
+        for (const dc of journal) {
+          if (dc.reviewSchedule) {
+            const review = dc.reviewSchedule.find(r => r.vocabularyId === item.vocabulary.id);
+            if (review) {
+              return { ...item, isStarred: review.isStarred };
+            }
+          }
+        }
+        return item;
+      });
+      // Only update if something changed
+      const hasChanges = updatedDifficultQueue.some((item, idx) => item.isStarred !== difficultQueue[idx].isStarred);
+      if (hasChanges) {
+        setDifficultQueue(updatedDifficultQueue);
+      }
+    }
+  }, [journal]);
+
+  useEffect(() => {
+    if (starredQueue.length > 0) {
+      const updatedStarredQueue = starredQueue.map(item => {
+        // Find current star status from journal
+        for (const dc of journal) {
+          if (dc.reviewSchedule) {
+            const review = dc.reviewSchedule.find(r => r.vocabularyId === item.vocabulary.id);
+            if (review) {
+              return { ...item, isStarred: review.isStarred };
+            }
+          }
+        }
+        return item;
+      });
+      // Only update if something changed
+      const hasChanges = updatedStarredQueue.some((item, idx) => item.isStarred !== starredQueue[idx].isStarred);
+      if (hasChanges) {
+        setStarredQueue(updatedStarredQueue);
+      }
+    }
+  }, [journal]);
 
   // Handle audio button clicks in memory HTML
   const handleNewWordMemoryClick = useCallback((e: React.MouseEvent) => {
@@ -1022,6 +1145,196 @@ export const VocabularyMemoryScene: React.FC<VocabularyMemorySceneProps> = ({
     }
   }, [onPlayAudio, journal]);
 
+  // ============ STARRED TAB HANDLERS ============
+
+  // Get word usage count for current starred word
+  const currentStarredWordUsageCount = useMemo(() => {
+    if (starredQueue.length === 0 || currentStarredIndex >= starredQueue.length) return 0;
+    if (!journal || journal.length === 0) return 0;
+    
+    const koreanWord = starredQueue[currentStarredIndex].vocabulary.korean;
+    let count = 0;
+    
+    for (const dc of journal) {
+      for (const message of dc.messages) {
+        if (message.text.includes(koreanWord)) {
+          count++;
+        }
+      }
+    }
+    
+    return count;
+  }, [journal, starredQueue, currentStarredIndex]);
+
+  // Handle pronunciation for starred word
+  const handleStarredPronounce = useCallback(async () => {
+    if (!onGenerateAudio || !onPlayAudio || isStarredGeneratingAudio) return;
+    if (starredQueue.length === 0 || currentStarredIndex >= starredQueue.length) return;
+    
+    const currentItem = starredQueue[currentStarredIndex];
+    const selectedChar = characters.find(c => c.id === selectedStarredCharacterId);
+    const voiceName = selectedChar?.voiceName || 'echo';
+    
+    setIsStarredGeneratingAudio(true);
+    try {
+      const audioData = await onGenerateAudio(currentItem.vocabulary.korean, 'slowly and clearly', voiceName);
+      if (audioData) {
+        onPlayAudio(audioData, selectedChar?.name);
+      }
+    } catch (error) {
+      console.error('Failed to generate pronunciation:', error);
+    } finally {
+      setIsStarredGeneratingAudio(false);
+    }
+  }, [onGenerateAudio, onPlayAudio, starredQueue, currentStarredIndex, characters, selectedStarredCharacterId, isStarredGeneratingAudio]);
+
+  // Handle "Nhớ" (Remember) for starred - remove from queue and move to next
+  const handleStarredRemember = useCallback(() => {
+    setStarredSessionStats(prev => ({
+      ...prev,
+      practiced: prev.practiced + 1
+    }));
+
+    // Remove current item from queue
+    const newQueue = [...starredQueue];
+    newQueue.splice(currentStarredIndex, 1);
+    setStarredQueue(newQueue);
+
+    // Reset state for next card
+    setStarredWordState('word');
+    setStarredUserAnswer('');
+    setStarredAnswerResult(null);
+    setIsStarredWordRevealed(false);
+
+    // Check if complete
+    if (newQueue.length === 0) {
+      setIsStarredComplete(true);
+    }
+    // currentStarredIndex stays same (next item shifts into this position)
+    // but if we're at the end, we need to go back
+    else if (currentStarredIndex >= newQueue.length) {
+      setCurrentStarredIndex(newQueue.length - 1);
+    }
+  }, [starredQueue, currentStarredIndex]);
+
+  // Handle "Quên" (Forgot) for starred - move to end of queue
+  const handleStarredForgot = useCallback(() => {
+    // Move current item to end of queue
+    const newQueue = [...starredQueue];
+    const currentItem = newQueue.splice(currentStarredIndex, 1)[0];
+    newQueue.push(currentItem);
+    setStarredQueue(newQueue);
+
+    // Reset state for next card
+    setStarredWordState('word');
+    setStarredUserAnswer('');
+    setStarredAnswerResult(null);
+    setIsStarredWordRevealed(false);
+
+    // If we were at the last item (now moved to end), wrap around
+    if (currentStarredIndex >= newQueue.length - 1) {
+      // Stay at same index, next item shifted into position
+    }
+    // currentStarredIndex stays same (next item shifts into this position)
+  }, [starredQueue, currentStarredIndex]);
+
+  // Process memory HTML for starred word
+  const starredProcessedMemoryHtml = useMemo(() => {
+    if (starredQueue.length === 0 || currentStarredIndex >= starredQueue.length) return '';
+    const currentItem = starredQueue[currentStarredIndex];
+    if (!currentItem.memory?.userMemory) return '';
+    
+    const baseUrl = HTTPService.getBaseUrl();
+    let html = '';
+    const userMemory = currentItem.memory.userMemory;
+    
+    const messagesMap = new Map<string, { text: string; characterName: string; date: string; audioData?: string }>();
+    for (const dc of journal) {
+      for (const msg of dc.messages) {
+        messagesMap.set(msg.id, {
+          text: msg.text,
+          characterName: msg.sender === 'user' ? 'Bạn' : (msg.characterName || 'Bot'),
+          date: dc.date,
+          audioData: msg.audioData
+        });
+      }
+    }
+    
+    const regex = /\[(MSG|IMG):([^\]]+)\]/g;
+    let lastIndex = 0;
+    let match;
+
+    while ((match = regex.exec(userMemory)) !== null) {
+      if (match.index > lastIndex) {
+        const textContent = userMemory.slice(lastIndex, match.index).trim();
+        if (textContent) {
+          html += `<p>${escapeHtml(textContent)}</p>`;
+        }
+      }
+
+      const type = match[1];
+      const value = match[2];
+
+      if (type === 'MSG') {
+        const linkedMsg = messagesMap.get(value);
+        if (linkedMsg) {
+          const audioButton = linkedMsg.audioData 
+            ? `<button class="memory-audio-btn" data-msg-id="${value}" data-character="${escapeHtml(linkedMsg.characterName)}" title="Phát âm thanh">🔊</button>`
+            : '';
+          html += `
+            <div class="message-block">
+              <div class="message-block-header">
+                <span class="character-badge">👤 ${escapeHtml(linkedMsg.characterName)}</span>
+                <span class="date-badge">📅 ${escapeHtml(linkedMsg.date)}</span>
+                ${audioButton}
+              </div>
+              <div class="message-text">${escapeHtml(linkedMsg.text)}</div>
+            </div>
+          `;
+        }
+      } else if (type === 'IMG') {
+        let imgSrc = value;
+        if (imgSrc.startsWith('/')) {
+          imgSrc = baseUrl + imgSrc;
+        } else if (imgSrc.startsWith('http://localhost')) {
+          imgSrc = imgSrc.replace(/http:\/\/localhost:\d+/, baseUrl);
+        }
+        html += `<div class="memory-image"><img src="${imgSrc}" alt="Memory image" /></div>`;
+      }
+
+      lastIndex = regex.lastIndex;
+    }
+
+    if (lastIndex < userMemory.length) {
+      const textContent = userMemory.slice(lastIndex).trim();
+      if (textContent) {
+        html += `<p>${escapeHtml(textContent)}</p>`;
+      }
+    }
+
+    return html || '<p class="empty-memory">Chưa có nội dung</p>';
+  }, [starredQueue, currentStarredIndex, journal]);
+
+  // Handle memory click for starred word
+  const handleStarredMemoryClick = useCallback((e: React.MouseEvent) => {
+    const target = e.target as HTMLElement;
+    if (target.classList.contains('memory-audio-btn')) {
+      e.preventDefault();
+      e.stopPropagation();
+      const msgId = target.getAttribute('data-msg-id');
+      const characterName = target.getAttribute('data-character');
+      if (msgId && onPlayAudio) {
+        for (const dc of journal) {
+          const msg = dc.messages.find(m => m.id === msgId);
+          if (msg?.audioData) {
+            onPlayAudio(msg.audioData, characterName || undefined);
+            break;
+          }
+        }
+      }
+    }
+  }, [onPlayAudio, journal]);
+
   // Render new words tab
   const renderNewWordsTab = () => {
     if (newVocabularies.length === 0) {
@@ -1473,6 +1786,15 @@ export const VocabularyMemoryScene: React.FC<VocabularyMemorySceneProps> = ({
             {currentItem.todayRating === 1 ? '😔 Quên' : '🤔 Khó'}
           </div>
           
+          {/* Star Button */}
+          <button
+            className={`star-btn ${currentItem.isStarred ? 'starred' : ''}`}
+            onClick={() => handleToggleStar(currentItem.vocabulary.id)}
+            title={currentItem.isStarred ? 'Bỏ đánh sao' : 'Đánh sao'}
+          >
+            {currentItem.isStarred ? '⭐' : '☆'}
+          </button>
+          
           {/* Card Content */}
           <div className="card-content">
             {/* Direction Toggle */}
@@ -1729,6 +2051,356 @@ export const VocabularyMemoryScene: React.FC<VocabularyMemorySceneProps> = ({
     );
   };
 
+  // ============ RENDER STARRED TAB ============
+  const renderStarredTab = () => {
+    // Get starred vocabularies
+    const starredVocabularies = getStarredVocabulariesForReview(journal);
+    
+    if (starredVocabularies.length === 0) {
+      return (
+        <div className="empty-state">
+          <div className="empty-icon">⭐</div>
+          <h3>Chưa có từ được đánh sao</h3>
+          <p>Bạn có thể đánh sao ⭐ cho những từ vựng quan trọng để ôn tập riêng.</p>
+          <p className="hint">Bấm vào nút ☆ trên flashcard để đánh sao!</p>
+        </div>
+      );
+    }
+
+    if (isStarredComplete) {
+      return (
+        <div className="session-complete">
+          <div className="complete-icon">⭐</div>
+          <h3>Hoàn thành ôn từ sao!</h3>
+          <div className="complete-stats">
+            <p>Đã luyện tập <strong>{starredSessionStats.practiced}</strong> từ sao</p>
+          </div>
+          <button 
+            className="restart-btn"
+            onClick={() => {
+              setStarredQueue([]);
+              setIsStarredComplete(false);
+            }}
+          >
+            🔄 Luyện lại
+          </button>
+          <button 
+            className="go-review-btn"
+            onClick={() => setActiveTab('review')}
+          >
+            Tiếp tục ôn tập →
+          </button>
+        </div>
+      );
+    }
+
+    if (starredQueue.length === 0) {
+      return (
+        <div className="loading-state">
+          <div className="loading-spinner">⏳</div>
+        </div>
+      );
+    }
+
+    const currentItem = starredQueue[currentStarredIndex];
+    
+    return (
+      <div className="starred-words-tab">
+        {/* Progress */}
+        <div className="flashcard-progress">
+          <div className="progress-text">
+            {currentStarredIndex + 1} / {starredQueue.length}
+          </div>
+          <div className="progress-bar">
+            <div 
+              className="progress-fill starred"
+              style={{ width: `${((currentStarredIndex + 1) / starredQueue.length) * 100}%` }}
+            />
+          </div>
+        </div>
+
+        {/* Starred Word Card */}
+        <div className="starred-word-card flashcard">
+          <div className="starred-badge">
+            ⭐ Từ sao
+          </div>
+          
+          {/* Star Button - can unstar */}
+          <button
+            className="star-btn starred"
+            onClick={() => {
+              handleToggleStar(currentItem.vocabulary.id);
+              // After unstarring, remove from queue
+              const newQueue = [...starredQueue];
+              newQueue.splice(currentStarredIndex, 1);
+              setStarredQueue(newQueue);
+              if (newQueue.length === 0) {
+                setIsStarredComplete(true);
+              } else if (currentStarredIndex >= newQueue.length) {
+                setCurrentStarredIndex(newQueue.length - 1);
+              }
+            }}
+            title="Bỏ đánh sao"
+          >
+            ⭐
+          </button>
+          
+          {/* Card Content */}
+          <div className="card-content">
+            {/* Direction Toggle */}
+            <div className="direction-toggle">
+              <button
+                className={`toggle-btn ${starredCardDirection === 'kr-vn' ? 'active' : ''}`}
+                onClick={() => setStarredCardDirection('kr-vn')}
+              >
+                🇰🇷→🇻🇳
+              </button>
+              <button
+                className={`toggle-btn ${starredCardDirection === 'vn-kr' ? 'active' : ''}`}
+                onClick={() => setStarredCardDirection('vn-kr')}
+              >
+                🇻🇳→🇰🇷
+              </button>
+            </div>
+
+            {/* Front of card - Question with Audio First */}
+            <div className="word-section">
+              <div className="section-label">
+                {starredCardDirection === 'vn-kr' ? '📖 Nghĩa tiếng Việt:' : '🇰🇷 Từ tiếng Hàn:'}
+              </div>
+              
+              {/* Audio button - Always visible on front */}
+              {starredWordState === 'word' && onGenerateAudio && onPlayAudio && (
+                <div className="front-audio-section">
+                  <button
+                    className="front-pronounce-btn"
+                    onClick={handleStarredPronounce}
+                    disabled={isStarredGeneratingAudio}
+                    title="Nghe phát âm"
+                  >
+                    {isStarredGeneratingAudio ? '⏳ Đang tạo...' : '🔊 Nghe phát âm'}
+                  </button>
+                  <select
+                    className="front-character-select"
+                    value={selectedStarredCharacterId}
+                    onChange={(e) => setSelectedStarredCharacterId(e.target.value)}
+                  >
+                    {characters.map(char => (
+                      <option key={char.id} value={char.id}>
+                        {char.name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              )}
+              
+              {/* Word - Hidden until revealed */}
+              <div 
+                className={`${starredCardDirection === 'vn-kr' ? 'vietnamese-word-front' : 'korean-word-front'} ${!isStarredWordRevealed && starredWordState === 'word' ? 'word-hidden' : ''}`}
+                onClick={() => !isStarredWordRevealed && starredWordState === 'word' && setIsStarredWordRevealed(true)}
+              >
+                {!isStarredWordRevealed && starredWordState === 'word' ? (
+                  <span className="reveal-hint">👆 Bấm để xem chữ</span>
+                ) : (
+                  starredCardDirection === 'vn-kr' ? currentItem.vocabulary.vietnamese : currentItem.vocabulary.korean
+                )}
+              </div>
+            </div>
+
+            {/* Answer Input - Visible in 'word' state */}
+            {starredWordState === 'word' && (
+              <div className="answer-input-section">
+                <div className="section-label">
+                  {starredCardDirection === 'vn-kr' ? '✍️ Điền từ tiếng Hàn:' : '✍️ Điền nghĩa tiếng Việt:'}
+                </div>
+                <input
+                  type="text"
+                  className={starredCardDirection === 'vn-kr' ? 'korean-input' : 'vietnamese-input'}
+                  value={starredUserAnswer}
+                  onChange={(e) => setStarredUserAnswer(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' && starredUserAnswer.trim()) {
+                      const normalizedUserAnswer = starredUserAnswer.trim().toLowerCase();
+                      const correctAnswer = starredCardDirection === 'vn-kr' ? currentItem.vocabulary.korean : currentItem.vocabulary.vietnamese;
+                      const normalizedCorrectAnswer = correctAnswer.trim().toLowerCase();
+                      setStarredAnswerResult(normalizedUserAnswer === normalizedCorrectAnswer ? 'correct' : 'incorrect');
+                      setStarredWordState('answer');
+                    }
+                  }}
+                  placeholder={starredCardDirection === 'vn-kr' ? 'Nhập từ tiếng Hàn...' : 'Nhập nghĩa tiếng Việt...'}
+                  autoFocus
+                />
+              </div>
+            )}
+
+            {/* Memory section - visible in 'memory' and 'answer' states */}
+            {(starredWordState === 'memory' || starredWordState === 'answer') && (
+              <div className="memory-section">
+                {currentItem.memory ? (
+                  <>
+                    <div className="section-header">
+                      <div className="section-label">💭 Ký ức của bạn:</div>
+                      <button 
+                        className="expand-memory-btn"
+                        onClick={() => setShowStarredMemoryPopup(true)}
+                        title="Xem đầy đủ"
+                      >
+                        🔍 Xem đầy đủ
+                      </button>
+                    </div>
+                    <div 
+                      className="memory-text memory-preview"
+                      onClick={handleStarredMemoryClick}
+                      dangerouslySetInnerHTML={{ __html: starredProcessedMemoryHtml }}
+                    />
+                  </>
+                ) : (
+                  <div className="no-memory">
+                    <span>📝 Chưa có ký ức</span>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* Answer - visible in 'answer' state (Back of card) */}
+            {starredWordState === 'answer' && (
+              <div className="answer-section">
+                <div className="section-label">
+                  {starredCardDirection === 'vn-kr' ? '🇰🇷 Đáp án tiếng Hàn:' : '📖 Đáp án tiếng Việt:'}
+                </div>
+                <div className={`${starredCardDirection === 'vn-kr' ? 'korean-word-answer' : 'vietnamese-word-answer'} ${starredAnswerResult === 'correct' ? 'correct' : starredAnswerResult === 'incorrect' ? 'incorrect' : ''}`}>
+                  {starredCardDirection === 'vn-kr' ? currentItem.vocabulary.korean : currentItem.vocabulary.vietnamese}
+                </div>
+                
+                {/* Show user's answer comparison */}
+                {starredUserAnswer && starredAnswerResult && (
+                  <div className={`user-answer-result ${starredAnswerResult}`}>
+                    {starredAnswerResult === 'correct' ? (
+                      <span>✅ Chính xác! Bạn đã nhập: {starredUserAnswer}</span>
+                    ) : (
+                      <span>❌ Bạn đã nhập: <span className="wrong-answer">{starredUserAnswer}</span></span>
+                    )}
+                  </div>
+                )}
+                
+                {/* Search word in story button */}
+                {journal && journal.length > 0 && (
+                  <button
+                    className="search-word-btn"
+                    onClick={() => {
+                      setSearchWord(currentItem.vocabulary.korean);
+                      setShowSearchPopup(true);
+                    }}
+                    title={`Tìm "${currentItem.vocabulary.korean}" trong story`}
+                  >
+                    🔍 Tìm trong story ({currentStarredWordUsageCount})
+                  </button>
+                )}
+              </div>
+            )}
+          </div>
+
+          {/* Actions */}
+          <div className="card-actions">
+            {starredWordState === 'word' && (
+              <>
+                <button 
+                  className="action-btn memory-btn"
+                  onClick={() => setStarredWordState('memory')}
+                >
+                  💭 Xem ký ức
+                </button>
+                <button 
+                  className="action-btn answer-btn"
+                  onClick={() => {
+                    const normalizedUserAnswer = starredUserAnswer.trim().toLowerCase();
+                    const correctAnswer = starredCardDirection === 'vn-kr' ? currentItem.vocabulary.korean : currentItem.vocabulary.vietnamese;
+                    const normalizedCorrectAnswer = correctAnswer.trim().toLowerCase();
+                    setStarredAnswerResult(normalizedUserAnswer === normalizedCorrectAnswer ? 'correct' : 'incorrect');
+                    setStarredWordState('answer');
+                  }}
+                >
+                  ✅ Kiểm tra đáp án
+                </button>
+              </>
+            )}
+
+            {starredWordState === 'memory' && (
+              <button 
+                className="action-btn answer-btn full-width"
+                onClick={() => {
+                  const normalizedUserAnswer = starredUserAnswer.trim().toLowerCase();
+                  const correctAnswer = starredCardDirection === 'vn-kr' ? currentItem.vocabulary.korean : currentItem.vocabulary.vietnamese;
+                  const normalizedCorrectAnswer = correctAnswer.trim().toLowerCase();
+                  setStarredAnswerResult(normalizedUserAnswer === normalizedCorrectAnswer ? 'correct' : 'incorrect');
+                  setStarredWordState('answer');
+                }}
+              >
+                ✅ Kiểm tra đáp án
+              </button>
+            )}
+
+            {starredWordState === 'answer' && (
+              <div className="starred-rating-buttons">
+                <button 
+                  className="action-btn forgot-btn"
+                  onClick={handleStarredForgot}
+                >
+                  😔 Quên
+                </button>
+                <button 
+                  className="action-btn remember-btn"
+                  onClick={handleStarredRemember}
+                >
+                  😊 Nhớ
+                </button>
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* Skip */}
+        <button 
+          className="skip-btn"
+          onClick={() => {
+            setStarredWordState('word');
+            setStarredUserAnswer('');
+            setStarredAnswerResult(null);
+            setIsStarredWordRevealed(false);
+            if (currentStarredIndex < starredQueue.length - 1) {
+              setCurrentStarredIndex(prev => prev + 1);
+            } else {
+              setIsStarredComplete(true);
+            }
+          }}
+        >
+          Bỏ qua →
+        </button>
+
+        {/* Memory Popup Modal */}
+        {showStarredMemoryPopup && currentItem.memory && (
+          <div className="memory-popup-overlay" onClick={() => setShowStarredMemoryPopup(false)}>
+            <div className="memory-popup" onClick={e => e.stopPropagation()}>
+              <div className="memory-popup-header">
+                <div className="memory-popup-title">
+                  <span className="popup-word">{currentItem.vocabulary.korean}</span>
+                </div>
+                <button className="popup-close-btn" onClick={() => setShowStarredMemoryPopup(false)}>✕</button>
+              </div>
+              <div className="memory-popup-content">
+                <div 
+                  className="memory-full-content"
+                  onClick={handleStarredMemoryClick}
+                  dangerouslySetInnerHTML={{ __html: starredProcessedMemoryHtml }}
+                />
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
+    );
+  };
+
   const renderLearnTab = () => {
     if (selectedVocabulary) {
       return (
@@ -1787,6 +2459,12 @@ export const VocabularyMemoryScene: React.FC<VocabularyMemorySceneProps> = ({
               onClick={() => setFilterMode('without-memory')}
             >
               Chưa có ({allVocabularies.filter(v => !v.memory).length})
+            </button>
+            <button 
+              className={`filter-btn starred ${filterMode === 'starred' ? 'active' : ''}`}
+              onClick={() => setFilterMode('starred')}
+            >
+              ⭐ Sao ({starredCount})
             </button>
           </div>
         </div>
@@ -1927,6 +2605,18 @@ export const VocabularyMemoryScene: React.FC<VocabularyMemorySceneProps> = ({
                   🗑️
                 </button>
 
+                {/* Star Button */}
+                <button
+                  className={`vocab-star-btn ${item.review?.isStarred ? 'starred' : ''}`}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    handleToggleStar(item.vocabulary.id);
+                  }}
+                  title={item.review?.isStarred ? 'Bỏ đánh sao' : 'Đánh sao'}
+                >
+                  {item.review?.isStarred ? '⭐' : '☆'}
+                </button>
+
                 <div className="vocab-status" onClick={() => setSelectedVocabulary(item)}>
                   {item.memory ? (
                     <span className="has-memory-badge">💭</span>
@@ -2009,6 +2699,7 @@ export const VocabularyMemoryScene: React.FC<VocabularyMemorySceneProps> = ({
         }}
         onCardDirectionChange={handleCardDirectionChange}
         onResetFSRS={handleResetFSRS}
+        onToggleStar={handleToggleStar}
         wordUsageCount={currentReviewWordUsageCount}
         currentIndex={currentReviewIndex}
         totalCount={reviewQueue.length}
@@ -2079,6 +2770,15 @@ export const VocabularyMemoryScene: React.FC<VocabularyMemorySceneProps> = ({
           )}
         </button>
         <button 
+          className={`tab ${activeTab === 'starred' ? 'active' : ''}`}
+          onClick={() => setActiveTab('starred')}
+        >
+          ⭐ Từ sao
+          {starredCount > 0 && (
+            <span className="badge starred">{starredCount}</span>
+          )}
+        </button>
+        <button 
           className={`tab ${activeTab === 'learn' ? 'active' : ''}`}
           onClick={() => setActiveTab('learn')}
         >
@@ -2090,6 +2790,7 @@ export const VocabularyMemoryScene: React.FC<VocabularyMemorySceneProps> = ({
       <div className="tab-content">
         {activeTab === 'new' ? renderNewWordsTab() : 
          activeTab === 'difficult' ? renderDifficultTab() :
+         activeTab === 'starred' ? renderStarredTab() :
          activeTab === 'learn' ? renderLearnTab() : renderReviewTab()}
       </div>
 
@@ -2356,6 +3057,10 @@ export const VocabularyMemoryScene: React.FC<VocabularyMemorySceneProps> = ({
           background: #ff6b35;
         }
 
+        .tab .badge.starred {
+          background: #f59e0b;
+        }
+
         .tab-content {
           flex: 1;
           overflow: hidden;
@@ -2394,6 +3099,7 @@ export const VocabularyMemoryScene: React.FC<VocabularyMemorySceneProps> = ({
           flex-direction: column;
           align-items: center;
           gap: 20px;
+          position: relative;
         }
 
         .difficult-badge {
@@ -2407,6 +3113,83 @@ export const VocabularyMemoryScene: React.FC<VocabularyMemorySceneProps> = ({
 
         .progress-fill.difficult {
           background: linear-gradient(90deg, #ff6b35, #e94560);
+        }
+
+        /* Starred Words Tab */
+        .starred-words-tab {
+          flex: 1;
+          display: flex;
+          flex-direction: column;
+          align-items: center;
+          padding: 20px;
+          overflow-y: auto;
+        }
+
+        .starred-word-card {
+          width: 100%;
+          max-width: 400px;
+          background: #16213e;
+          border-radius: 16px;
+          padding: 24px;
+          box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
+          display: flex;
+          flex-direction: column;
+          align-items: center;
+          gap: 20px;
+          position: relative;
+        }
+
+        .starred-badge {
+          background: linear-gradient(135deg, #f59e0b, #fbbf24);
+          color: #1a1a2e;
+          padding: 6px 16px;
+          border-radius: 20px;
+          font-size: 14px;
+          font-weight: bold;
+        }
+
+        .progress-fill.starred {
+          background: linear-gradient(90deg, #f59e0b, #fbbf24);
+        }
+
+        .starred-rating-buttons {
+          display: flex;
+          gap: 12px;
+          width: 100%;
+        }
+
+        /* Star button on flashcard */
+        .starred-word-card .star-btn,
+        .difficult-word-card .star-btn {
+          position: absolute;
+          top: 12px;
+          right: 12px;
+          width: 36px;
+          height: 36px;
+          border-radius: 50%;
+          background: rgba(245, 158, 11, 0.1);
+          border: 1px solid rgba(245, 158, 11, 0.3);
+          color: #9ca3af;
+          font-size: 20px;
+          cursor: pointer;
+          transition: all 0.2s;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+        }
+
+        .starred-word-card .star-btn:hover,
+        .difficult-word-card .star-btn:hover {
+          background: rgba(245, 158, 11, 0.25);
+          transform: scale(1.1);
+          color: #fbbf24;
+        }
+
+        .starred-word-card .star-btn.starred,
+        .difficult-word-card .star-btn.starred {
+          background: rgba(245, 158, 11, 0.2);
+          border-color: rgba(245, 158, 11, 0.5);
+          color: #fbbf24;
         }
 
         .got-it-btn {
@@ -3303,6 +4086,47 @@ export const VocabularyMemoryScene: React.FC<VocabularyMemorySceneProps> = ({
 
         .vocab-item:hover .vocab-delete-btn {
           opacity: 1;
+        }
+
+        /* Star Button in Learn Tab */
+        .vocab-star-btn {
+          width: 28px;
+          height: 28px;
+          border-radius: 6px;
+          background: rgba(245, 158, 11, 0.1);
+          border: 1px solid rgba(245, 158, 11, 0.2);
+          color: #9ca3af;
+          font-size: 14px;
+          cursor: pointer;
+          transition: all 0.2s;
+          margin-left: 4px;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+        }
+
+        .vocab-star-btn:hover {
+          background: rgba(245, 158, 11, 0.25);
+          border-color: rgba(245, 158, 11, 0.4);
+          color: #fbbf24;
+          transform: scale(1.1);
+        }
+
+        .vocab-star-btn.starred {
+          background: rgba(245, 158, 11, 0.2);
+          border-color: rgba(245, 158, 11, 0.4);
+          color: #fbbf24;
+        }
+
+        /* Starred Filter Button */
+        .filter-btn.starred {
+          border-color: rgba(245, 158, 11, 0.3);
+        }
+
+        .filter-btn.starred.active {
+          background: rgba(245, 158, 11, 0.2);
+          border-color: #f59e0b;
+          color: #fbbf24;
         }
 
         /* Edit Vocabulary Modal */

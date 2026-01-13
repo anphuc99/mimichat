@@ -418,8 +418,10 @@ interface JournalViewerProps {
   relationshipSummary: string;
   onUpdateRelationshipSummary: (newSummary: string) => void;
   onStartReview: () => void;
+  onStartStarredReview?: () => void;
   onStartMemory?: () => void;
   reviewDueCount: number;
+  starredCount?: number;
   streak: StreakData;
   onCollectVocabulary?: (korean: string, messageId: string, dailyChatId: string) => void;
   onPreloadAudio?: (audioData: string) => Promise<void>;
@@ -443,8 +445,10 @@ export const JournalViewer: React.FC<JournalViewerProps> = ({
     relationshipSummary,
     onUpdateRelationshipSummary,
     onStartReview,
+    onStartStarredReview,
     onStartMemory,
     reviewDueCount,
+    starredCount,
     streak,
     onCollectVocabulary,
     onDownloadTxt,
@@ -675,6 +679,21 @@ export const JournalViewer: React.FC<JournalViewerProps> = ({
                         >
                             <span>🧠</span>
                             <span>Ký ức</span>
+                        </button>
+                    )}
+                    {onStartStarredReview && (
+                        <button 
+                            onClick={onStartStarredReview}
+                            className="relative px-4 py-2 bg-yellow-500 text-white rounded-lg hover:bg-yellow-600 transition-colors flex items-center space-x-2"
+                            title="Học từ đã đánh dấu sao"
+                        >
+                            <span>⭐</span>
+                            <span>Từ sao</span>
+                            {starredCount !== undefined && starredCount > 0 && (
+                                <span className="absolute -top-2 -right-2 bg-yellow-700 text-white text-xs font-bold rounded-full w-6 h-6 flex items-center justify-center">
+                                    {starredCount}
+                                </span>
+                            )}
                         </button>
                     )}
                     <button 

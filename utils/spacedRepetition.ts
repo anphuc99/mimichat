@@ -1187,3 +1187,114 @@ export function getAllLearnedVocabulariesForReview(
   
   return learnedVocabularies;
 }
+
+/**
+ * Get all starred vocabularies for review
+ * This is for "Học từ đánh dấu sao" feature
+ */
+export function getStarredVocabulariesForReview(
+  journal: DailyChat[]
+): {
+  vocabulary: VocabularyItem;
+  review: VocabularyReview;
+  dailyChat: DailyChat;
+  memory?: VocabularyMemoryEntry;
+  isStarred?: boolean;
+}[] {
+  const starredVocabs: {
+    vocabulary: VocabularyItem;
+    review: VocabularyReview;
+    dailyChat: DailyChat;
+    memory?: VocabularyMemoryEntry;
+    isStarred?: boolean;
+  }[] = [];
+  
+  for (const dailyChat of journal) {
+    if (!dailyChat.reviewSchedule || !dailyChat.vocabularies) continue;
+    
+    for (const review of dailyChat.reviewSchedule) {
+      // Only include starred vocabularies
+      if (!review.isStarred) continue;
+      
+      const vocabulary = dailyChat.vocabularies.find(v => v.id === review.vocabularyId);
+      
+      if (vocabulary) {
+        // Find memory for this vocabulary
+        const memory = dailyChat.vocabularyMemories?.find(m => m.vocabularyId === vocabulary.id);
+        
+        starredVocabs.push({
+          vocabulary,
+          review: migrateLegacyToFSRS(review),
+          dailyChat,
+          memory,
+          isStarred: review.isStarred
+        });
+      }
+    }
+  }
+  
+  // Sort by stability (lower = more urgent), then difficulty (higher = harder)
+  starredVocabs.sort((a, b) => {
+    const stabilityA = a.review.stability || 0;
+    const stabilityB = b.review.stability || 0;
+    if (stabilityA !== stabilityB) {
+      return stabilityA - stabilityB;
+    }
+    
+    const difficultyA = a.review.difficulty || 5;
+    const difficultyB = b.review.difficulty || 5;
+    return difficultyB - difficultyA;
+  });
+  
+  return starredVocabs;
+}
+
+/**
+ * Get count of starred vocabularies
+ */
+export function getStarredVocabulariesCount(journal: DailyChat[]): number {
+  let count = 0;
+  for (const dailyChat of journal) {
+    if (!dailyChat.reviewSchedule) continue;
+    for (const review of dailyChat.reviewSchedule) {
+      if (review.isStarred) count++;
+    }
+  }
+  return count;
+}
+
+/**
+ * Toggle star status for a vocabulary
+ * Returns the new starred status
+ */
+export function toggleVocabularyStar(
+  journal: DailyChat[],
+  vocabularyId: string
+): { updatedJournal: DailyChat[]; isStarred: boolean } | null {
+  for (let i = 0; i < journal.length; i++) {
+    const dailyChat = journal[i];
+    if (!dailyChat.reviewSchedule) continue;
+    
+    const reviewIndex = dailyChat.reviewSchedule.findIndex(r => r.vocabularyId === vocabularyId);
+    if (reviewIndex !== -1) {
+      const currentStarred = dailyChat.reviewSchedule[reviewIndex].isStarred || false;
+      const newStarred = !currentStarred;
+      
+      const updatedReviewSchedule = [...dailyChat.reviewSchedule];
+      updatedReviewSchedule[reviewIndex] = {
+        ...updatedReviewSchedule[reviewIndex],
+        isStarred: newStarred
+      };
+      
+      const updatedJournal = [...journal];
+      updatedJournal[i] = {
+        ...dailyChat,
+        reviewSchedule: updatedReviewSchedule
+      };
+      
+      return { updatedJournal, isStarred: newStarred };
+    }
+  }
+  
+  return null;
+}
