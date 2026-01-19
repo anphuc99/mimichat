@@ -48,7 +48,7 @@ export async function textToSpeech(
   }
 
   const response = await openai.audio.speech.create({
-    model: "gpt-4o-mini-tts",
+    model: "gpt-4o-mini-tts-2025-03-20",
     input: finalText,
     voice: voice,
     response_format: format,
