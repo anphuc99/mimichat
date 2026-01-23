@@ -420,6 +420,7 @@ interface JournalViewerProps {
   onStartReview: () => void;
   onStartStarredReview?: () => void;
   onStartMemory?: () => void;
+  onStartCollection?: () => void;
   reviewDueCount: number;
   starredCount?: number;
   streak: StreakData;
@@ -447,6 +448,7 @@ export const JournalViewer: React.FC<JournalViewerProps> = ({
     onStartReview,
     onStartStarredReview,
     onStartMemory,
+    onStartCollection,
     reviewDueCount,
     starredCount,
     streak,
@@ -671,6 +673,16 @@ export const JournalViewer: React.FC<JournalViewerProps> = ({
             <div className="flex justify-between items-center mb-4">
                 <h2 className="text-xl font-bold text-gray-700">Nhật ký trò chuyện</h2>
                 <div className="flex items-center space-x-2">
+                    {onStartCollection && (
+                        <button 
+                            onClick={onStartCollection}
+                            className="px-4 py-2 bg-gradient-to-r from-emerald-500 to-teal-600 text-white rounded-lg hover:from-emerald-600 hover:to-teal-700 transition-all shadow-md flex items-center space-x-2"
+                            title="Thu thập từ vựng - Học từ mới từ kho từ vựng"
+                        >
+                            <span>📚</span>
+                            <span>Thu thập</span>
+                        </button>
+                    )}
                     {onStartMemory && (
                         <button 
                             onClick={onStartMemory}

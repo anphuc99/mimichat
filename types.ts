@@ -250,3 +250,42 @@ export interface StoriesIndex {
   stories: StoryMeta[];
   lastOpenedStoryId?: string;
 }
+
+// Vocabulary Collection Types (Thu thập từ vựng)
+export interface CollectionVocabularyItem {
+  id: string;
+  korean: string;
+  vietnamese: string;
+}
+
+export interface CollectionReview {
+  vocabularyId: string;
+  currentIntervalDays: number;
+  nextReviewDate: string; // ISO date
+  lastReviewDate: string | null;
+  reviewHistory: {
+    date: string;
+    rating: FSRSRating;
+    stabilityBefore: number;
+    stabilityAfter: number;
+    difficultyBefore: number;
+    difficultyAfter: number;
+  }[];
+  stability?: number;
+  difficulty?: number;
+  lapses?: number;
+}
+
+export interface CollectionSettings {
+  wordsPerDay: number; // 10-200
+  requestRetention: number; // 0.7-0.97 (70%-97%) - Tỉ lệ ghi nhớ mong muốn
+}
+
+export interface CollectionData {
+  settings: CollectionSettings;
+  reviews: CollectionReview[];
+  skippedIds: string[]; // Vocabulary IDs skipped by user manually
+  lastStudyDate: string; // ISO date (YYYY-MM-DD)
+  todayLearnedCount: number; // Reset when date changes
+  difficultToday: string[]; // Vocabulary IDs rated "hard" or "again" today
+}

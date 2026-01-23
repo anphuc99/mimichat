@@ -351,6 +351,129 @@ app.put("/api/streak", (req: Request, res: Response) => {
   }
 });
 
+// ---------------------------
+// Vocabulary Collection APIs
+// ---------------------------
+interface VocabularyCollectionItem {
+  id: string;
+  korean: string;
+  vietnamese: string;
+}
+
+interface CollectionReview {
+  vocabularyId: string;
+  currentIntervalDays: number;
+  nextReviewDate: string;
+  lastReviewDate: string | null;
+  reviewHistory: {
+    date: string;
+    rating: number;
+    stabilityBefore: number;
+    stabilityAfter: number;
+    difficultyBefore: number;
+    difficultyAfter: number;
+  }[];
+  stability?: number;
+  difficulty?: number;
+  lapses?: number;
+}
+
+interface CollectionData {
+  settings: {
+    wordsPerDay: number;
+  };
+  reviews: CollectionReview[];
+  skippedIds: string[];
+  lastStudyDate: string;
+  todayLearnedCount: number;
+  difficultToday: string[]; // Vocabulary IDs rated "hard" or "again" today
+}
+
+const VOCABULARY_CSV_PATH = path.join(__dirname, "data", "vocabulary.csv");
+const VOCABULARY_COLLECTION_PATH = path.join(__dirname, "data", "vocabulary-collection.json");
+
+// Parse vocabulary.csv
+const parseVocabularyCSV = (): VocabularyCollectionItem[] => {
+  if (!fs.existsSync(VOCABULARY_CSV_PATH)) {
+    return [];
+  }
+  const content = fs.readFileSync(VOCABULARY_CSV_PATH, "utf-8");
+  const lines = content.trim().split("\n");
+  const result: VocabularyCollectionItem[] = [];
+  
+  // Skip header line
+  for (let i = 1; i < lines.length; i++) {
+    const line = lines[i].trim();
+    if (!line) continue;
+    
+    const parts = line.split(",");
+    if (parts.length >= 3) {
+      result.push({
+        id: parts[0].trim(),
+        korean: parts[1].trim(),
+        vietnamese: parts[2].trim()
+      });
+    }
+  }
+  
+  return result;
+};
+
+// Get collection data
+const getCollectionData = (): CollectionData => {
+  const defaultData: CollectionData = {
+    settings: { wordsPerDay: 20 },
+    reviews: [],
+    skippedIds: [],
+    lastStudyDate: "",
+    todayLearnedCount: 0,
+    difficultToday: []
+  };
+  
+  if (!fs.existsSync(VOCABULARY_COLLECTION_PATH)) {
+    // Create default file if not exists
+    fs.writeFileSync(VOCABULARY_COLLECTION_PATH, JSON.stringify(defaultData, null, 2));
+    return defaultData;
+  }
+  return JSON.parse(fs.readFileSync(VOCABULARY_COLLECTION_PATH, "utf-8"));
+};
+
+// Save collection data
+const saveCollectionData = (data: CollectionData) => {
+  fs.writeFileSync(VOCABULARY_COLLECTION_PATH, JSON.stringify(data, null, 2));
+};
+
+// GET /api/vocabulary - Get all vocabulary from CSV
+app.get("/api/vocabulary", (req: Request, res: Response) => {
+  try {
+    const vocabulary = parseVocabularyCSV();
+    res.json({ vocabulary, total: vocabulary.length });
+  } catch (e: any) {
+    res.status(500).json({ error: e.message || "Failed to load vocabulary" });
+  }
+});
+
+// GET /api/vocabulary-collection - Get collection state
+app.get("/api/vocabulary-collection", (req: Request, res: Response) => {
+  try {
+    const data = getCollectionData();
+    res.json(data);
+  } catch (e: any) {
+    res.status(500).json({ error: e.message || "Failed to load vocabulary collection" });
+  }
+});
+
+// PUT /api/vocabulary-collection - Update collection state
+app.put("/api/vocabulary-collection", (req: Request, res: Response) => {
+  try {
+    const data = req.body as CollectionData;
+    saveCollectionData(data);
+    res.json({ success: true });
+  } catch (e: any) {
+    res.status(500).json({ error: e.message || "Failed to save vocabulary collection" });
+  }
+});
+
 // GET /api/stories - List all stories
 app.get("/api/stories", (req: Request, res: Response) => {
   try {

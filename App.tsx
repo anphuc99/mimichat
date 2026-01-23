@@ -12,6 +12,7 @@ import { LevelSelector } from './components/LevelSelector';
 import { AutoChatModal } from './components/AutoChatModal';
 import { RealtimeContextEditor } from './components/RealtimeContextEditor';
 import { VocabularyMemoryScene } from './components/VocabularyMemoryScene';
+import { VocabularyCollectionScene } from './components/VocabularyCollectionScene';
 import { ChatVocabularyModal } from './components/ChatVocabularyModal';
 import type { Message, ChatJournal, DailyChat, Character, SavedData, CharacterThought, VocabularyItem, VocabularyReview, StreakData, KoreanLevel, StoryMeta, StoriesIndex, FSRSSettings, VocabularyDifficultyRating, FSRSRating } from './types';
 import { DEFAULT_FSRS_SETTINGS } from './types';
@@ -62,7 +63,7 @@ const App: React.FC = () => {
   const [journal, setJournal] = useState<ChatJournal>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [isSummarizing, setIsSummarizing] = useState(false);
-  const [view, setView] = useState<'chat' | 'journal' | 'vocabulary' | 'context' | 'review' | 'memory'>('chat');
+  const [view, setView] = useState<'chat' | 'journal' | 'vocabulary' | 'context' | 'review' | 'memory' | 'collection'>('chat');
 
   const [characters, setCharacters] = useState<Character[]>(initialCharacters);
   const [activeCharacterIds, setActiveCharacterIds] = useState<string[]>(['mimi']);
@@ -3179,6 +3180,14 @@ const App: React.FC = () => {
           onTranslate={getTranslationAndExplanation}
           onStreakUpdate={() => handleStreakUpdate('review')}
         />
+      ) : view === 'collection' ? (
+        <VocabularyCollectionScene
+          onBack={() => setView('journal')}
+          onStreakUpdate={() => handleStreakUpdate('learn')}
+          characters={characters}
+          onPlayAudio={handleReplayAudio}
+          onGenerateAudio={textToSpeech}
+        />
       ) : (
         <JournalViewer
           journal={journal}
@@ -3195,6 +3204,7 @@ const App: React.FC = () => {
           onStartReview={handleStartReview}
           onStartStarredReview={handleStartStarredReview}
           onStartMemory={handleStartMemory}
+          onStartCollection={() => setView('collection')}
           reviewDueCount={getDifficultVocabulariesCount(journal)}
           starredCount={getStarredVocabulariesCount(journal)}
           streak={streak}

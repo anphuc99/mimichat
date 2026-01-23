@@ -23,6 +23,9 @@ export const API_URL = {
     API_STORY: '/api/story',
     // Streak API (separate from stories)
     API_STREAK: '/api/streak',
+    // Vocabulary Collection APIs
+    API_VOCABULARY: '/api/vocabulary',
+    API_VOCABULARY_COLLECTION: '/api/vocabulary-collection',
 };
 
 export interface HttpResponse<T = any> {
