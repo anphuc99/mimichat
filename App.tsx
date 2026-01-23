@@ -1234,7 +1234,7 @@ const App: React.FC = () => {
 
       let botResponses = parseAndValidate(botResponseText);
       let retryCount = 0;
-      const maxRetries = 2;
+      const maxRetries = 20;
 
       while (!botResponses && retryCount < maxRetries) {
         console.warn(`Invalid response format on retry. Retrying (${retryCount + 1}/${maxRetries})...`);
