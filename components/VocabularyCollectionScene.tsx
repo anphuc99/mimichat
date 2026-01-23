@@ -80,6 +80,7 @@ export const VocabularyCollectionScene: React.FC<VocabularyCollectionSceneProps>
   const [quizChoices, setQuizChoices] = useState<string[]>([]);
   const [selectedChoice, setSelectedChoice] = useState<string | null>(null);
   const [showRating, setShowRating] = useState(false);
+  const [isRating, setIsRating] = useState(false); // Prevent double-click
   const [isQuizComplete, setIsQuizComplete] = useState(false);
   const [sessionStats, setSessionStats] = useState({ total: 0, correct: 0, incorrect: 0 });
   
@@ -269,7 +270,35 @@ export const VocabularyCollectionScene: React.FC<VocabularyCollectionSceneProps>
 
   // Handle quiz rating
   const handleQuizRating = useCallback(async (rating: FSRSRating) => {
+    // Prevent double-click
+    if (isRating) return;
+    setIsRating(true);
+    
     const currentVocab = quizQueue[currentQuizIndex];
+    
+    // Use ref to get latest data (avoid stale closure)
+    const currentData = collectionDataRef.current;
+    
+    // Check if this vocabulary was already reviewed (prevent duplicate)
+    const alreadyReviewed = currentData.reviews.some(r => r.vocabularyId === currentVocab.id);
+    if (alreadyReviewed) {
+      console.warn('Vocabulary already reviewed, skipping duplicate:', currentVocab.id);
+      // Just move to next word without adding duplicate review
+      const remainingQueue = quizQueue.filter(v => v.id !== currentVocab.id);
+      if (remainingQueue.length === 0 || currentQuizIndex >= remainingQueue.length) {
+        setIsQuizComplete(true);
+      } else {
+        setQuizQueue(remainingQueue);
+        // Keep same index since we removed current item
+        const newIndex = Math.min(currentQuizIndex, remainingQueue.length - 1);
+        setCurrentQuizIndex(newIndex);
+        setQuizChoices(generateChoices(remainingQueue[newIndex]));
+        setSelectedChoice(null);
+        setShowRating(false);
+      }
+      setIsRating(false);
+      return;
+    }
     
     // Calculate FSRS values
     const card = createEmptyCard();
@@ -296,9 +325,6 @@ export const VocabularyCollectionScene: React.FC<VocabularyCollectionSceneProps>
       lapses: rating === 1 ? 1 : 0
     };
     
-    // Use ref to get latest data (avoid stale closure)
-    const currentData = collectionDataRef.current;
-    
     // Update collection data
     const newData: CollectionData = {
       ...currentData,
@@ -316,17 +342,22 @@ export const VocabularyCollectionScene: React.FC<VocabularyCollectionSceneProps>
       onStreakUpdate();
     }
     
-    // Move to next word or complete
-    if (currentQuizIndex < quizQueue.length - 1) {
-      const nextIndex = currentQuizIndex + 1;
-      setCurrentQuizIndex(nextIndex);
-      setQuizChoices(generateChoices(quizQueue[nextIndex]));
+    // Remove rated word from queue and move to next
+    const remainingQueue = quizQueue.filter(v => v.id !== currentVocab.id);
+    if (remainingQueue.length === 0) {
+      setIsQuizComplete(true);
+    } else {
+      setQuizQueue(remainingQueue);
+      // Keep same index since we removed current item (or adjust if at end)
+      const newIndex = Math.min(currentQuizIndex, remainingQueue.length - 1);
+      setCurrentQuizIndex(newIndex);
+      setQuizChoices(generateChoices(remainingQueue[newIndex]));
       setSelectedChoice(null);
       setShowRating(false);
-    } else {
-      setIsQuizComplete(true);
     }
-  }, [quizQueue, currentQuizIndex, saveCollectionData, generateChoices, f, onStreakUpdate]);
+    
+    setIsRating(false);
+  }, [quizQueue, currentQuizIndex, isRating, saveCollectionData, generateChoices, f, onStreakUpdate]);
 
   // Start review session
   const startReview = useCallback(() => {
@@ -499,11 +530,17 @@ export const VocabularyCollectionScene: React.FC<VocabularyCollectionSceneProps>
     // Use ref to get latest data (avoid stale closure)
     const currentData = collectionDataRef.current;
     
-    const newData: CollectionData = {
-      ...currentData,
-      skippedIds: [...new Set([...currentData.skippedIds, vocabId])]
-    };
-    await saveCollectionData(newData);
+    // Check if already skipped or reviewed (prevent duplicate operations)
+    const alreadySkipped = currentData.skippedIds.includes(vocabId);
+    const alreadyReviewed = currentData.reviews.some(r => r.vocabularyId === vocabId);
+    
+    if (!alreadySkipped && !alreadyReviewed) {
+      const newData: CollectionData = {
+        ...currentData,
+        skippedIds: [...new Set([...currentData.skippedIds, vocabId])]
+      };
+      await saveCollectionData(newData);
+    }
     
     // Remove from current queue if in learn mode
     if (quizQueue.length > 0) {
@@ -512,10 +549,9 @@ export const VocabularyCollectionScene: React.FC<VocabularyCollectionSceneProps>
         setIsQuizComplete(true);
       } else {
         setQuizQueue(newQueue);
-        if (currentQuizIndex >= newQueue.length) {
-          setCurrentQuizIndex(newQueue.length - 1);
-        }
-        setQuizChoices(generateChoices(newQueue[Math.min(currentQuizIndex, newQueue.length - 1)]));
+        const newIndex = Math.min(currentQuizIndex, newQueue.length - 1);
+        setCurrentQuizIndex(newIndex);
+        setQuizChoices(generateChoices(newQueue[newIndex]));
         setSelectedChoice(null);
         setShowRating(false);
       }
@@ -713,11 +749,11 @@ export const VocabularyCollectionScene: React.FC<VocabularyCollectionSceneProps>
                 </div>
               ) : (
                 <div className="quiz-container">
-                  {/* Progress */}
+                  {/* Progress - show completed/total from session stats */}
                   <div className="quiz-progress">
-                    <span>{currentQuizIndex + 1} / {quizQueue.length}</span>
+                    <span>{sessionStats.total - quizQueue.length + 1} / {sessionStats.total}</span>
                     <div className="progress-bar">
-                      <div className="progress-fill" style={{ width: `${((currentQuizIndex + 1) / quizQueue.length) * 100}%` }} />
+                      <div className="progress-fill" style={{ width: `${((sessionStats.total - quizQueue.length + 1) / sessionStats.total) * 100}%` }} />
                     </div>
                   </div>
 
@@ -774,19 +810,19 @@ export const VocabularyCollectionScene: React.FC<VocabularyCollectionSceneProps>
                       <div className="rating-section">
                         <p className="rating-label">Đánh giá độ khó:</p>
                         <div className="rating-buttons">
-                          <button className="rating-btn easy" onClick={() => handleQuizRating(4)}>
+                          <button className="rating-btn easy" onClick={() => handleQuizRating(4)} disabled={isRating}>
                             😊 Dễ
                             <span className="rating-interval">~{calculateNewCardInterval(4)}d</span>
                           </button>
-                          <button className="rating-btn medium" onClick={() => handleQuizRating(3)}>
+                          <button className="rating-btn medium" onClick={() => handleQuizRating(3)} disabled={isRating}>
                             🤔 Trung bình
                             <span className="rating-interval">~{calculateNewCardInterval(3)}d</span>
                           </button>
-                          <button className="rating-btn hard" onClick={() => handleQuizRating(2)}>
+                          <button className="rating-btn hard" onClick={() => handleQuizRating(2)} disabled={isRating}>
                             😓 Khó
                             <span className="rating-interval">~{calculateNewCardInterval(2)}d</span>
                           </button>
-                          <button className="rating-btn again" onClick={() => handleQuizRating(1)}>
+                          <button className="rating-btn again" onClick={() => handleQuizRating(1)} disabled={isRating}>
                             😵 Lại
                             <span className="rating-interval">~{calculateNewCardInterval(1)}d</span>
                           </button>
