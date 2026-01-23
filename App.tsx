@@ -547,10 +547,10 @@ const App: React.FC = () => {
             return null;
           }
           
-          // Validate UserTranscript is not too long (AI sometimes puts thoughts here)
+          // Validate UserAudioTranscript is not too long (AI sometimes puts thoughts here)
           const firstItem = parsed[0];
-          if (firstItem?.UserTranscript && firstItem.UserTranscript.length > 50) {
-            console.warn('UserTranscript too long. AI may have included thoughts.');
+          if (firstItem?.UserAudioTranscript && firstItem.UserAudioTranscript.length > 50) {
+            console.warn('UserAudioTranscript too long. AI may have included thoughts.');
             return null;
           }
           
@@ -568,7 +568,7 @@ const App: React.FC = () => {
         console.warn(`Invalid response format. Retrying (${retryCount + 1}/${maxRetries})...`);
         const retryPrompt = `SYSTEM: The last response was invalid. Rules:
 1. CharacterName MUST be exactly one of: ${validCharacterNames.join(', ')}
-2. UserTranscript must be SHORT (max 50 characters) - just the transcription, no thoughts
+2. UserAudioTranscript must be SHORT (max 50 characters) - just the transcription, no thoughts
 3. Output a valid JSON array with 'CharacterName', 'Text', and 'Tone' fields.`;
         botResponseText = await sendMessage(chatRef.current, retryPrompt);
         botResponses = parseAndValidate(botResponseText);
@@ -740,10 +740,10 @@ const App: React.FC = () => {
             return null;
           }
           
-          // Validate UserTranscript is not too long (AI sometimes puts thoughts here)
+          // Validate UserAudioTranscript is not too long (AI sometimes puts thoughts here)
           const firstItem = parsed[0];
-          if (firstItem?.UserTranscript && firstItem.UserTranscript.length > 50) {
-            console.warn('UserTranscript too long in audio response. AI may have included thoughts.');
+          if (firstItem?.UserAudioTranscript && firstItem.UserAudioTranscript.length > 50) {
+            console.warn('UserAudioTranscript too long in audio response. AI may have included thoughts.');
             return null;
           }
           
@@ -761,7 +761,7 @@ const App: React.FC = () => {
         console.warn(`Invalid response format. Retrying (${retryCount + 1}/${maxRetries})...`);
         const retryPrompt = `SYSTEM: The last response was invalid. Rules:
 1. CharacterName MUST be exactly one of: ${validCharacterNames.join(', ')}
-2. UserTranscript must be SHORT (max 50 characters) - just the transcription of the audio, NO thoughts or analysis
+2. UserAudioTranscript must be SHORT (max 50 characters) - just the transcription of the audio, NO thoughts or analysis
 3. Output a valid JSON array with 'CharacterName', 'Text', and 'Tone' fields.`;
         botResponseText = await sendMessage(chatRef.current, retryPrompt);
         botResponses = parseAndValidate(botResponseText);
@@ -786,12 +786,12 @@ const App: React.FC = () => {
       const getCharacterResponses = (responses: any[]) => 
         responses.filter((r: any) => r.CharacterName !== 'System');
 
-      // Extract UserTranscript early (before processing loop) from first response
-      const userTranscript = botResponses[0]?.UserTranscript;
-      if (userTranscript) {
+      // Extract UserAudioTranscript early (before processing loop) from first response
+      const UserAudioTranscript = botResponses[0]?.UserAudioTranscript;
+      if (UserAudioTranscript) {
         updateCurrentChatMessages(prev => prev.map(msg => 
           msg.id === userMessageId 
-            ? { ...msg, text: userTranscript, transcript: userTranscript }
+            ? { ...msg, text: UserAudioTranscript, transcript: UserAudioTranscript }
             : msg
         ));
       }

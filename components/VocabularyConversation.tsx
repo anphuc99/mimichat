@@ -1022,12 +1022,12 @@ export const VocabularyConversation: React.FC<VocabularyConversationProps> = ({
       const getCharacterResponses = (responses: any[]) => 
         responses.filter((r: any) => r.CharacterName !== 'System');
 
-      // Extract UserTranscript early (before processing loop) from first response
-      const userTranscript = botResponses[0]?.UserTranscript;
-      if (userTranscript) {
+      // Extract UserAudioTranscript early (before processing loop) from first response
+      const UserAudioTranscript = botResponses[0]?.UserAudioTranscript;
+      if (UserAudioTranscript) {
         setMessages(prev => prev.map(msg => 
           msg.id === userMessageId 
-            ? { ...msg, text: userTranscript, transcript: userTranscript }
+            ? { ...msg, text: UserAudioTranscript, transcript: UserAudioTranscript }
             : msg
         ));
       }

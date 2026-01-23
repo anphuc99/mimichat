@@ -5,7 +5,7 @@ import http, { API_URL } from './HTTPService';
 let API_KEY: string | null = null;
 let ai: GoogleGenAI | null = null;
 
-const GEMINI_TEXT_MODEL = 'gemini-3-pro-preview';
+const GEMINI_TEXT_MODEL = 'gemini-2.5-pro';
 const GEMINI_IMAGE_MODEL = 'gemini-3-pro-image-preview';
 
 // Initialize Gemini service with API key
@@ -25,33 +25,53 @@ export const initializeGeminiService = async (): Promise<void> => {
 const LEVEL_CONFIG: Record<string, { maxWords: number; guideline: string }> = {
   A0: {
     maxWords: 3,
-    guideline: 'Chỉ dùng hiện tại đơn. Tránh ngữ pháp phức tạp.'
+    guideline: 'Use only simple present tense. Avoid any complex grammar.'
   },
   A1: {
     maxWords: 5,
-    guideline: 'Câu đơn giản. Hiện tại, quá khứ cơ bản. -고 싶다, -아/어요.'
+    guideline: 'Use simple sentences. Present tense and basic past. Allowed patterns: -고 싶다, -아/어요.'
   },
   A2: {
     maxWords: 7,
-    guideline: 'Câu ghép đơn giản với -고, -지만.'
+    guideline: `Basic A2 compound structures are allowed, such as:
+- -고
+- -지만
+- -아서 / -어서
+- -(으)면
+- -(으)려고
+Avoid intermediate-level grammar.`
   },
   B1: {
     maxWords: 10,
-    guideline: 'Ngữ pháp trung cấp: -(으)ㄹ 수 있다, -아/어서, -기 때문에.'
+    guideline: `Use lower-intermediate (B1) grammar. Sentences should not be too long.
+Allowed patterns:
+- -(으)ㄹ 수 있다
+- -아/어서, -(으)니까
+- -기 때문에
+- -(으)면
+- -는데 (for short background or context)
+- -(으)려고 하다
+- -(으)면서
+- -(으)ㄴ/는 것 같다
+- -아/어도 되다
+- -아/어야 하다
+
+Avoid upper-intermediate (B2+) grammar.`
   },
   B2: {
     maxWords: 12,
-    guideline: 'Ngữ pháp nâng cao, diễn đạt ý kiến.'
+    guideline: 'Use advanced grammar. Express opinions and abstract ideas.'
   },
   C1: {
     maxWords: 15,
-    guideline: 'Ngữ pháp nâng cao, thành ngữ, diễn đạt tinh tế.'
+    guideline: 'Use advanced grammar, idiomatic expressions, and nuanced language.'
   },
   C2: {
     maxWords: 20,
-    guideline: 'Tự nhiên như người bản ngữ.'
+    guideline: 'Use language naturally at a native-like level.'
   }
 };
+
 
 function buildCharacterSection(characters: Character[]) {
   const names = characters.map(c => `- ${c.name}`).join('\n');
@@ -140,8 +160,9 @@ ABSOLUTE RULES (SYSTEM CRITICAL)
 4. Text field: Korean ONLY.
 5. Translation field: Vietnamese ONLY.
 6. Max ${maxWords} Korean words per Text.
-7. UserTranscript ONLY when input is audio.
+7. UserAudioTranscript ONLY when input is audio.
 8. SuggestedRealtimeContext ONLY in first element AND only when context changes.
+9. Throughout the entire output, avoid using numerals and write every number in its corresponding Korean word form.
 
 ====================================
 LANGUAGE LEVEL: ${level}
@@ -202,10 +223,10 @@ Pitch: low | medium | high
 INPUT MODE
 ====================================
 TEXT MODE:
-- No UserTranscript.
+- No UserAudioTranscript.
 
 AUDIO MODE:
-- First element MUST include UserTranscript.
+- First element MUST include UserAudioTranscript.
 - Korean prioritized.
 - Ask for confirmation in Korean if unclear.
 
@@ -231,7 +252,7 @@ RESPONSE FORMAT (JSON ARRAY)
   "Text": "",
   "Tone": "",
   "Translation": "",
-  "UserTranscript": "",
+  "UserAudioTranscript": "",
   "SuggestedRealtimeContext": ""
 }
 
@@ -290,7 +311,7 @@ export const initChat = async (
             Text: { type: Type.STRING },
             Tone: { type: Type.STRING },
             Translation: { type: Type.STRING },
-            UserTranscript: { type: Type.STRING },
+            UserAudioTranscript: { type: Type.STRING },
             SuggestedRealtimeContext: { type: Type.STRING }
           }
         }

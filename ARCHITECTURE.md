@@ -618,7 +618,7 @@ uploadAudio(base64) → Server saves file → returns audioId
 sendAudioMessage(chat, base64)
        ▼
 Gemini transcribes audio + generates response
-Response includes: { UserTranscript: "...", ... }
+Response includes: { UserAudioTranscript: "...", ... }
        ▼
 Update message with transcript
        ▼
@@ -1471,7 +1471,7 @@ const getCurrentDailyChatId = (): string => {
 // 1. Upload audio lên server
 // 2. Add user voice message
 // 3. Send audio to Gemini (webm format)
-// 4. Parse response (có UserTranscript)
+// 4. Parse response (có UserAudioTranscript)
 // 5. Update message với transcript
 // 6. Handle System commands
 // 7. Process bot responses
