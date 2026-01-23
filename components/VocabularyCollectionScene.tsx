@@ -93,6 +93,13 @@ export const VocabularyCollectionScene: React.FC<VocabularyCollectionSceneProps>
   const [isReviewComplete, setIsReviewComplete] = useState(false);
   const [reviewStats, setReviewStats] = useState({ total: 0, remembered: 0, forgot: 0 });
   
+  // Track words that need to repeat during review session
+  // Again (rating 1): repeat after every 10 words
+  // Hard (rating 2) with same-day review: repeat after every 20 words
+  const [repeatAgainWords, setRepeatAgainWords] = useState<{ vocab: CollectionVocabularyItem; review: CollectionReview; wordsUntilRepeat: number }[]>([]);
+  const [repeatHardWords, setRepeatHardWords] = useState<{ vocab: CollectionVocabularyItem; review: CollectionReview; wordsUntilRepeat: number }[]>([]);
+  const [reviewedCountSinceRepeat, setReviewedCountSinceRepeat] = useState(0);
+  
   // Difficult state - similar to VocabularyMemoryScene
   const [difficultQueue, setDifficultQueue] = useState<{ vocab: CollectionVocabularyItem; rating: 1 | 2 }[]>([]);
   const [currentDifficultIndex, setCurrentDifficultIndex] = useState(0);
@@ -371,6 +378,10 @@ export const VocabularyCollectionScene: React.FC<VocabularyCollectionSceneProps>
     setShowReviewRating(false);
     setIsReviewComplete(false);
     setReviewStats({ total: shuffled.length, remembered: 0, forgot: 0 });
+    // Reset repeat tracking
+    setRepeatAgainWords([]);
+    setRepeatHardWords([]);
+    setReviewedCountSinceRepeat(0);
   }, [dueReviews, generateChoices]);
 
   // Handle review choice selection
@@ -460,17 +471,114 @@ export const VocabularyCollectionScene: React.FC<VocabularyCollectionSceneProps>
       onStreakUpdate();
     }
     
+    // Track words that need to repeat in this session
+    // Rating 1 (Again): repeat after 10 words
+    // Rating 2 (Hard) with same-day due: repeat after 20 words
+    const newReviewedCount = reviewedCountSinceRepeat + 1;
+    let updatedAgainWords = [...repeatAgainWords];
+    let updatedHardWords = [...repeatHardWords];
+    
+    // Check if this word needs to be added to repeat lists
+    if (rating === 1) {
+      // Remove from existing lists if present (to avoid duplicates)
+      updatedAgainWords = updatedAgainWords.filter(w => w.vocab.id !== currentItem.vocab.id);
+      updatedHardWords = updatedHardWords.filter(w => w.vocab.id !== currentItem.vocab.id);
+      // Add to Again list with 10 words until repeat
+      updatedAgainWords.push({ vocab: currentItem.vocab, review: updatedReview, wordsUntilRepeat: 10 });
+    } else if (rating === 2) {
+      // Check if FSRS scheduled it for today (same-day review)
+      const dueDate = new Date(newCard.due);
+      const today = new Date();
+      today.setHours(23, 59, 59, 999);
+      if (dueDate <= today) {
+        // Remove from existing lists if present
+        updatedAgainWords = updatedAgainWords.filter(w => w.vocab.id !== currentItem.vocab.id);
+        updatedHardWords = updatedHardWords.filter(w => w.vocab.id !== currentItem.vocab.id);
+        // Add to Hard list with 20 words until repeat
+        updatedHardWords.push({ vocab: currentItem.vocab, review: updatedReview, wordsUntilRepeat: 20 });
+      }
+    } else {
+      // Good or Easy rating - remove from repeat lists
+      updatedAgainWords = updatedAgainWords.filter(w => w.vocab.id !== currentItem.vocab.id);
+      updatedHardWords = updatedHardWords.filter(w => w.vocab.id !== currentItem.vocab.id);
+    }
+    
+    // Decrement counters for all tracked words
+    updatedAgainWords = updatedAgainWords.map(w => ({ ...w, wordsUntilRepeat: w.wordsUntilRepeat - 1 }));
+    updatedHardWords = updatedHardWords.map(w => ({ ...w, wordsUntilRepeat: w.wordsUntilRepeat - 1 }));
+    
+    // Check if any words need to be inserted back into queue
+    const wordsToInsert: { vocab: CollectionVocabularyItem; review: CollectionReview }[] = [];
+    
+    // Check Again words (every 10)
+    const readyAgainWords = updatedAgainWords.filter(w => w.wordsUntilRepeat <= 0);
+    for (const w of readyAgainWords) {
+      wordsToInsert.push({ vocab: w.vocab, review: w.review });
+    }
+    // Reset counter for inserted Again words
+    updatedAgainWords = updatedAgainWords.map(w => 
+      w.wordsUntilRepeat <= 0 ? { ...w, wordsUntilRepeat: 10 } : w
+    );
+    
+    // Check Hard words (every 20)
+    const readyHardWords = updatedHardWords.filter(w => w.wordsUntilRepeat <= 0);
+    for (const w of readyHardWords) {
+      // Don't add duplicates if already in wordsToInsert
+      if (!wordsToInsert.some(item => item.vocab.id === w.vocab.id)) {
+        wordsToInsert.push({ vocab: w.vocab, review: w.review });
+      }
+    }
+    // Reset counter for inserted Hard words
+    updatedHardWords = updatedHardWords.map(w => 
+      w.wordsUntilRepeat <= 0 ? { ...w, wordsUntilRepeat: 20 } : w
+    );
+    
+    setRepeatAgainWords(updatedAgainWords);
+    setRepeatHardWords(updatedHardWords);
+    setReviewedCountSinceRepeat(newReviewedCount);
+    
+    // Build new queue with inserted repeat words
+    let newQueue = [...reviewQueue];
+    if (wordsToInsert.length > 0) {
+      // Insert repeat words after current position
+      const insertPosition = currentReviewIndex + 1;
+      newQueue = [
+        ...newQueue.slice(0, insertPosition),
+        ...wordsToInsert,
+        ...newQueue.slice(insertPosition)
+      ];
+      setReviewQueue(newQueue);
+    }
+    
     // Move to next or complete
-    if (currentReviewIndex < reviewQueue.length - 1) {
+    if (currentReviewIndex < newQueue.length - 1) {
       const nextIndex = currentReviewIndex + 1;
       setCurrentReviewIndex(nextIndex);
-      setReviewChoices(generateChoices(reviewQueue[nextIndex].vocab));
+      setReviewChoices(generateChoices(newQueue[nextIndex].vocab));
       setReviewSelectedChoice(null);
       setShowReviewRating(false);
     } else {
+      // Check if there are still words in repeat lists that haven't been mastered
+      if (updatedAgainWords.length > 0 || updatedHardWords.length > 0) {
+        // Add remaining repeat words to continue the session
+        const remainingWords = [
+          ...updatedAgainWords.map(w => ({ vocab: w.vocab, review: w.review })),
+          ...updatedHardWords.filter(h => !updatedAgainWords.some(a => a.vocab.id === h.vocab.id))
+            .map(w => ({ vocab: w.vocab, review: w.review }))
+        ];
+        if (remainingWords.length > 0) {
+          setReviewQueue([...newQueue, ...remainingWords]);
+          const nextIndex = currentReviewIndex + 1;
+          setCurrentReviewIndex(nextIndex);
+          setReviewChoices(generateChoices(remainingWords[0].vocab));
+          setReviewSelectedChoice(null);
+          setShowReviewRating(false);
+          return;
+        }
+      }
       setIsReviewComplete(true);
     }
-  }, [reviewQueue, currentReviewIndex, saveCollectionData, generateChoices, f, onStreakUpdate]);
+  }, [reviewQueue, currentReviewIndex, saveCollectionData, generateChoices, f, onStreakUpdate, repeatAgainWords, repeatHardWords, reviewedCountSinceRepeat]);
 
   // Start difficult session
   const startDifficult = useCallback(() => {
