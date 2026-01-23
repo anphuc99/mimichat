@@ -217,7 +217,7 @@ Neutral: unchanged
 TONE FORMAT
 ====================================
 "<Emotion>, <pitch>"
-Pitch: low | medium | high
+Pitch: low pitch | medium pitch | high pitch
 
 ====================================
 INPUT MODE
