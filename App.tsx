@@ -2249,7 +2249,6 @@ const App: React.FC = () => {
     let loadedRelationshipSummary: string = '';
     let loadedLevel: KoreanLevel = 'A1';
     let loadedRealtimeContext: string = '';
-
     if (Array.isArray(loadedData)) { // v1 format support
       loadedJournal = loadedData.map((chat, index) => ({ 
         ...chat, 
