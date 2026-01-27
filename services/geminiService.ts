@@ -1,12 +1,33 @@
 import { GoogleGenAI, Chat, GenerateContentResponse, Content, Modality, Type } from "@google/genai";
-import type { Message, Character, VocabularyItem } from '../types';
+import type { Message, Character, VocabularyItem, VocabularyWithStability } from '../types';
 import http, { API_URL } from './HTTPService';
 
 let API_KEY: string | null = null;
 let ai: GoogleGenAI | null = null;
 
-const GEMINI_TEXT_MODEL = 'gemini-3-flash-preview';
-const GEMINI_IMAGE_MODEL = 'gemini-3-pro-image-preview';
+// Available Gemini models for text generation
+export const AVAILABLE_TEXT_MODELS = [
+  { id: 'gemini-3-pro-preview', name: 'Gemini 3 pro (Preview)', description: 'Chất lương cao nhất' },
+  { id: 'gemini-3-flash-preview', name: 'Gemini 3 Flash (Preview)', description: 'Nhanh, hiệu quả' },
+  { id: 'gemini-2.5-pro', name: 'Gemini 2.5 pro', description: 'Chất lượng cao' },
+  { id: 'gemini-flash-latest', name: 'Gemini Flash Latest', description: 'Nhanh, hiệu quả' },
+  { id: 'gemini-2.5-flash', name: 'Gemini 2.5 Flash', description: 'Nhanh hiệu quả' },
+] as const;
+
+export type GeminiTextModel = typeof AVAILABLE_TEXT_MODELS[number]['id'];
+
+// Current selected model (can be changed dynamically)
+let currentTextModel: GeminiTextModel = 'gemini-2.5-pro';
+const GEMINI_IMAGE_MODEL = 'gemini-2.0-flash-exp-image-generation';
+
+// Get current text model
+export const getCurrentTextModel = (): GeminiTextModel => currentTextModel;
+
+// Set text model dynamically
+export const setTextModel = (model: GeminiTextModel): void => {
+  currentTextModel = model;
+  console.log('Gemini text model changed to:', model);
+};
 
 // Initialize Gemini service with API key
 export const initializeGeminiService = async (): Promise<void> => {
@@ -297,7 +318,7 @@ export const initChat = async (
   });
   console.log(systemInstruction)
   return ai.chats.create({
-    model: GEMINI_TEXT_MODEL,
+    model: currentTextModel,
     history,
     config: {
       systemInstruction,
@@ -471,7 +492,7 @@ Khi tôi gửi "NEW TOPIC: [chủ đề]", bắt đầu thảo luận mới về
 `;
 
   const chat: Chat = ai.chats.create({
-    model: GEMINI_TEXT_MODEL,
+    model: currentTextModel,
     history,
     config: {
       systemInstruction,
@@ -648,7 +669,7 @@ export const translateAndExplainText = async (text: string): Promise<string> => 
     const prompt = `Dịch câu tiếng Hàn sau sang tiếng Việt. Chỉ dịch sơ lược mà không thêm ghi chú gì: "${text}"`;
 
     const response = await ai.models.generateContent({
-      model: GEMINI_TEXT_MODEL,
+      model: currentTextModel,
       contents: prompt,
     });
 
@@ -674,7 +695,7 @@ export const translateWord = async (word: string): Promise<string> => {
     const prompt = `Dịch từ hoặc cụm từ tiếng Hàn này sang tiếng Việt. CHỈ cho nghĩa tiếng Việt, không gì khác: "${word}"`;
 
     const response = await ai.models.generateContent({
-      model: GEMINI_TEXT_MODEL,
+      model: currentTextModel,
       contents: prompt,
     });
 
@@ -707,7 +728,7 @@ export const summarizeConversation = async (messages: Message[]): Promise<string
 
   try {
     const response = await ai.models.generateContent({
-      model: GEMINI_TEXT_MODEL,
+      model: currentTextModel,
       contents: prompt,
     });
     return response.text.trim();
@@ -747,7 +768,7 @@ export const generateCharacterThoughts = async (messages: Message[], characters:
 
   try {
     const response = await ai.models.generateContent({
-      model: GEMINI_TEXT_MODEL,
+      model: currentTextModel,
       contents: systemInstruction,
       config: {
         responseMimeType: "application/json",
@@ -780,7 +801,7 @@ export const generateToneDescription = async (text: string, character: Character
       Giọng điệu:`;
 
     const response = await ai.models.generateContent({
-      model: GEMINI_TEXT_MODEL,
+      model: currentTextModel,
       contents: prompt,
     });
 
@@ -870,7 +891,7 @@ Tóm tắt bối cảnh chung:`;
 
   try {
     const response = await ai.models.generateContent({
-      model: GEMINI_TEXT_MODEL,
+      model: currentTextModel,
       contents: prompt,
     });
     return response.text.trim();
@@ -926,7 +947,7 @@ Gợi ý:`;
 console.log(prompt)
   try {
     const response = await ai.models.generateContent({
-      model: GEMINI_TEXT_MODEL,
+      model: currentTextModel,
       contents: prompt,
     });
     const suggestions = response.text
@@ -985,7 +1006,7 @@ Gợi ý:`;
 
   try {
     const response = await ai.models.generateContent({
-      model: GEMINI_TEXT_MODEL,
+      model: currentTextModel,
       contents: prompt,
     });
     const suggestions = response.text
@@ -1041,7 +1062,7 @@ Mảng JSON các đối tượng:
   console.log(prompt);
   try {
     const response = await ai.models.generateContent({
-      model: GEMINI_TEXT_MODEL,
+      model: currentTextModel,
       contents: prompt,
       config: {
         responseMimeType: "application/json",
@@ -1301,7 +1322,7 @@ QUAN TRỌNG:
 Chỉ trả về bối cảnh ngắn gọn bằng tiếng Việt, không giải thích thêm.`;
 
   const response = await ai.models.generateContent({
-    model: GEMINI_TEXT_MODEL,
+    model: currentTextModel,
     contents: [{ role: "user", parts: [{ text: prompt }] }],
   });
 
@@ -1406,7 +1427,7 @@ VÍ DỤ SAI (KHÔNG LÀM):
 Trả lời:`;
 
     const model = ai!.models.generateContent({
-      model: GEMINI_TEXT_MODEL,
+      model: currentTextModel,
       contents: prompt,
       config: {
         temperature: 0.1, // Low temperature for consistent output
@@ -1436,3 +1457,130 @@ Trả lời:`;
   }
 };
 
+/**
+ * Create AI Learning Assistant chat session
+ * System instruction includes vocabulary list with stability for prioritization
+ */
+export const createAssistantChat = async (
+  vocabularies: VocabularyWithStability[],
+  currentLevel: string = 'A1'
+): Promise<Chat> => {
+  if (!ai) {
+    await initializeGeminiService();
+  }
+
+  // Format vocabulary list with stability
+  const vocabTable = vocabularies.length > 0
+    ? vocabularies
+        .sort((a, b) => a.stability - b.stability) // Sort by stability ascending (lowest first)
+        .map(v => `| ${v.korean} | ${v.stability.toFixed(1)} |`)
+        .join('\n')
+    : '(Chưa có từ vựng nào được học)';
+
+  const systemInstruction = `Bạn là trợ lý học tiếng Hàn thông minh và thân thiện. Nhiệm vụ của bạn là giúp người dùng học tiếng Hàn hiệu quả.
+
+====================================
+CẤP ĐỘ HIỆN TẠI CỦA NGƯỜI DÙNG: ${currentLevel}
+====================================
+
+====================================
+DANH SÁCH TỪ VỰNG ĐÃ HỌC (ƯU TIÊN STABILITY THẤP)
+====================================
+Stability thấp = cần ôn nhiều hơn. Khi gợi ý câu, hãy ƯU TIÊN sử dụng từ có stability thấp.
+
+| Korean | Stability |
+|--------|-----------|
+${vocabTable}
+
+====================================
+KHẢ NĂNG CỦA BẠN
+====================================
+
+1. **ĐỌC LỊCH SỬ CHAT** (khi nhận [CHAT HISTORY START]...[CHAT HISTORY END]):
+   - Phân tích cuộc hội thoại, hiểu ngữ cảnh
+   - Đưa ra nhận xét về cách sử dụng tiếng Hàn của người dùng
+   - Gợi ý những điểm cần cải thiện
+   - Đề xuất cách tiếp tục cuộc hội thoại
+
+2. **GIẢI THÍCH TIN NHẮN** (khi nhận [DROPPED MESSAGE]...[END DROPPED MESSAGE]):
+   - Dịch nghĩa tiếng Việt đầy đủ
+   - Giải thích từng từ vựng quan trọng
+   - Giải thích ngữ pháp được sử dụng
+   - Chỉ ra cách sử dụng trong ngữ cảnh khác
+   - Nếu có từ trong danh sách từ vựng đã học → nhắc người dùng
+
+3. **HƯỚNG DẪN VIẾT CÂU TRẢ LỜI**:
+   - Khi người dùng hỏi cách trả lời tiếng Hàn
+   - **BẮT BUỘC**: Ưu tiên sử dụng từ vựng có stability thấp trong danh sách trên
+   - Liệt kê RÕ RÀNG các từ đã học được sử dụng trong câu gợi ý
+   - Giải thích ngữ pháp phù hợp với cấp độ ${currentLevel}
+   - Đưa ra 2-3 cách diễn đạt khác nhau
+
+4. **TRẢ LỜI CÂU HỎI CHUNG**:
+   - Giải thích ngữ pháp tiếng Hàn
+   - So sánh các cấu trúc tương tự
+   - Cho ví dụ minh họa
+
+====================================
+QUY TẮC TRẢ LỜI
+====================================
+- Trả lời bằng tiếng Việt (có kèm tiếng Hàn khi cần)
+- Giữ câu trả lời ngắn gọn, dễ hiểu
+- Luôn khuyến khích người dùng
+- Khi gợi ý câu tiếng Hàn, phải kèm:
+  + Phiên âm (nếu phức tạp)
+  + Nghĩa tiếng Việt
+  + Danh sách từ đã học được sử dụng (nếu có)
+`;
+
+  const chat: Chat = ai!.chats.create({
+    model: currentTextModel,
+    config: {
+      systemInstruction,
+      temperature: 0.7,
+    }
+  });
+
+  return chat;
+};
+
+/**
+ * Send message to AI Learning Assistant
+ */
+export const sendAssistantMessage = async (chat: Chat, message: string): Promise<string> => {
+  try {
+    const response: GenerateContentResponse = await chat.sendMessage({ message });
+    return response.text || 'Xin lỗi, tôi không thể trả lời lúc này.';
+  } catch (error) {
+    console.error('AI Assistant error:', error);
+    throw error;
+  }
+};
+
+/**
+ * Send message to AI Learning Assistant with streaming
+ * @param chat Chat session
+ * @param message Message to send
+ * @param onChunk Callback for each text chunk received
+ */
+export const sendAssistantMessageStream = async (
+  chat: Chat,
+  message: string,
+  onChunk: (chunk: string, fullText: string) => void
+): Promise<string> => {
+  try {
+    const response = await chat.sendMessageStream({ message });
+    let fullText = '';
+    
+    for await (const chunk of response) {
+      const chunkText = chunk.text || '';
+      fullText += chunkText;
+      onChunk(chunkText, fullText);
+    }
+    
+    return fullText || 'Xin lỗi, tôi không thể trả lời lúc này.';
+  } catch (error) {
+    console.error('AI Assistant stream error:', error);
+    throw error;
+  }
+};

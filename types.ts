@@ -289,3 +289,17 @@ export interface CollectionData {
   todayLearnedCount: number; // Reset when date changes
   difficultToday: string[]; // Vocabulary IDs rated "hard" or "again" today
 }
+
+// AI Assistant Types
+export interface AIAssistantMessage {
+  id: string;
+  role: 'user' | 'assistant';
+  content: string;
+  droppedMessage?: Message; // Message dropped from chat for explanation
+  timestamp: number;
+}
+
+export interface VocabularyWithStability {
+  korean: string;
+  stability: number;
+}

@@ -14,7 +14,9 @@ import { RealtimeContextEditor } from './components/RealtimeContextEditor';
 import { VocabularyMemoryScene } from './components/VocabularyMemoryScene';
 import { VocabularyCollectionScene } from './components/VocabularyCollectionScene';
 import { ChatVocabularyModal } from './components/ChatVocabularyModal';
-import type { Message, ChatJournal, DailyChat, Character, SavedData, CharacterThought, VocabularyItem, VocabularyReview, StreakData, KoreanLevel, StoryMeta, StoriesIndex, FSRSSettings, VocabularyDifficultyRating, FSRSRating } from './types';
+import { AIAssistantModal } from './components/AIAssistantModal';
+import { ModelSelector } from './components/ModelSelector';
+import type { Message, ChatJournal, DailyChat, Character, SavedData, CharacterThought, VocabularyItem, VocabularyReview, StreakData, KoreanLevel, StoryMeta, StoriesIndex, FSRSSettings, VocabularyDifficultyRating, FSRSRating, VocabularyWithStability } from './types';
 import { DEFAULT_FSRS_SETTINGS } from './types';
 import { initializeGeminiService, initChat, sendMessage, textToSpeech, translateAndExplainText, translateWord, summarizeConversation, generateCharacterThoughts, generateToneDescription, generateRelationshipSummary, generateContextSuggestion, generateMessageSuggestions, generateVocabulary, generateSceneImage, initAutoChatSession, sendAutoChatMessage, uploadAudio, sendAudioMessage } from './services/geminiService';
 import { getVocabulariesDueForReview, initializeFSRSReview, initializeFSRSWithDifficulty, updateFSRSReview, getReviewDueCount, getTotalVocabulariesLearned, getDifficultVocabulariesForReview, getDifficultVocabulariesCount, getStarredVocabulariesForReview, getStarredVocabulariesCount, toggleVocabularyStar } from './utils/spacedRepetition';
@@ -141,6 +143,9 @@ const App: React.FC = () => {
   const [chatReviewVocabularies, setChatReviewVocabularies] = useState<VocabularyItem[]>([]);
   const [isChatVocabularyModalOpen, setIsChatVocabularyModalOpen] = useState(false);
 
+  // AI Assistant state
+  const [isAIAssistantOpen, setIsAIAssistantOpen] = useState(false);
+
   // FSRS settings state - for vocabulary memory system
   const [fsrsSettings, setFsrsSettings] = useState<FSRSSettings>(() => {
     // Try to load from localStorage
@@ -176,6 +181,55 @@ const App: React.FC = () => {
   const getActiveCharacters = useCallback(() => {
     return characters.filter(c => activeCharacterIds.includes(c.id));
   }, [characters, activeCharacterIds]);
+
+  // Get all learned vocabularies with stability for AI Assistant
+  const getAllVocabulariesWithStability = useCallback((): VocabularyWithStability[] => {
+    const vocabMap = new Map<string, VocabularyWithStability>();
+    
+    journal.forEach(dailyChat => {
+      if (dailyChat.vocabularies && dailyChat.reviewSchedule) {
+        dailyChat.vocabularies.forEach(vocab => {
+          const review = dailyChat.reviewSchedule?.find(r => r.vocabularyId === vocab.id);
+          const stability = review?.stability ?? 0;
+          
+          // Keep the entry with higher stability if duplicate
+          const existing = vocabMap.get(vocab.korean);
+          if (!existing || stability > existing.stability) {
+            vocabMap.set(vocab.korean, {
+              korean: vocab.korean,
+              stability: stability,
+            });
+          }
+        });
+      }
+    });
+    
+    return Array.from(vocabMap.values());
+  }, [journal]);
+
+  // Get full chat history formatted for AI Assistant #read command
+  const getFullChatHistory = useCallback((): string => {
+    const currentChat = getCurrentChat();
+    if (!currentChat) return '';
+    
+    const lines: string[] = [];
+    lines.push(`=== Chat ngày ${currentChat.date} ===`);
+    lines.push(`Context: ${context}`);
+    if (realtimeContext) {
+      lines.push(`Realtime Context: ${realtimeContext}`);
+    }
+    lines.push('');
+    
+    currentChat.messages.forEach(msg => {
+      if (msg.sender === 'user') {
+        lines.push(`User: ${msg.text}`);
+      } else {
+        lines.push(`${msg.characterName || 'Bot'}: ${msg.text}`);
+      }
+    });
+    
+    return lines.join('\n');
+  }, [journal, context, realtimeContext]);
 
 
 
@@ -2705,6 +2759,9 @@ const App: React.FC = () => {
           )}
         </div>
         <div className="flex items-center space-x-3">
+          {/* Model Selector */}
+          <ModelSelector />
+          
           {/* Level Badge */}
           <button
             onClick={() => setIsLevelSelectorOpen(true)}
@@ -3236,6 +3293,15 @@ const App: React.FC = () => {
         journal={journal}
         selectedVocabularies={chatReviewVocabularies}
         onVocabulariesChange={setChatReviewVocabularies}
+      />
+
+      {/* AI Learning Assistant */}
+      <AIAssistantModal
+        isOpen={isAIAssistantOpen}
+        onToggle={() => setIsAIAssistantOpen(prev => !prev)}
+        vocabularies={getAllVocabulariesWithStability()}
+        getChatHistory={getFullChatHistory}
+        currentLevel={currentLevel}
       />
     </div>
   );

@@ -123,6 +123,7 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({
   const [isRegeneratingTone, setIsRegeneratingTone] = useState(false);
   const [isRegeneratingImage, setIsRegeneratingImage] = useState(false);
   const [isTextRevealed, setIsTextRevealed] = useState(false);
+  const [isDragging, setIsDragging] = useState(false);
 
   const isEditing = editingMessageId === message.id;
   
@@ -290,6 +291,18 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({
         console.log('Hiding button - text:', text, 'isUser:', isUser, 'hasCallback:', !!onCollectVocabulary); // Debug
       }
     }, 0);
+  };
+
+  // Drag handlers for AI Assistant
+  const handleDragStart = (e: React.DragEvent) => {
+    if (isUser) return;
+    setIsDragging(true);
+    e.dataTransfer.setData('application/json', JSON.stringify(message));
+    e.dataTransfer.effectAllowed = 'copy';
+  };
+
+  const handleDragEnd = () => {
+    setIsDragging(false);
   };
 
   const handleCollectVocab = async () => {
@@ -500,7 +513,12 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({
 
   // Bot message layout
   return (
-    <div className="flex justify-start items-start gap-2">
+    <div 
+      className={`flex justify-start items-start gap-2 ${isDragging ? 'opacity-50' : ''}`}
+      draggable={!isUser}
+      onDragStart={handleDragStart}
+      onDragEnd={handleDragEnd}
+    >
       <img src={avatarUrl || mimiAvatarUrl} alt={`${message.characterName || 'Mimi'} Avatar`} className="w-8 h-8 rounded-full object-cover" />
       <div className="flex flex-col items-start w-full">
         {!isUser && message.characterName && (
