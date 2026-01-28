@@ -293,7 +293,7 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({
     }, 0);
   };
 
-  // Drag handlers for AI Assistant
+  // Drag handlers for AI Assistant (drag from avatar only)
   const handleDragStart = (e: React.DragEvent) => {
     if (isUser) return;
     setIsDragging(true);
@@ -515,11 +515,17 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({
   return (
     <div 
       className={`flex justify-start items-start gap-2 ${isDragging ? 'opacity-50' : ''}`}
-      draggable={!isUser}
-      onDragStart={handleDragStart}
-      onDragEnd={handleDragEnd}
     >
-      <img src={avatarUrl || mimiAvatarUrl} alt={`${message.characterName || 'Mimi'} Avatar`} className="w-8 h-8 rounded-full object-cover" />
+      {/* Avatar as drag handle */}
+      <img 
+        src={avatarUrl || mimiAvatarUrl} 
+        alt={`${message.characterName || 'Mimi'} Avatar`} 
+        className="w-8 h-8 rounded-full object-cover cursor-grab active:cursor-grabbing"
+        draggable={true}
+        onDragStart={handleDragStart}
+        onDragEnd={handleDragEnd}
+        title="Kéo để gửi tin nhắn cho AI Assistant"
+      />
       <div className="flex flex-col items-start w-full">
         {!isUser && message.characterName && (
           <p className="text-xs text-gray-500 ml-3 mb-0.5">{message.characterName}</p>

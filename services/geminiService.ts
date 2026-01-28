@@ -16,16 +16,37 @@ export const AVAILABLE_TEXT_MODELS = [
 
 export type GeminiTextModel = typeof AVAILABLE_TEXT_MODELS[number]['id'];
 
+// LocalStorage key for persisting model selection
+const MODEL_STORAGE_KEY = 'gemini_text_model';
+
+// Load saved model from localStorage or use default
+const loadSavedModel = (): GeminiTextModel => {
+  try {
+    const saved = localStorage.getItem(MODEL_STORAGE_KEY);
+    if (saved && AVAILABLE_TEXT_MODELS.some(m => m.id === saved)) {
+      return saved as GeminiTextModel;
+    }
+  } catch (e) {
+    console.warn('Failed to load saved model from localStorage:', e);
+  }
+  return 'gemini-2.5-pro';
+};
+
 // Current selected model (can be changed dynamically)
-let currentTextModel: GeminiTextModel = 'gemini-2.5-pro';
+let currentTextModel: GeminiTextModel = loadSavedModel();
 const GEMINI_IMAGE_MODEL = 'gemini-2.0-flash-exp-image-generation';
 
 // Get current text model
 export const getCurrentTextModel = (): GeminiTextModel => currentTextModel;
 
-// Set text model dynamically
+// Set text model dynamically and persist to localStorage
 export const setTextModel = (model: GeminiTextModel): void => {
   currentTextModel = model;
+  try {
+    localStorage.setItem(MODEL_STORAGE_KEY, model);
+  } catch (e) {
+    console.warn('Failed to save model to localStorage:', e);
+  }
   console.log('Gemini text model changed to:', model);
 };
 
