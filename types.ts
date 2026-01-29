@@ -21,6 +21,8 @@ export interface Character {
   userOpinion?: RelationInfo;
 }
 
+export type ChatType = 'public' | 'private';
+
 export interface Message {
   id: string;
   text: string;
@@ -36,6 +38,9 @@ export interface Message {
   audioId?: string; // GUID from server for user voice messages
   audioDuration?: number; // Duration in seconds
   transcript?: string; // Transcribed text from Gemini
+  // Private chat fields
+  chatType?: ChatType; // 'public' (default) or 'private'
+  privateWithCharacterId?: string; // Character ID for private chat
 }
 
 export interface CharacterThought {

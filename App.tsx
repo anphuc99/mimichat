@@ -15,6 +15,7 @@ import { VocabularyMemoryScene } from './components/VocabularyMemoryScene';
 import { VocabularyCollectionScene } from './components/VocabularyCollectionScene';
 import { ChatVocabularyModal } from './components/ChatVocabularyModal';
 import { AIAssistantModal } from './components/AIAssistantModal';
+import { PrivateChatWindow, PrivateChatButton } from './components/PrivateChatWindow';
 import { ModelSelector } from './components/ModelSelector';
 import type { Message, ChatJournal, DailyChat, Character, SavedData, CharacterThought, VocabularyItem, VocabularyReview, StreakData, KoreanLevel, StoryMeta, StoriesIndex, FSRSSettings, VocabularyDifficultyRating, FSRSRating, VocabularyWithStability, VocabularyStore, StoredVocabularyItem, StoredVocabularyMemory, VocabularyMemoryEntry } from './types';
 import { DEFAULT_FSRS_SETTINGS } from './types';
@@ -146,6 +147,11 @@ const App: React.FC = () => {
 
   // AI Assistant state
   const [isAIAssistantOpen, setIsAIAssistantOpen] = useState(false);
+
+  // Private Chat state
+  const [isPrivateChatOpen, setIsPrivateChatOpen] = useState(false);
+  const [hasNewPrivateMessage, setHasNewPrivateMessage] = useState(false);
+  const [isPrivateChatLoading, setIsPrivateChatLoading] = useState(false);
 
   // FSRS settings state - for vocabulary memory system
   const [fsrsSettings, setFsrsSettings] = useState<FSRSSettings>(() => {
@@ -499,19 +505,26 @@ const App: React.FC = () => {
     };
   }, [journal, formattedJournalForSearch]);
 
-  const processBotResponsesSequentially = useCallback(async (responses: any[]) => {
+  const processBotResponsesSequentially = useCallback(async (responses: any[], isPrivateChat: boolean = false, privateCharacterId?: string) => {
     if (!Array.isArray(responses) || responses.length === 0) {
       setIsLoading(false);
+      setIsPrivateChatLoading(false);
       return;
     }
 
+    let hasPrivateMessages = false;
+console.log("Processing bot responses:", responses);
     for (const botResponse of responses) {
-      const { CharacterName, Text, Action, Tone, Translation } = botResponse;
+      const { CharacterName, Text, Action, Tone, Translation, ChatType, PrivateWithCharacterId } = botResponse;
 
       const characterName = CharacterName || getActiveCharacters()[0]?.name || "Mimi";
       const speechText = Text || "";
       const tone = Tone || 'cheerfully';
       const displayText = speechText || "...";
+
+      // Determine if this is a private message
+      const isPrivateMessage = isPrivateChat || ChatType === 'private';
+      const privateCharId = privateCharacterId || PrivateWithCharacterId;
 
       const character = characters.find(c => c.name === characterName);
       const voiceName = character?.voiceName || 'echo';
@@ -532,10 +545,17 @@ const App: React.FC = () => {
         characterName: characterName,
         audioData: audioData ?? undefined,
         rawText: rawTextForCopy,
-        translation: Translation
+        translation: Translation,
+        chatType: isPrivateMessage ? 'private' : 'public',
+        privateWithCharacterId: isPrivateMessage ? (privateCharId || character?.id) : undefined,
       };
 
       updateCurrentChatMessages(prev => [...prev, botMessage]);
+
+      // Track if any private messages were added
+      if (isPrivateMessage) {
+        hasPrivateMessages = true;
+      }
 
       if (audioData) {
         await playAudio(audioData, speakingRate, pitch);
@@ -544,8 +564,116 @@ const App: React.FC = () => {
       await new Promise(resolve => setTimeout(resolve, 1200));
     }
 
+    // Show notification if private messages were added and private chat window is closed
+    if (hasPrivateMessages && !isPrivateChatOpen) {
+      setHasNewPrivateMessage(true);
+    }
+
     setIsLoading(false);
-  }, [getActiveCharacters, playAudio, updateCurrentChatMessages, characters]);
+    setIsPrivateChatLoading(false);
+  }, [getActiveCharacters, playAudio, updateCurrentChatMessages, characters, isPrivateChatOpen]);
+
+  // Handler for sending private messages
+  const handleSendPrivateMessage = useCallback(async (text: string, characterId: string, characterName: string) => {
+    if (!text.trim() || isPrivateChatLoading) return;
+
+    setIsPrivateChatLoading(true);
+
+    // Add user's private message
+    const userMessage: Message = {
+      id: Date.now().toString(),
+      text,
+      sender: 'user',
+      chatType: 'private',
+      privateWithCharacterId: characterId,
+    };
+    updateCurrentChatMessages(prev => [...prev, userMessage]);
+    userPromptRef.current = text;
+
+    try {
+      // Initialize chat if needed
+      if (!chatRef.current) {
+        const activeChars = getActiveCharacters();
+        const currentChat = getCurrentChat();
+        const history: Content[] = currentChat ? currentChat.messages.map(msg => ({
+          role: msg.sender === 'user' ? 'user' : 'model',
+          parts: [{ text: msg.rawText || msg.text }],
+        })) : [];
+        chatRef.current = await initChat(activeChars, context, history, '', relationshipSummary, currentLevel, chatReviewVocabularies, storyPlot, checkPronunciation);
+      }
+
+      // Add private chat marker to message
+      const privateMarker = `[PRIVATE CHAT with ${characterName} (ID: ${characterId})]`;
+      const messageForAI = `${privateMarker}\n${text}`;
+
+      let botResponseText = await sendMessage(chatRef.current, messageForAI);
+
+      const activeChars = getActiveCharacters();
+      const validCharacterNames = activeChars.map(c => c.name);
+
+      const parseAndValidate = (jsonString: string) => {
+        try {
+          let parsed = JSON.parse(jsonString);
+          if (!Array.isArray(parsed)) parsed = [parsed];
+
+          const hasRequiredFields = parsed.every((item: any) =>
+            item &&
+            typeof item.CharacterName === 'string' &&
+            typeof item.Text === 'string' &&
+            typeof item.Tone === 'string'
+          );
+
+          if (!hasRequiredFields) return null;
+
+          // For private chat, only the target character should respond
+          const hasValidCharacters = parsed.every((item: any) =>
+            item.CharacterName === characterName
+          );
+
+          if (!hasValidCharacters) {
+            console.warn('Private chat: Only target character should respond');
+            // Filter to only include target character
+            return parsed.filter((item: any) => item.CharacterName === characterName);
+          }
+
+          return parsed;
+        } catch (e) {
+          return null;
+        }
+      };
+
+      let botResponses = parseAndValidate(botResponseText);
+      let retryCount = 0;
+
+      while (!botResponses && retryCount < 5) {
+        console.warn(`Invalid private chat response. Retrying (${retryCount + 1}/5)...`);
+        const retryPrompt = `SYSTEM: This is a PRIVATE CHAT. ONLY ${characterName} should respond. Output a valid JSON array.`;
+        botResponseText = await sendMessage(chatRef.current, retryPrompt);
+        botResponses = parseAndValidate(botResponseText);
+        retryCount++;
+      }
+
+      if (!botResponses || botResponses.length === 0) {
+        throw new Error("Failed to get valid private chat response.");
+      }
+
+      // Process responses as private messages
+      await processBotResponsesSequentially(botResponses, true, characterId);
+
+    } catch (error) {
+      console.error("Failed to send private message:", error);
+      const errorMessage: Message = {
+        id: (Date.now() + 1).toString(),
+        text: 'Xin lỗi, đã xảy ra lỗi. Vui lòng thử lại.',
+        sender: 'bot',
+        isError: true,
+        chatType: 'private',
+        privateWithCharacterId: characterId,
+      };
+      updateCurrentChatMessages(prev => [...prev, errorMessage]);
+      setIsPrivateChatLoading(false);
+    }
+  }, [isPrivateChatLoading, getActiveCharacters, context, relationshipSummary, currentLevel, chatReviewVocabularies, storyPlot, checkPronunciation, updateCurrentChatMessages, processBotResponsesSequentially]);
 
   const handleSendMessage = useCallback(async (text: string) => {
     if (!text.trim() || isLoading) return;
@@ -2711,6 +2839,15 @@ const App: React.FC = () => {
           )}
         </div>
         <div className="flex items-center space-x-3">
+          {/* Private Chat Button */}
+          <PrivateChatButton
+            onClick={() => {
+              setIsPrivateChatOpen(prev => !prev);
+              setHasNewPrivateMessage(false);
+            }}
+            hasNewMessage={hasNewPrivateMessage}
+          />
+          
           {/* Model Selector */}
           <ModelSelector />
           
@@ -3261,6 +3398,21 @@ const App: React.FC = () => {
         vocabularies={getAllVocabulariesWithStability()}
         getChatHistory={getFullChatHistory}
         currentLevel={currentLevel}
+      />
+
+      {/* Private Chat Window */}
+      <PrivateChatWindow
+        isOpen={isPrivateChatOpen}
+        onClose={() => {
+          setIsPrivateChatOpen(false);
+          setHasNewPrivateMessage(false);
+        }}
+        characters={getActiveCharacters()}
+        allMessages={getCurrentChat()?.messages || []}
+        onSendPrivateMessage={handleSendPrivateMessage}
+        onReplayAudio={handleReplayAudio}
+        isLoading={isPrivateChatLoading}
+        hasNewPrivateMessage={hasNewPrivateMessage}
       />
     </div>
   );
