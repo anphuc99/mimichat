@@ -1536,6 +1536,7 @@ KHẢ NĂNG CỦA BẠN
    - Liệt kê RÕ RÀNG các từ đã học được sử dụng trong câu gợi ý
    - Giải thích ngữ pháp phù hợp với cấp độ ${currentLevel}
    - Đưa ra 2-3 cách diễn đạt khác nhau
+   - Trình độ viết của người dùng luôn thấp hơn trình độ hiện tại 1 bậc vì vậy nếu có gợi ý viết hãy sử dụng ngữ pháp đơn giản hơn
 
 4. **TRẢ LỜI CÂU HỎI CHUNG**:
    - Giải thích ngữ pháp tiếng Hàn
