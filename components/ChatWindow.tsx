@@ -1,6 +1,6 @@
 
 import React, { useEffect, useRef } from 'react';
-import type { Message, Character } from '../types';
+import type { Message, Character, VocabularyStore } from '../types';
 import { MessageBubble } from './MessageBubble';
 import { TypingIndicator } from './TypingIndicator';
 
@@ -18,12 +18,16 @@ interface ChatWindowProps {
   onUpdateMessage: (messageId: string, newText: string) => Promise<void>;
   onUpdateBotMessage: (messageId: string, newText: string, newTone: string) => Promise<void>;
   onRegenerateTone: (text: string, characterName: string) => Promise<string>;
-  onCollectVocabulary?: (korean: string, messageId: string) => void;
+  onCollectVocabulary?: (korean: string, vietnamese: string, memory: string, linkedMessageIds: string[], messageId: string) => void | Promise<void>;
   onRegenerateImage?: (messageId: string) => Promise<void>;
   onDeleteMessage?: (messageId: string) => void;
   characters: Character[];
   isListeningMode?: boolean;
   onToggleListeningMode?: () => void;
+  // New props for collect popup
+  dailyChatId?: string;
+  dailyChatDate?: string;
+  vocabularyStore?: VocabularyStore;
 }
 
 export const ChatWindow: React.FC<ChatWindowProps> = ({ 
@@ -46,6 +50,9 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({
   characters,
   isListeningMode = false,
   onToggleListeningMode,
+  dailyChatId = '',
+  dailyChatDate = '',
+  vocabularyStore,
 }) => {
   const chatEndRef = useRef<HTMLDivElement>(null);
 
@@ -110,6 +117,10 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({
               onDeleteMessage={onDeleteMessage}
               avatarUrl={character?.avatar}
               isListeningMode={isListeningMode}
+              dailyChatId={dailyChatId}
+              dailyChatDate={dailyChatDate}
+              characters={characters}
+              vocabularyStore={vocabularyStore}
             />
           );
         })}

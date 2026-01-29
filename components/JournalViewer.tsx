@@ -1,6 +1,6 @@
 
 import React, { useState } from 'react';
-import type { ChatJournal, DailyChat, StreakData, Character } from '../types';
+import type { ChatJournal, DailyChat, StreakData, Character, VocabularyStore } from '../types';
 import { MessageBubble } from './MessageBubble';
 import { StreakDisplay } from './StreakDisplay';
 
@@ -16,12 +16,13 @@ interface DailyEntryProps {
   isSelected: boolean;
   onToggleSelect: () => void;
   playingMessageId: string | null;
-  onCollectVocabulary?: (korean: string, messageId: string, dailyChatId: string) => void;
+  onCollectVocabulary?: (korean: string, vietnamese: string, memory: string, linkedMessageIds: string[], messageId: string, dailyChatId: string) => void | Promise<void>;
   onDownloadTxt?: (dailyChatId: string) => void;
   characters: Character[];
   onTranslate: (text: string) => Promise<string>;
   onStoreTranslation: (messageId: string, translation: string, dailyChatId: string) => void;
   onUpdateSummary?: (dailyChatId: string, newSummary: string) => void;
+  vocabularyStore?: VocabularyStore;
 }
 
 const DailyEntry: React.FC<DailyEntryProps> = ({ 
@@ -42,6 +43,7 @@ const DailyEntry: React.FC<DailyEntryProps> = ({
     onTranslate,
     onStoreTranslation,
     onUpdateSummary,
+    vocabularyStore,
 }) => {
   const [isExpanded, setIsExpanded] = useState(false);
   const [isAutoPlaying, setIsAutoPlaying] = useState(false);
@@ -312,8 +314,12 @@ const DailyEntry: React.FC<DailyEntryProps> = ({
                       onStoreTranslation={(msgId, translation) => onStoreTranslation(msgId, translation, dailyChat.id)}
                       onRetry={() => {}}
                       isJournalView={true}
-                      onCollectVocabulary={onCollectVocabulary ? (korean, messageId) => onCollectVocabulary(korean, messageId, dailyChat.id) : undefined}
+                      onCollectVocabulary={onCollectVocabulary ? (korean, vietnamese, memory, linkedMessageIds, messageId) => onCollectVocabulary(korean, vietnamese, memory, linkedMessageIds, messageId, dailyChat.id) : undefined}
                       avatarUrl={character?.avatar}
+                      dailyChatId={dailyChat.id}
+                      dailyChatDate={dailyChat.date}
+                      characters={characters}
+                      vocabularyStore={vocabularyStore}
                   />
               </div>
             )})}
@@ -374,7 +380,7 @@ const DailyEntry: React.FC<DailyEntryProps> = ({
             <button
                 onClick={(e) => {
                     e.stopPropagation();
-                    if (!dailyChat.vocabularies || dailyChat.vocabularies.length === 0) {
+                    if (!dailyChat.vocabularyIds || dailyChat.vocabularyIds.length === 0) {
                         onGenerateVocabulary(dailyChat.id);
                     } else {
                         onStartVocabulary(dailyChat.id);
@@ -385,8 +391,8 @@ const DailyEntry: React.FC<DailyEntryProps> = ({
             >
                 {isGeneratingVocabulary === dailyChat.id
                     ? '⏳ Đang phân tích từ vựng...'
-                    : dailyChat.vocabularies && dailyChat.vocabularies.length > 0
-                        ? `📚 Học từ vựng (${dailyChat.vocabularies.length} từ)`
+                    : dailyChat.vocabularyIds && dailyChat.vocabularyIds.length > 0
+                        ? `📚 Học từ vựng (${dailyChat.vocabularyIds.length} từ)`
                         : '📚 Học từ vựng'}
             </button>
 
@@ -424,13 +430,14 @@ interface JournalViewerProps {
   reviewDueCount: number;
   starredCount?: number;
   streak: StreakData;
-  onCollectVocabulary?: (korean: string, messageId: string, dailyChatId: string) => void;
+  onCollectVocabulary?: (korean: string, vietnamese: string, memory: string, linkedMessageIds: string[], messageId: string, dailyChatId: string) => void | Promise<void>;
   onPreloadAudio?: (audioData: string) => Promise<void>;
   onDownloadTxt?: (dailyChatId: string) => void;
   characters: Character[];
   onTranslate: (text: string) => Promise<string>;
   onStoreTranslation: (messageId: string, translation: string, dailyChatId: string) => void;
   onUpdateDailySummary?: (dailyChatId: string, newSummary: string) => void;
+  vocabularyStore?: VocabularyStore;
 }
 
 export const JournalViewer: React.FC<JournalViewerProps> = ({ 
@@ -458,6 +465,7 @@ export const JournalViewer: React.FC<JournalViewerProps> = ({
     onTranslate,
     onStoreTranslation,
     onUpdateDailySummary,
+    vocabularyStore,
 }) => {
     const [isViewingSummary, setIsViewingSummary] = useState(false);
     const [isEditingSummary, setIsEditingSummary] = useState(false);
@@ -1006,6 +1014,7 @@ export const JournalViewer: React.FC<JournalViewerProps> = ({
                             onTranslate={onTranslate}
                             onStoreTranslation={onStoreTranslation}
                             onUpdateSummary={onUpdateDailySummary}
+                            vocabularyStore={vocabularyStore}
                         />
                     ))}
                 </div>

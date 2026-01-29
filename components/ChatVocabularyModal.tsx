@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import type { VocabularyItem, DailyChat, VocabularyReview } from '../types';
+import type { VocabularyItem, DailyChat, VocabularyReview, VocabularyStore } from '../types';
+import { getReviewByVocabularyId } from '../utils/vocabularyStore';
 
 interface VocabularyWithReview {
   vocab: VocabularyItem;
@@ -9,7 +10,7 @@ interface VocabularyWithReview {
 interface ChatVocabularyModalProps {
   isOpen: boolean;
   onClose: () => void;
-  journal: DailyChat[];
+  vocabularyStore: VocabularyStore;
   selectedVocabularies: VocabularyItem[];
   onVocabulariesChange: (vocabularies: VocabularyItem[]) => void;
 }
@@ -17,7 +18,7 @@ interface ChatVocabularyModalProps {
 export const ChatVocabularyModal: React.FC<ChatVocabularyModalProps> = ({
   isOpen,
   onClose,
-  journal,
+  vocabularyStore,
   selectedVocabularies,
   onVocabulariesChange,
 }) => {
@@ -25,19 +26,17 @@ export const ChatVocabularyModal: React.FC<ChatVocabularyModalProps> = ({
   const [manualKorean, setManualKorean] = useState('');
   const [manualVietnamese, setManualVietnamese] = useState('');
 
-  // Get all vocabularies from journal with their review data, sorted by difficulty (high) and stability (low)
+  // Get all vocabularies from vocabulary store with their review data, sorted by difficulty (high) and stability (low)
   const allVocabulariesWithReview = useMemo(() => {
     const vocabMap = new Map<string, VocabularyWithReview>();
     
-    for (const dailyChat of journal) {
-      if (dailyChat.vocabularies) {
-        for (const vocab of dailyChat.vocabularies) {
-          if (!vocabMap.has(vocab.korean)) {
-            // Find review for this vocabulary
-            const review = dailyChat.reviewSchedule?.find(r => r.vocabularyId === vocab.id);
-            vocabMap.set(vocab.korean, { vocab, review });
-          }
-        }
+    // Get all vocabularies directly from store
+    for (const storedVocab of vocabularyStore.vocabularies) {
+      const vocab: VocabularyItem = { id: storedVocab.id, korean: storedVocab.korean, vietnamese: storedVocab.vietnamese };
+      if (!vocabMap.has(vocab.korean)) {
+        // Find review for this vocabulary
+        const review = getReviewByVocabularyId(vocabularyStore, vocab.id);
+        vocabMap.set(vocab.korean, { vocab, review: review || undefined });
       }
     }
     
@@ -55,7 +54,7 @@ export const ChatVocabularyModal: React.FC<ChatVocabularyModalProps> = ({
       // Then by stability (ascending - lowest first)
       return stabA - stabB;
     });
-  }, [journal]);
+  }, [vocabularyStore]);
 
   // Get just the vocabulary items for compatibility
   const allVocabularies = useMemo(() => {

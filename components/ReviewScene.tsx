@@ -240,7 +240,7 @@ export const ReviewScene: React.FC<ReviewSceneProps> = ({
 
         {/* Review info */}
         <div className="mt-2 text-xs opacity-80">
-          Lần ôn: {currentQuizItem.reviewItem.review.totalReviews + 1} | 
+          Lần ôn: {(currentQuizItem.reviewItem.review.reviewHistory?.length || 0) + 1} | 
           Interval hiện tại: {currentQuizItem.reviewItem.review.currentIntervalDays} ngày
         </div>
       </header>

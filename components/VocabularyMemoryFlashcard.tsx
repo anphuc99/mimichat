@@ -1,5 +1,5 @@
 import React, { useState, useCallback, useMemo, useEffect } from 'react';
-import type { VocabularyItem, VocabularyReview, VocabularyMemoryEntry, FSRSRating, FSRSSettings, DailyChat, Character, ChatJournal } from '../types';
+import type { VocabularyItem, VocabularyReview, VocabularyMemoryEntry, FSRSRating, FSRSSettings, DailyChat, Character, ChatJournal, StoredVocabularyMemory, StoredVocabularyItem } from '../types';
 import { DEFAULT_FSRS_SETTINGS } from '../types';
 import { updateFSRSReview, calculateRetrievability } from '../utils/spacedRepetition';
 import HTTPService from '../services/HTTPService';
@@ -12,9 +12,9 @@ const escapeHtml = (text: string): string => {
 };
 
 interface VocabularyMemoryFlashcardProps {
-  vocabulary: VocabularyItem;
+  vocabulary: VocabularyItem | StoredVocabularyItem;
   review: VocabularyReview;
-  memory?: VocabularyMemoryEntry;
+  memory?: VocabularyMemoryEntry | StoredVocabularyMemory;
   dailyChat?: DailyChat;
   journal?: ChatJournal;
   settings?: FSRSSettings;

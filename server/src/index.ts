@@ -494,7 +494,10 @@ app.get("/api/story/:id", (req: Request, res: Response) => {
       return res.status(404).json({ error: "Story not found" });
     }
     
-    const data = JSON.parse(fs.readFileSync(storyPath, "utf-8"));
+    let data = JSON.parse(fs.readFileSync(storyPath, "utf-8"));
+    
+    // Note: vocabularyStore is now a separate global file (vocabulary-store.json)
+    // No migration needed here - it's handled by tool.js migration script
     
     // Update last opened story
     const index = getStoriesIndex();
@@ -519,9 +522,9 @@ app.post("/api/story", (req: Request, res: Response) => {
     const storyId = crypto.randomUUID();
     const now = new Date().toISOString();
     
-    // Default data for a new story (streak is now in separate file)
+    // Default data for a new story with vocabulary store
     const storyData = data || {
-      version: 5,
+      version: 6,
       journal: [{
         id: Date.now().toString(),
         date: new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Ho_Chi_Minh' }),
@@ -545,6 +548,7 @@ app.post("/api/story", (req: Request, res: Response) => {
       context: "at Mimi's house",
       relationshipSummary: '',
       currentLevel: currentLevel || 'A1'
+      // Note: vocabularyStore is now a separate global file, not in story data
     };
     
     // Save story data
@@ -636,6 +640,43 @@ app.delete("/api/story/:id", (req: Request, res: Response) => {
     res.json({ success: true });
   } catch (e: any) {
     res.status(500).json({ error: e.message || "Failed to delete story" });
+  }
+});
+
+// ===========================================================
+// VOCABULARY STORE API (Global vocabulary file)
+// ===========================================================
+const VOCABULARY_STORE_PATH = path.join(DATA_DIR, "vocabulary-store.json");
+
+function getVocabularyStore() {
+  if (!fs.existsSync(VOCABULARY_STORE_PATH)) {
+    return { version: 1, vocabularies: [], reviews: [], memories: [], progress: {} };
+  }
+  return JSON.parse(fs.readFileSync(VOCABULARY_STORE_PATH, "utf-8"));
+}
+
+function saveVocabularyStore(data: any) {
+  fs.writeFileSync(VOCABULARY_STORE_PATH, JSON.stringify(data, null, 2));
+}
+
+// GET /api/vocabulary-store - Get global vocabulary store
+app.get("/api/vocabulary-store", (req: Request, res: Response) => {
+  try {
+    const store = getVocabularyStore();
+    res.json(store);
+  } catch (e: any) {
+    res.status(500).json({ error: e.message || "Failed to load vocabulary store" });
+  }
+});
+
+// PUT /api/vocabulary-store - Update global vocabulary store
+app.put("/api/vocabulary-store", (req: Request, res: Response) => {
+  try {
+    const data = req.body;
+    saveVocabularyStore(data);
+    res.json({ success: true });
+  } catch (e: any) {
+    res.status(500).json({ error: e.message || "Failed to save vocabulary store" });
   }
 });
 

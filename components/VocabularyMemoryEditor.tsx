@@ -3,7 +3,7 @@ import { useEditor, EditorContent, Node, mergeAttributes, ReactNodeViewRenderer,
 import StarterKit from '@tiptap/starter-kit';
 import Placeholder from '@tiptap/extension-placeholder';
 import Image from '@tiptap/extension-image';
-import type { VocabularyItem, VocabularyMemoryEntry, ChatJournal, DailyChat, Character } from '../types';
+import type { VocabularyItem, VocabularyMemoryEntry, ChatJournal, DailyChat, Character, StoredVocabularyMemory } from '../types';
 import { formatJournalForSearch, searchConversations, SearchResult } from '../utils/storySearch';
 import { searchVocabularyInJournal, generateCustomImage } from '../services/geminiService';
 import HTTPService from '../services/HTTPService';
@@ -22,8 +22,8 @@ interface VocabularyMemoryEditorProps {
   vocabulary: VocabularyItem;
   journal: ChatJournal;
   characters: Character[];
-  existingMemory?: VocabularyMemoryEntry;
-  dailyChat: DailyChat;
+  existingMemory?: VocabularyMemoryEntry | StoredVocabularyMemory;
+  dailyChat?: DailyChat;
   onSave: (memory: VocabularyMemoryEntry) => void;
   onCancel: () => void;
   onPlayAudio?: (audioData: string, characterName?: string) => void;
@@ -626,13 +626,13 @@ export const VocabularyMemoryEditor: React.FC<VocabularyMemoryEditorProps> = ({
       vocabularyId: vocabulary.id,
       userMemory: text,
       linkedMessageIds: messageIds,
-      linkedDailyChatId: dailyChat.id,
+      linkedDailyChatId: dailyChat?.id || '',
       createdDate: existingMemory?.createdDate || new Date().toISOString(),
       updatedDate: new Date().toISOString()
     };
 
     onSave(memory);
-  }, [editor, vocabulary.id, dailyChat.id, existingMemory, onSave]);
+  }, [editor, vocabulary.id, dailyChat?.id, existingMemory, onSave]);
 
   // Render search panel content
   const renderSearchContent = () => (

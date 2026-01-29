@@ -26,6 +26,8 @@ export const API_URL = {
     // Vocabulary Collection APIs
     API_VOCABULARY: '/api/vocabulary',
     API_VOCABULARY_COLLECTION: '/api/vocabulary-collection',
+    // Global Vocabulary Store API
+    API_VOCABULARY_STORE: '/api/vocabulary-store',
 };
 
 export interface HttpResponse<T = any> {

@@ -8,21 +8,29 @@ import type {
   FSRSRating,
   FSRSSettings,
   Character,
-  Message
+  Message,
+  VocabularyStore,
+  StoredVocabularyItem,
+  StoredVocabularyMemory
 } from '../types';
 import { DEFAULT_FSRS_SETTINGS } from '../types';
 import { 
-  getVocabulariesDueForMemoryReview, 
-  getAllVocabulariesWithMemories,
-  migrateLegacyToFSRS,
-  getNewVocabulariesWithoutReview,
-  getVocabularyStats,
-  calculateNewCardInterval,
-  getDifficultVocabulariesToday,
-  toggleVocabularyStar,
-  getStarredVocabulariesForReview,
-  getStarredVocabulariesCount
+  calculateNewCardInterval
 } from '../utils/spacedRepetition';
+import {
+  getAllVocabulariesFromStore,
+  getNewVocabulariesFromStore,
+  getVocabulariesDueFromStore,
+  getDifficultVocabulariesFromStore,
+  getStarredVocabulariesFromStore,
+  getVocabularyStatsFromStore,
+  upsertReview,
+  upsertMemory,
+  deleteVocabulary,
+  updateVocabulary,
+  toggleVocabularyStarInStore,
+  addManualVocabulary
+} from '../utils/vocabularyStore';
 import VocabularyMemoryFlashcard from './VocabularyMemoryFlashcard';
 import VocabularyMemoryEditor from './VocabularyMemoryEditor';
 import HTTPService from '../services/HTTPService';
@@ -40,8 +48,10 @@ interface VocabularyMemorySceneProps {
   journal: ChatJournal;
   characters: Character[];
   fsrsSettings: FSRSSettings;
+  vocabularyStore: VocabularyStore;
   onUpdateJournal: (updatedJournal: ChatJournal) => void;
   onUpdateSettings: (settings: FSRSSettings) => void;
+  onUpdateVocabularyStore: (store: VocabularyStore) => void;
   onBack: () => void;
   onPlayAudio?: (audioData: string, characterName?: string) => void;
   onGenerateAudio?: (text: string, tone: string, voiceName: string) => Promise<string | null>;
@@ -53,8 +63,10 @@ export const VocabularyMemoryScene: React.FC<VocabularyMemorySceneProps> = ({
   journal,
   characters,
   fsrsSettings,
+  vocabularyStore,
   onUpdateJournal,
   onUpdateSettings,
+  onUpdateVocabularyStore,
   onBack,
   onPlayAudio,
   onGenerateAudio,
@@ -65,28 +77,34 @@ export const VocabularyMemoryScene: React.FC<VocabularyMemorySceneProps> = ({
   const [showSettings, setShowSettings] = useState(false);
   const [tempSettings, setTempSettings] = useState(fsrsSettings);
   
-  // Learn tab state
+  // Learn tab state - updated to work with StoredVocabularyItem
   const [selectedVocabulary, setSelectedVocabulary] = useState<{
-    vocabulary: VocabularyItem;
+    vocabulary: StoredVocabularyItem | VocabularyItem;
     review?: VocabularyReview;
-    dailyChat: DailyChat;
-    memory?: VocabularyMemoryEntry;
+    dailyChat?: DailyChat;
+    memory?: StoredVocabularyMemory | VocabularyMemoryEntry;
   } | null>(null);
   const [filterText, setFilterText] = useState('');
   const [editingVocab, setEditingVocab] = useState<{
-    vocabulary: VocabularyItem;
+    vocabulary: StoredVocabularyItem | VocabularyItem;
     dailyChatId: string;
     korean: string;
     vietnamese: string;
   } | null>(null);
   const [filterMode, setFilterMode] = useState<'all' | 'with-memory' | 'without-memory' | 'learned' | 'not-learned' | 'starred'>('all');
   
-  // Review tab state
+  // Add vocabulary popup state
+  const [showAddVocabPopup, setShowAddVocabPopup] = useState(false);
+  const [newVocabKorean, setNewVocabKorean] = useState('');
+  const [newVocabVietnamese, setNewVocabVietnamese] = useState('');
+  const [isTranslatingNewVocab, setIsTranslatingNewVocab] = useState(false);
+  
+  // Review tab state - updated to work with optional dailyChat
   const [reviewQueue, setReviewQueue] = useState<{
-    vocabulary: VocabularyItem;
+    vocabulary: StoredVocabularyItem | VocabularyItem;
     review: VocabularyReview;
-    dailyChat: DailyChat;
-    memory?: VocabularyMemoryEntry;
+    dailyChat?: DailyChat;
+    memory?: StoredVocabularyMemory | VocabularyMemoryEntry;
   }[]>([]);
   const [currentReviewIndex, setCurrentReviewIndex] = useState(0);
   const [reviewSessionStats, setReviewSessionStats] = useState({
@@ -99,20 +117,20 @@ export const VocabularyMemoryScene: React.FC<VocabularyMemorySceneProps> = ({
   const [editingFromReview, setEditingFromReview] = useState(false);
   const [isReviewComplete, setIsReviewComplete] = useState(false);
 
-  // Get vocabulary stats
+  // Get vocabulary stats from store
   const vocabStats = useMemo(() => {
-    return getVocabularyStats(journal, fsrsSettings);
-  }, [journal, fsrsSettings]);
+    return getVocabularyStatsFromStore(vocabularyStore, journal, fsrsSettings);
+  }, [vocabularyStore, journal, fsrsSettings]);
 
-  // Get new vocabularies without review
+  // Get new vocabularies without review from store
   const newVocabularies = useMemo(() => {
-    return getNewVocabulariesWithoutReview(journal);
-  }, [journal]);
+    return getNewVocabulariesFromStore(vocabularyStore, journal);
+  }, [vocabularyStore, journal]);
 
-  // Get all vocabularies for learn tab
+  // Get all vocabularies for learn tab from store
   const allVocabularies = useMemo(() => {
-    return getAllVocabulariesWithMemories(journal);
-  }, [journal]);
+    return getAllVocabulariesFromStore(vocabularyStore, journal);
+  }, [vocabularyStore, journal]);
 
   // Filter vocabularies
   const filteredVocabularies = useMemo(() => {
@@ -143,20 +161,20 @@ export const VocabularyMemoryScene: React.FC<VocabularyMemorySceneProps> = ({
     return filtered;
   }, [allVocabularies, filterText, filterMode]);
 
-  // Get starred vocabularies count
+  // Get starred vocabularies count from store
   const starredCount = useMemo(() => {
-    return getStarredVocabulariesCount(journal);
-  }, [journal]);
+    return vocabularyStore.reviews.filter(r => r.isStarred).length;
+  }, [vocabularyStore]);
 
-  // Get due reviews
+  // Get due reviews from store
   const dueReviews = useMemo(() => {
-    return getVocabulariesDueForMemoryReview(journal, fsrsSettings);
-  }, [journal, fsrsSettings]);
+    return getVocabulariesDueFromStore(vocabularyStore, journal, fsrsSettings);
+  }, [vocabularyStore, journal, fsrsSettings]);
 
-  // Get difficult vocabularies (Hard/Again rated today)
+  // Get difficult vocabularies (Hard/Again rated today) from store
   const difficultVocabularies = useMemo(() => {
-    return getDifficultVocabulariesToday(journal);
-  }, [journal]);
+    return getDifficultVocabulariesFromStore(vocabularyStore, journal);
+  }, [vocabularyStore, journal]);
 
   // Initialize review queue when switching to review tab (NO auto-add - user learns new words in New tab)
   useEffect(() => {
@@ -171,56 +189,38 @@ export const VocabularyMemoryScene: React.FC<VocabularyMemorySceneProps> = ({
 
   // Handle saving memory
   const handleSaveMemory = useCallback((memory: VocabularyMemoryEntry) => {
-    const updatedJournal = journal.map(dc => {
-      if (dc.id === memory.linkedDailyChatId) {
-        const existingMemories = dc.vocabularyMemories || [];
-        const existingIndex = existingMemories.findIndex(m => m.vocabularyId === memory.vocabularyId);
-        
-        let newMemories: VocabularyMemoryEntry[];
-        if (existingIndex >= 0) {
-          newMemories = [...existingMemories];
-          newMemories[existingIndex] = memory;
-        } else {
-          newMemories = [...existingMemories, memory];
-        }
-        
-        return { ...dc, vocabularyMemories: newMemories };
-      }
-      return dc;
-    });
+    // Convert to StoredVocabularyMemory for the vocabulary store
+    const storedMemory: StoredVocabularyMemory = {
+      vocabularyId: memory.vocabularyId,
+      userMemory: memory.userMemory,
+      linkedMessageIds: memory.linkedMessageIds,
+      createdDate: memory.createdDate,
+      updatedDate: memory.updatedDate
+    };
     
-    onUpdateJournal(updatedJournal);
+    // Update vocabulary store with new memory
+    const newStore = upsertMemory(vocabularyStore, storedMemory);
+    onUpdateVocabularyStore(newStore);
     
     // If editing from review, update the current item in review queue with new memory
     if (editingFromReview && reviewQueue.length > 0) {
       const updatedQueue = [...reviewQueue];
       updatedQueue[currentReviewIndex] = {
         ...updatedQueue[currentReviewIndex],
-        memory: memory
+        memory: storedMemory
       };
       setReviewQueue(updatedQueue);
       setEditingFromReview(false);
     } else {
       setSelectedVocabulary(null);
     }
-  }, [journal, onUpdateJournal, editingFromReview, reviewQueue, currentReviewIndex]);
+  }, [vocabularyStore, onUpdateVocabularyStore, editingFromReview, reviewQueue, currentReviewIndex]);
 
   // Handle review complete
   const handleReviewComplete = useCallback((updatedReview: VocabularyReview, rating: FSRSRating) => {
-    // Update journal with new review data
-    const currentItem = reviewQueue[currentReviewIndex];
-    
-    const updatedJournal = journal.map(dc => {
-      if (dc.id === currentItem.dailyChat.id && dc.reviewSchedule) {
-        const newSchedule = dc.reviewSchedule.map(r => 
-          r.vocabularyId === updatedReview.vocabularyId ? updatedReview : r
-        );
-        return { ...dc, reviewSchedule: newSchedule };
-      }
-      return dc;
-    });
-    
-    onUpdateJournal(updatedJournal);
+    // Update vocabulary store with new review data
+    const newStore = upsertReview(vocabularyStore, updatedReview);
+    onUpdateVocabularyStore(newStore);
     
     // Update stats
     setReviewSessionStats(prev => ({
@@ -237,7 +237,7 @@ export const VocabularyMemoryScene: React.FC<VocabularyMemorySceneProps> = ({
       // Update streak when completing review session
       onStreakUpdate?.();
     }
-  }, [journal, onUpdateJournal, reviewQueue, currentReviewIndex, onStreakUpdate]);
+  }, [vocabularyStore, onUpdateVocabularyStore, reviewQueue, currentReviewIndex, onStreakUpdate]);
 
   // Handle skip
   const handleSkip = useCallback(() => {
@@ -248,52 +248,33 @@ export const VocabularyMemoryScene: React.FC<VocabularyMemorySceneProps> = ({
     }
   }, [currentReviewIndex, reviewQueue.length]);
 
-  // Handle card direction change - save immediately to journal
+  // Handle card direction change - save immediately to vocabulary store
   const handleCardDirectionChange = useCallback((direction: 'kr-vn' | 'vn-kr') => {
     const currentItem = reviewQueue[currentReviewIndex];
     if (!currentItem) return;
 
-    // Update journal with new card direction
-    const updatedJournal = journal.map(dc => {
-      if (dc.id === currentItem.dailyChat.id && dc.reviewSchedule) {
-        const newSchedule = dc.reviewSchedule.map(r => 
-          r.vocabularyId === currentItem.review.vocabularyId 
-            ? { ...r, cardDirection: direction }
-            : r
-        );
-        return { ...dc, reviewSchedule: newSchedule };
-      }
-      return dc;
-    });
-    
-    onUpdateJournal(updatedJournal);
+    // Update vocabulary store with new card direction
+    const updatedReview = { ...currentItem.review, cardDirection: direction };
+    const newStore = upsertReview(vocabularyStore, updatedReview);
+    onUpdateVocabularyStore(newStore);
 
     // Also update the review queue so the change persists in current session
     const updatedQueue = [...reviewQueue];
     updatedQueue[currentReviewIndex] = {
       ...updatedQueue[currentReviewIndex],
-      review: { ...updatedQueue[currentReviewIndex].review, cardDirection: direction }
+      review: updatedReview
     };
     setReviewQueue(updatedQueue);
-  }, [journal, onUpdateJournal, reviewQueue, currentReviewIndex]);
+  }, [vocabularyStore, onUpdateVocabularyStore, reviewQueue, currentReviewIndex]);
 
   // Handle reset FSRS - reset stability and difficulty
   const handleResetFSRS = useCallback((resetReview: VocabularyReview) => {
     const currentItem = reviewQueue[currentReviewIndex];
     if (!currentItem) return;
 
-    // Update journal with reset review data
-    const updatedJournal = journal.map(dc => {
-      if (dc.id === currentItem.dailyChat.id && dc.reviewSchedule) {
-        const newSchedule = dc.reviewSchedule.map(r => 
-          r.vocabularyId === resetReview.vocabularyId ? resetReview : r
-        );
-        return { ...dc, reviewSchedule: newSchedule };
-      }
-      return dc;
-    });
-    
-    onUpdateJournal(updatedJournal);
+    // Update vocabulary store with reset review data
+    const newStore = upsertReview(vocabularyStore, resetReview);
+    onUpdateVocabularyStore(newStore);
 
     // Also update the review queue so the change persists in current session
     const updatedQueue = [...reviewQueue];
@@ -302,28 +283,30 @@ export const VocabularyMemoryScene: React.FC<VocabularyMemorySceneProps> = ({
       review: resetReview
     };
     setReviewQueue(updatedQueue);
-  }, [journal, onUpdateJournal, reviewQueue, currentReviewIndex]);
+  }, [vocabularyStore, onUpdateVocabularyStore, reviewQueue, currentReviewIndex]);
 
   // Handle toggle star for vocabulary
   const handleToggleStar = useCallback((vocabularyId: string) => {
-    const result = toggleVocabularyStar(journal, vocabularyId);
-    if (result) {
-      onUpdateJournal(result.updatedJournal);
-      
-      // Update the review queue so the change reflects immediately
-      const updatedReviewQueue = reviewQueue.map(item => {
-        if (item.review.vocabularyId === vocabularyId) {
-          return {
-            ...item,
-            review: { ...item.review, isStarred: result.isStarred },
-            isStarred: result.isStarred
-          };
-        }
+    const newStore = toggleVocabularyStarInStore(vocabularyStore, vocabularyId);
+    onUpdateVocabularyStore(newStore);
+    
+    // Get the new star status
+    const review = newStore.reviews.find(r => r.vocabularyId === vocabularyId);
+    const isStarred = review?.isStarred || false;
+    
+    // Update the review queue so the change reflects immediately
+    const updatedReviewQueue = reviewQueue.map(item => {
+      if (item.review.vocabularyId === vocabularyId) {
+        return {
+          ...item,
+          review: { ...item.review, isStarred },
+          isStarred
+        };
+      }
         return item;
       });
       setReviewQueue(updatedReviewQueue);
-    }
-  }, [journal, onUpdateJournal, reviewQueue]);
+  }, [vocabularyStore, onUpdateVocabularyStore, reviewQueue]);
 
   // Handle edit memory from review flashcard
   const handleEditMemoryFromReview = useCallback(() => {
@@ -347,7 +330,7 @@ export const VocabularyMemoryScene: React.FC<VocabularyMemorySceneProps> = ({
 
   // Handle restart review
   const handleRestartReview = useCallback(() => {
-    const newDueReviews = getVocabulariesDueForMemoryReview(journal, fsrsSettings);
+    const newDueReviews = getVocabulariesDueFromStore(vocabularyStore, journal, fsrsSettings);
     if (newDueReviews.length > 0) {
       const shuffled = [...newDueReviews].sort(() => Math.random() - 0.5);
       setReviewQueue(shuffled);
@@ -355,7 +338,7 @@ export const VocabularyMemoryScene: React.FC<VocabularyMemorySceneProps> = ({
       setReviewSessionStats({ total: shuffled.length, remembered: 0, forgot: 0 });
       setIsReviewComplete(false);
     }
-  }, [journal, fsrsSettings]);
+  }, [vocabularyStore, journal, fsrsSettings]);
 
   // Handle delete vocabulary
   const handleDeleteVocabulary = useCallback((vocabularyId: string, dailyChatId: string) => {
@@ -363,23 +346,22 @@ export const VocabularyMemoryScene: React.FC<VocabularyMemorySceneProps> = ({
       return;
     }
 
-    const updatedJournal = journal.map(dc => {
-      if (dc.id === dailyChatId) {
+    // Delete from vocabulary store
+    const newStore = deleteVocabulary(vocabularyStore, vocabularyId);
+    onUpdateVocabularyStore(newStore);
+
+    // Remove vocabularyId from journal's vocabularyIds
+    const updatedJournal = journal.map(dailyChat => {
+      if (dailyChat.id === dailyChatId && dailyChat.vocabularyIds) {
         return {
-          ...dc,
-          // Remove from vocabularies
-          vocabularies: dc.vocabularies?.filter(v => v.id !== vocabularyId) || [],
-          // Remove from review schedule
-          reviewSchedule: dc.reviewSchedule?.filter(r => r.vocabularyId !== vocabularyId) || [],
-          // Remove from vocabulary memories
-          vocabularyMemories: dc.vocabularyMemories?.filter(m => m.vocabularyId !== vocabularyId) || []
+          ...dailyChat,
+          vocabularyIds: dailyChat.vocabularyIds.filter(id => id !== vocabularyId)
         };
       }
-      return dc;
+      return dailyChat;
     });
-
     onUpdateJournal(updatedJournal);
-  }, [journal, onUpdateJournal]);
+  }, [vocabularyStore, onUpdateVocabularyStore, journal, onUpdateJournal]);
 
   // Handle edit vocabulary
   const handleEditVocabulary = useCallback((vocabulary: VocabularyItem, dailyChatId: string) => {
@@ -395,30 +377,66 @@ export const VocabularyMemoryScene: React.FC<VocabularyMemorySceneProps> = ({
   const handleSaveEditedVocabulary = useCallback(() => {
     if (!editingVocab) return;
     
-    const { vocabulary, dailyChatId, korean, vietnamese } = editingVocab;
+    const { vocabulary, korean, vietnamese } = editingVocab;
     
     if (!korean.trim() || !vietnamese.trim()) {
       alert('Vui lòng nhập đầy đủ từ vựng và nghĩa.');
       return;
     }
 
-    const updatedJournal = journal.map(dc => {
-      if (dc.id === dailyChatId) {
-        return {
-          ...dc,
-          vocabularies: dc.vocabularies?.map(v => 
-            v.id === vocabulary.id 
-              ? { ...v, korean: korean.trim(), vietnamese: vietnamese.trim() }
-              : v
-          ) || []
-        };
-      }
-      return dc;
+    // Update vocabulary in store
+    const newStore = updateVocabulary(vocabularyStore, vocabulary.id, {
+      korean: korean.trim(),
+      vietnamese: vietnamese.trim()
     });
-
-    onUpdateJournal(updatedJournal);
+    onUpdateVocabularyStore(newStore);
     setEditingVocab(null);
-  }, [editingVocab, journal, onUpdateJournal]);
+  }, [editingVocab, vocabularyStore, onUpdateVocabularyStore]);
+
+  // Handle add new vocabulary manually
+  const handleAddVocabulary = useCallback(() => {
+    if (!newVocabKorean.trim() || !newVocabVietnamese.trim()) {
+      alert('Vui lòng nhập đầy đủ từ tiếng Hàn và nghĩa tiếng Việt.');
+      return;
+    }
+
+    // Check if vocabulary already exists
+    const existing = vocabularyStore.vocabularies.find(v => v.korean === newVocabKorean.trim());
+    if (existing) {
+      alert(`Từ "${newVocabKorean.trim()}" đã tồn tại trong kho từ vựng.`);
+      return;
+    }
+
+    // Add vocabulary to store
+    const newStore = addManualVocabulary(vocabularyStore, newVocabKorean.trim(), newVocabVietnamese.trim());
+    onUpdateVocabularyStore(newStore);
+    
+    // Reset form and close popup
+    setNewVocabKorean('');
+    setNewVocabVietnamese('');
+    setShowAddVocabPopup(false);
+  }, [newVocabKorean, newVocabVietnamese, vocabularyStore, onUpdateVocabularyStore]);
+
+  // Handle AI translate for new vocabulary
+  const handleTranslateNewVocab = useCallback(async () => {
+    if (!onTranslate || !newVocabKorean.trim()) {
+      alert('Vui lòng nhập từ tiếng Hàn trước.');
+      return;
+    }
+
+    setIsTranslatingNewVocab(true);
+    try {
+      const translation = await onTranslate(newVocabKorean.trim());
+      if (translation) {
+        setNewVocabVietnamese(translation);
+      }
+    } catch (error) {
+      console.error('Failed to translate:', error);
+      alert('Không thể dịch từ này. Vui lòng thử lại.');
+    } finally {
+      setIsTranslatingNewVocab(false);
+    }
+  }, [onTranslate, newVocabKorean]);
 
   // Handle save settings
   const handleSaveSettings = useCallback(() => {
@@ -489,11 +507,11 @@ export const VocabularyMemoryScene: React.FC<VocabularyMemorySceneProps> = ({
     </div>
   );
 
-  // State for new words tab
+  // State for new words tab - updated to work with StoredVocabularyItem
   const [newWordsQueue, setNewWordsQueue] = useState<{
-    vocabulary: VocabularyItem;
-    dailyChat: DailyChat;
-    memory?: VocabularyMemoryEntry;
+    vocabulary: StoredVocabularyItem | VocabularyItem;
+    dailyChat?: DailyChat;
+    memory?: StoredVocabularyMemory | VocabularyMemoryEntry;
   }[]>([]);
   const [currentNewWordIndex, setCurrentNewWordIndex] = useState(0);
   const [newWordState, setNewWordState] = useState<'word' | 'memory' | 'answer'>('word');
@@ -515,13 +533,14 @@ export const VocabularyMemoryScene: React.FC<VocabularyMemorySceneProps> = ({
   // Whether the front word is revealed (initially hidden, click to reveal)
   const [isNewWordRevealed, setIsNewWordRevealed] = useState(false);
 
-  // State for difficult words tab (Hard/Again rated today)
+  // State for difficult words tab (Hard/Again rated today) - updated to work with optional dailyChat
   const [difficultQueue, setDifficultQueue] = useState<{
-    vocabulary: VocabularyItem;
+    vocabulary: StoredVocabularyItem | VocabularyItem;
     review: VocabularyReview;
-    dailyChat: DailyChat;
-    memory?: VocabularyMemoryEntry;
+    dailyChat?: DailyChat;
+    memory?: StoredVocabularyMemory | VocabularyMemoryEntry;
     todayRating: 1 | 2;
+    isStarred?: boolean;
   }[]>([]);
   const [currentDifficultIndex, setCurrentDifficultIndex] = useState(0);
   const [difficultWordState, setDifficultWordState] = useState<'word' | 'memory' | 'answer'>('word');
@@ -538,12 +557,12 @@ export const VocabularyMemoryScene: React.FC<VocabularyMemorySceneProps> = ({
   const [difficultCardDirection, setDifficultCardDirection] = useState<'kr-vn' | 'vn-kr'>('kr-vn');
   const [isDifficultWordRevealed, setIsDifficultWordRevealed] = useState(false);
 
-  // State for starred words tab
+  // State for starred words tab - updated to work with optional dailyChat
   const [starredQueue, setStarredQueue] = useState<{
-    vocabulary: VocabularyItem;
+    vocabulary: StoredVocabularyItem | VocabularyItem;
     review: VocabularyReview;
-    dailyChat: DailyChat;
-    memory?: VocabularyMemoryEntry;
+    dailyChat?: DailyChat;
+    memory?: StoredVocabularyMemory | VocabularyMemoryEntry;
     isStarred?: boolean;
   }[]>([]);
   const [currentStarredIndex, setCurrentStarredIndex] = useState(0);
@@ -589,7 +608,7 @@ export const VocabularyMemoryScene: React.FC<VocabularyMemorySceneProps> = ({
   // Initialize starred queue when switching to starred tab
   useEffect(() => {
     if (activeTab === 'starred' && starredQueue.length === 0) {
-      const starredItems = getStarredVocabulariesForReview(journal);
+      const starredItems = getStarredVocabulariesFromStore(vocabularyStore, journal);
       if (starredItems.length > 0) {
         setStarredQueue(starredItems);
         setCurrentStarredIndex(0);
@@ -599,7 +618,7 @@ export const VocabularyMemoryScene: React.FC<VocabularyMemorySceneProps> = ({
         setIsStarredWordRevealed(false);
       }
     }
-  }, [activeTab, journal, starredQueue.length]);
+  }, [activeTab, vocabularyStore, journal, starredQueue.length]);
 
   // Reset isNewWordRevealed when switching to next word
   useEffect(() => {
@@ -629,18 +648,14 @@ export const VocabularyMemoryScene: React.FC<VocabularyMemorySceneProps> = ({
     }
   }, [characters, selectedNewWordCharacterId, selectedDifficultCharacterId, selectedStarredCharacterId]);
 
-  // Update difficult and starred queues when journal changes (for star status updates)
+  // Update difficult and starred queues when vocabularyStore changes (for star status updates)
   useEffect(() => {
     if (difficultQueue.length > 0) {
       const updatedDifficultQueue = difficultQueue.map(item => {
-        // Find current star status from journal
-        for (const dc of journal) {
-          if (dc.reviewSchedule) {
-            const review = dc.reviewSchedule.find(r => r.vocabularyId === item.vocabulary.id);
-            if (review) {
-              return { ...item, isStarred: review.isStarred };
-            }
-          }
+        // Find current star status from vocabulary store
+        const review = vocabularyStore.reviews.find(r => r.vocabularyId === item.vocabulary.id);
+        if (review) {
+          return { ...item, isStarred: review.isStarred };
         }
         return item;
       });
@@ -650,19 +665,15 @@ export const VocabularyMemoryScene: React.FC<VocabularyMemorySceneProps> = ({
         setDifficultQueue(updatedDifficultQueue);
       }
     }
-  }, [journal]);
+  }, [vocabularyStore]);
 
   useEffect(() => {
     if (starredQueue.length > 0) {
       const updatedStarredQueue = starredQueue.map(item => {
-        // Find current star status from journal
-        for (const dc of journal) {
-          if (dc.reviewSchedule) {
-            const review = dc.reviewSchedule.find(r => r.vocabularyId === item.vocabulary.id);
-            if (review) {
-              return { ...item, isStarred: review.isStarred };
-            }
-          }
+        // Find current star status from vocabulary store
+        const review = vocabularyStore.reviews.find(r => r.vocabularyId === item.vocabulary.id);
+        if (review) {
+          return { ...item, isStarred: review.isStarred };
         }
         return item;
       });
@@ -672,7 +683,7 @@ export const VocabularyMemoryScene: React.FC<VocabularyMemorySceneProps> = ({
         setStarredQueue(updatedStarredQueue);
       }
     }
-  }, [journal]);
+  }, [vocabularyStore]);
 
   // Handle audio button clicks in memory HTML
   const handleNewWordMemoryClick = useCallback((e: React.MouseEvent) => {
@@ -873,9 +884,12 @@ export const VocabularyMemoryScene: React.FC<VocabularyMemorySceneProps> = ({
     const nextReviewDate = new Date(now);
     nextReviewDate.setDate(now.getDate() + intervalDays);
 
+    // Get dailyChatId from either dailyChat or vocabulary (for StoredVocabularyItem)
+    const dailyChatId = currentItem.dailyChat?.id || (currentItem.vocabulary as StoredVocabularyItem).dailyChatId || '';
+
     const newReview: VocabularyReview = {
       vocabularyId: currentItem.vocabulary.id,
-      dailyChatId: currentItem.dailyChat.id,
+      dailyChatId,
       currentIntervalDays: intervalDays,
       nextReviewDate: nextReviewDate.toISOString(),
       lastReviewDate: now.toISOString(),
@@ -899,18 +913,9 @@ export const VocabularyMemoryScene: React.FC<VocabularyMemorySceneProps> = ({
       cardDirection: newWordCardDirection
     };
 
-    // Update journal with new review
-    const updatedJournal = journal.map(dc => {
-      if (dc.id === currentItem.dailyChat.id) {
-        return {
-          ...dc,
-          reviewSchedule: [...(dc.reviewSchedule || []), newReview]
-        };
-      }
-      return dc;
-    });
-    
-    onUpdateJournal(updatedJournal);
+    // Update vocabulary store with new review
+    const newStore = upsertReview(vocabularyStore, newReview);
+    onUpdateVocabularyStore(newStore);
 
     // Update stats
     setNewWordsSessionStats(prev => {
@@ -935,7 +940,7 @@ export const VocabularyMemoryScene: React.FC<VocabularyMemorySceneProps> = ({
     } else {
       setIsNewWordsComplete(true);
     }
-  }, [journal, onUpdateJournal, newWordsQueue, currentNewWordIndex, onStreakUpdate, newWordCardDirection]);
+  }, [vocabularyStore, onUpdateVocabularyStore, newWordsQueue, currentNewWordIndex, onStreakUpdate, newWordCardDirection]);
 
   // Get word usage count for current difficult word
   const currentDifficultWordUsageCount = useMemo(() => {
@@ -2053,8 +2058,8 @@ export const VocabularyMemoryScene: React.FC<VocabularyMemorySceneProps> = ({
 
   // ============ RENDER STARRED TAB ============
   const renderStarredTab = () => {
-    // Get starred vocabularies
-    const starredVocabularies = getStarredVocabulariesForReview(journal);
+    // Get starred vocabularies from vocabulary store
+    const starredVocabularies = getStarredVocabulariesFromStore(vocabularyStore, journal);
     
     if (starredVocabularies.length === 0) {
       return (
@@ -2422,13 +2427,22 @@ export const VocabularyMemoryScene: React.FC<VocabularyMemorySceneProps> = ({
       <div className="learn-tab">
         {/* Filters */}
         <div className="filters">
-          <input
-            type="text"
-            className="search-input"
-            placeholder="🔍 Tìm từ vựng..."
-            value={filterText}
-            onChange={(e) => setFilterText(e.target.value)}
-          />
+          <div className="search-row">
+            <input
+              type="text"
+              className="search-input"
+              placeholder="🔍 Tìm từ vựng..."
+              value={filterText}
+              onChange={(e) => setFilterText(e.target.value)}
+            />
+            <button 
+              className="add-vocab-btn"
+              onClick={() => setShowAddVocabPopup(true)}
+              title="Thêm từ vựng mới"
+            >
+              ➕ Thêm từ
+            </button>
+          </div>
           <div className="filter-buttons">
             <button 
               className={`filter-btn ${filterMode === 'all' ? 'active' : ''}`}
@@ -2505,19 +2519,10 @@ export const VocabularyMemoryScene: React.FC<VocabularyMemorySceneProps> = ({
                       className={`mini-toggle-btn ${(item.review.cardDirection || 'kr-vn') === 'kr-vn' ? 'active' : ''}`}
                       onClick={(e) => {
                         e.stopPropagation();
-                        // Update direction to kr-vn
-                        const updatedJournal = journal.map(dc => {
-                          if (dc.id === item.dailyChat.id && dc.reviewSchedule) {
-                            const newSchedule = dc.reviewSchedule.map(r => 
-                              r.vocabularyId === item.vocabulary.id 
-                                ? { ...r, cardDirection: 'kr-vn' as const }
-                                : r
-                            );
-                            return { ...dc, reviewSchedule: newSchedule };
-                          }
-                          return dc;
-                        });
-                        onUpdateJournal(updatedJournal);
+                        // Update direction to kr-vn in vocabularyStore
+                        const updatedReview = { ...item.review!, cardDirection: 'kr-vn' as const };
+                        const updatedStore = upsertReview(vocabularyStore, updatedReview);
+                        onUpdateVocabularyStore(updatedStore);
                       }}
                       title="Hàn → Việt"
                     >
@@ -2527,19 +2532,10 @@ export const VocabularyMemoryScene: React.FC<VocabularyMemorySceneProps> = ({
                       className={`mini-toggle-btn ${item.review.cardDirection === 'vn-kr' ? 'active' : ''}`}
                       onClick={(e) => {
                         e.stopPropagation();
-                        // Update direction to vn-kr
-                        const updatedJournal = journal.map(dc => {
-                          if (dc.id === item.dailyChat.id && dc.reviewSchedule) {
-                            const newSchedule = dc.reviewSchedule.map(r => 
-                              r.vocabularyId === item.vocabulary.id 
-                                ? { ...r, cardDirection: 'vn-kr' as const }
-                                : r
-                            );
-                            return { ...dc, reviewSchedule: newSchedule };
-                          }
-                          return dc;
-                        });
-                        onUpdateJournal(updatedJournal);
+                        // Update direction to vn-kr in vocabularyStore
+                        const updatedReview = { ...item.review!, cardDirection: 'vn-kr' as const };
+                        const updatedStore = upsertReview(vocabularyStore, updatedReview);
+                        onUpdateVocabularyStore(updatedStore);
                       }}
                       title="Việt → Hàn"
                     >
@@ -2563,16 +2559,8 @@ export const VocabularyMemoryScene: React.FC<VocabularyMemorySceneProps> = ({
                           nextReviewDate: new Date().toISOString(),
                           lapses: 0
                         };
-                        const updatedJournal = journal.map(dc => {
-                          if (dc.id === item.dailyChat.id && dc.reviewSchedule) {
-                            const newSchedule = dc.reviewSchedule.map(r => 
-                              r.vocabularyId === item.vocabulary.id ? resetReview : r
-                            );
-                            return { ...dc, reviewSchedule: newSchedule };
-                          }
-                          return dc;
-                        });
-                        onUpdateJournal(updatedJournal);
+                        const updatedStore = upsertReview(vocabularyStore, resetReview);
+                        onUpdateVocabularyStore(updatedStore);
                       }
                     }}
                     title="Reset lịch ôn"
@@ -2628,6 +2616,72 @@ export const VocabularyMemoryScene: React.FC<VocabularyMemorySceneProps> = ({
             ))
           )}
         </div>
+
+        {/* Add Vocabulary Popup */}
+        {showAddVocabPopup && (
+          <div className="add-vocab-popup-overlay" onClick={() => setShowAddVocabPopup(false)}>
+            <div className="add-vocab-popup" onClick={e => e.stopPropagation()}>
+              <div className="popup-header">
+                <h3>➕ Thêm từ vựng mới</h3>
+                <button className="close-btn" onClick={() => setShowAddVocabPopup(false)}>✕</button>
+              </div>
+              
+              <div className="popup-content">
+                <div className="input-group">
+                  <label>Từ tiếng Hàn</label>
+                  <input
+                    type="text"
+                    placeholder="예: 안녕하세요"
+                    value={newVocabKorean}
+                    onChange={(e) => setNewVocabKorean(e.target.value)}
+                    autoFocus
+                  />
+                </div>
+                
+                <div className="input-group">
+                  <label>Nghĩa tiếng Việt</label>
+                  <div className="input-with-ai">
+                    <input
+                      type="text"
+                      placeholder="예: Xin chào"
+                      value={newVocabVietnamese}
+                      onChange={(e) => setNewVocabVietnamese(e.target.value)}
+                    />
+                    <button 
+                      className="ai-translate-btn"
+                      onClick={handleTranslateNewVocab}
+                      disabled={isTranslatingNewVocab || !newVocabKorean.trim()}
+                      title="AI dịch tự động"
+                    >
+                      {isTranslatingNewVocab ? (
+                        <span className="loading-spinner">⏳</span>
+                      ) : (
+                        <span>🤖 AI</span>
+                      )}
+                    </button>
+                  </div>
+                </div>
+              </div>
+              
+              <div className="popup-actions">
+                <button className="cancel-btn" onClick={() => {
+                  setShowAddVocabPopup(false);
+                  setNewVocabKorean('');
+                  setNewVocabVietnamese('');
+                }}>
+                  Hủy
+                </button>
+                <button 
+                  className="save-btn"
+                  onClick={handleAddVocabulary}
+                  disabled={!newVocabKorean.trim() || !newVocabVietnamese.trim()}
+                >
+                  Thêm từ
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
     );
   };
@@ -2682,7 +2736,7 @@ export const VocabularyMemoryScene: React.FC<VocabularyMemorySceneProps> = ({
     return (
       <VocabularyMemoryFlashcard
         vocabulary={currentItem.vocabulary}
-        review={migrateLegacyToFSRS(currentItem.review)}
+        review={currentItem.review}
         memory={currentItem.memory}
         dailyChat={currentItem.dailyChat}
         journal={journal}
@@ -4246,6 +4300,230 @@ export const VocabularyMemoryScene: React.FC<VocabularyMemorySceneProps> = ({
         .edit-vocab-actions .save-btn:hover {
           transform: translateY(-1px);
           box-shadow: 0 4px 12px rgba(102, 126, 234, 0.4);
+        }
+
+        /* Search Row with Add Button */
+        .search-row {
+          display: flex;
+          gap: 12px;
+          margin-bottom: 12px;
+        }
+
+        .search-row .search-input {
+          flex: 1;
+        }
+
+        .add-vocab-btn {
+          padding: 10px 16px;
+          background: linear-gradient(135deg, #10b981, #059669);
+          border: none;
+          border-radius: 8px;
+          color: #fff;
+          font-size: 14px;
+          font-weight: 600;
+          cursor: pointer;
+          transition: all 0.2s;
+          white-space: nowrap;
+        }
+
+        .add-vocab-btn:hover {
+          transform: translateY(-1px);
+          box-shadow: 0 4px 12px rgba(16, 185, 129, 0.4);
+        }
+
+        /* Add Vocabulary Popup */
+        .add-vocab-popup-overlay {
+          position: fixed;
+          top: 0;
+          left: 0;
+          right: 0;
+          bottom: 0;
+          background: rgba(0, 0, 0, 0.7);
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          z-index: 1000;
+          padding: 20px;
+        }
+
+        .add-vocab-popup {
+          background: linear-gradient(135deg, #1e1e3f, #2d2d5a);
+          border-radius: 16px;
+          width: 100%;
+          max-width: 420px;
+          border: 1px solid rgba(255, 255, 255, 0.1);
+          box-shadow: 0 20px 40px rgba(0, 0, 0, 0.4);
+          animation: popupSlideIn 0.2s ease-out;
+        }
+
+        @keyframes popupSlideIn {
+          from {
+            opacity: 0;
+            transform: translateY(-20px);
+          }
+          to {
+            opacity: 1;
+            transform: translateY(0);
+          }
+        }
+
+        .popup-header {
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          padding: 16px 20px;
+          border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+        }
+
+        .popup-header h3 {
+          margin: 0;
+          color: #fff;
+          font-size: 18px;
+        }
+
+        .popup-header .close-btn {
+          background: none;
+          border: none;
+          color: rgba(255, 255, 255, 0.5);
+          font-size: 20px;
+          cursor: pointer;
+          padding: 4px 8px;
+          transition: color 0.2s;
+        }
+
+        .popup-header .close-btn:hover {
+          color: #fff;
+        }
+
+        .popup-content {
+          padding: 20px;
+        }
+
+        .input-group {
+          margin-bottom: 16px;
+        }
+
+        .input-group:last-child {
+          margin-bottom: 0;
+        }
+
+        .input-group label {
+          display: block;
+          color: rgba(255, 255, 255, 0.7);
+          font-size: 13px;
+          margin-bottom: 6px;
+          font-weight: 500;
+        }
+
+        .input-group input {
+          width: 100%;
+          padding: 12px 14px;
+          background: rgba(255, 255, 255, 0.1);
+          border: 1px solid rgba(255, 255, 255, 0.2);
+          border-radius: 8px;
+          color: #fff;
+          font-size: 16px;
+          outline: none;
+          transition: all 0.2s;
+          box-sizing: border-box;
+        }
+
+        .input-group input:focus {
+          border-color: #10b981;
+          background: rgba(255, 255, 255, 0.15);
+        }
+
+        .input-group input::placeholder {
+          color: rgba(255, 255, 255, 0.4);
+        }
+
+        .input-with-ai {
+          display: flex;
+          gap: 8px;
+        }
+
+        .input-with-ai input {
+          flex: 1;
+        }
+
+        .ai-translate-btn {
+          padding: 12px 16px;
+          background: linear-gradient(135deg, #8b5cf6, #6366f1);
+          border: none;
+          border-radius: 8px;
+          color: #fff;
+          font-size: 14px;
+          font-weight: 600;
+          cursor: pointer;
+          transition: all 0.2s;
+          display: flex;
+          align-items: center;
+          gap: 4px;
+          white-space: nowrap;
+        }
+
+        .ai-translate-btn:hover:not(:disabled) {
+          transform: translateY(-1px);
+          box-shadow: 0 4px 12px rgba(139, 92, 246, 0.4);
+        }
+
+        .ai-translate-btn:disabled {
+          opacity: 0.5;
+          cursor: not-allowed;
+        }
+
+        .ai-translate-btn .loading-spinner {
+          animation: spin 1s linear infinite;
+        }
+
+        @keyframes spin {
+          from { transform: rotate(0deg); }
+          to { transform: rotate(360deg); }
+        }
+
+        .popup-actions {
+          display: flex;
+          gap: 12px;
+          padding: 16px 20px;
+          border-top: 1px solid rgba(255, 255, 255, 0.1);
+          justify-content: flex-end;
+        }
+
+        .popup-actions .cancel-btn {
+          padding: 10px 20px;
+          border-radius: 8px;
+          background: rgba(255, 255, 255, 0.1);
+          border: 1px solid rgba(255, 255, 255, 0.2);
+          color: rgba(255, 255, 255, 0.8);
+          font-size: 14px;
+          cursor: pointer;
+          transition: all 0.2s;
+        }
+
+        .popup-actions .cancel-btn:hover {
+          background: rgba(255, 255, 255, 0.2);
+        }
+
+        .popup-actions .save-btn {
+          padding: 10px 24px;
+          border-radius: 8px;
+          background: linear-gradient(135deg, #10b981, #059669);
+          border: none;
+          color: #fff;
+          font-size: 14px;
+          font-weight: 600;
+          cursor: pointer;
+          transition: all 0.2s;
+        }
+
+        .popup-actions .save-btn:hover:not(:disabled) {
+          transform: translateY(-1px);
+          box-shadow: 0 4px 12px rgba(16, 185, 129, 0.4);
+        }
+
+        .popup-actions .save-btn:disabled {
+          opacity: 0.5;
+          cursor: not-allowed;
         }
 
         .empty-state {

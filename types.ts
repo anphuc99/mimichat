@@ -145,13 +145,53 @@ export interface DailyChat {
   summary: string;
   messages: Message[];
   characterThoughts?: CharacterThought[];
-  vocabularies?: VocabularyItem[];
-  vocabularyProgress?: VocabularyProgress[];
-  reviewSchedule?: VocabularyReview[];
-  vocabularyMemories?: VocabularyMemoryEntry[]; // User's personal memories for vocabulary
+  // Reference to vocabulary IDs in global vocabulary-store.json
+  vocabularyIds?: string[];
 }
 
 export type ChatJournal = DailyChat[];
+
+// ============================================================================
+// Story Vocabulary Store - Centralized vocabulary storage per story
+// ============================================================================
+
+/**
+ * Extended vocabulary item with storyId and dailyChatId reference
+ * Stored in global vocabulary store (vocabulary-store.json)
+ */
+export interface StoredVocabularyItem extends VocabularyItem {
+  storyId?: string; // Reference to the story where this vocabulary was created (optional for manually added)
+  dailyChatId?: string; // Reference to the daily chat where this vocabulary was created (optional for manually added)
+  createdDate?: string; // ISO date when vocabulary was created
+  isManuallyAdded?: boolean; // True if added manually without a story
+}
+
+/**
+ * Extended memory entry with no need for linkedDailyChatId (vocabulary already has it)
+ */
+export interface StoredVocabularyMemory {
+  vocabularyId: string;
+  userMemory: string;
+  linkedMessageIds: string[];
+  createdDate: string;
+  updatedDate?: string;
+}
+
+/**
+ * Global Vocabulary Store - All vocabulary data from ALL stories in one file
+ * Stored as vocabulary-store.json in the data folder
+ */
+export interface VocabularyStore {
+  version: number; // Store format version
+  // All vocabularies from all stories
+  vocabularies: StoredVocabularyItem[];
+  // All review schedules (FSRS data)
+  reviews: VocabularyReview[];
+  // All user memories
+  memories: StoredVocabularyMemory[];
+  // All progress data (indexed by vocabularyId)
+  progress: { [vocabularyId: string]: VocabularyProgress };
+}
 
 export interface StreakData {
   currentStreak: number;
@@ -222,7 +262,7 @@ export const KOREAN_LEVELS: Record<KoreanLevel, LevelInfo> = {
 };
 
 export interface SavedData {
-  version: 5;
+  version: 6;
   journal: ChatJournal;
   characters: Character[];
   activeCharacterIds: string[];
@@ -234,6 +274,7 @@ export interface SavedData {
   storyPlot?: string; // Mô tả cốt truyện
   fsrsSettings?: FSRSSettings; // FSRS algorithm settings
   chatReviewVocabularies?: VocabularyItem[]; // Manually selected vocabularies for chat review
+  // Note: vocabularyStore is now a separate global file (vocabulary-store.json)
 }
 
 // Story types for multi-story support

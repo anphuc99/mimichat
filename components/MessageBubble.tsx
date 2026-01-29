@@ -1,6 +1,7 @@
 import React, { useState, useCallback } from 'react';
-import type { Message } from '../types';
+import type { Message, Character, VocabularyStore } from '../types';
 import { avatar } from './avatar';
+import { VocabularyCollectPopup } from './VocabularyCollectPopup';
 
 // Hàm render markdown bold (**text**) thành HTML
 const renderBoldText = (text: string): string => {
@@ -78,11 +79,16 @@ interface MessageBubbleProps {
   onUpdateMessage?: (messageId: string, newText: string) => Promise<void>;
   onUpdateBotMessage?: (messageId: string, newText: string, newTone: string) => Promise<void>;
   onRegenerateTone?: (text: string, characterName: string) => Promise<string>;
-  onCollectVocabulary?: (korean: string, messageId: string) => void | Promise<void>;
+  onCollectVocabulary?: (korean: string, vietnamese: string, memory: string, linkedMessageIds: string[], messageId: string) => void | Promise<void>;
   onRegenerateImage?: (messageId: string) => Promise<void>;
   onDeleteMessage?: (messageId: string) => void;
   avatarUrl?: string;
   isListeningMode?: boolean;
+  // New props for collect popup
+  dailyChatId?: string;
+  dailyChatDate?: string;
+  characters?: Character[];
+  vocabularyStore?: VocabularyStore;
 }
 
 export const MessageBubble: React.FC<MessageBubbleProps> = ({ 
@@ -103,6 +109,10 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({
     onDeleteMessage,
     avatarUrl,
     isListeningMode = false,
+    dailyChatId = '',
+    dailyChatDate = '',
+    characters = [],
+    vocabularyStore,
 }) => {
   const isUser = message.sender === 'user';
   const mimiAvatarUrl = avatar
@@ -116,6 +126,7 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({
   const [selectedText, setSelectedText] = useState<string>('');
   const [showCollectButton, setShowCollectButton] = useState(false);
   const [isCollecting, setIsCollecting] = useState(false);
+  const [showCollectPopup, setShowCollectPopup] = useState(false);
   
   const [editedText, setEditedText] = useState(message.text);
   const [editedTone, setEditedTone] = useState('cheerfully');
@@ -305,22 +316,36 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({
     setIsDragging(false);
   };
 
-  const handleCollectVocab = async () => {
-    if (selectedText) {
-      setIsCollecting(true);
-      try {
-        if (onCollectVocabulary) {
-          await onCollectVocabulary(selectedText, message.id);
-        } else {
-          alert('Chức năng thu thập từ vựng chưa được kích hoạt. onCollectVocabulary is missing.');
-        }
-      } finally {
-        setIsCollecting(false);
+  // Open collect popup instead of directly collecting
+  const handleCollectVocab = () => {
+    if (selectedText && onCollectVocabulary) {
+      // Check if vocabulary already exists in store
+      const normalizedText = selectedText.trim().toLowerCase();
+      const existingVocab = vocabularyStore?.vocabularies.find(
+        v => v.korean.trim().toLowerCase() === normalizedText
+      );
+      
+      if (existingVocab) {
+        alert(`Từ vựng "${selectedText}" đã có trong danh sách!\n\nNghĩa: ${existingVocab.vietnamese}`);
         setShowCollectButton(false);
         setSelectedText('');
         window.getSelection()?.removeAllRanges();
+        return;
       }
+      
+      setShowCollectPopup(true);
+      setShowCollectButton(false);
     }
+  };
+
+  // Handle collect from popup
+  const handleCollectFromPopup = async (korean: string, vietnamese: string, memory: string, linkedMessageIds: string[]) => {
+    if (onCollectVocabulary) {
+      await onCollectVocabulary(korean, vietnamese, memory, linkedMessageIds, message.id);
+    }
+    setShowCollectPopup(false);
+    setSelectedText('');
+    window.getSelection()?.removeAllRanges();
   };
 
   const bubbleClasses = isUser
@@ -604,7 +629,6 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({
         </div>
         
         {/* Collect Vocabulary Button */}
-        {console.log('Render check - showCollectButton:', showCollectButton, 'isJournalView:', isJournalView, 'onCollectVocabulary:', !!onCollectVocabulary, 'selectedText:', selectedText)}
         {showCollectButton && onCollectVocabulary && (
           <button
             onClick={handleCollectVocab}
@@ -746,6 +770,25 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({
           </div>
         )}
       </div>
+
+      {/* Vocabulary Collect Popup */}
+      {showCollectPopup && onCollectVocabulary && (
+        <VocabularyCollectPopup
+          isOpen={showCollectPopup}
+          selectedText={selectedText}
+          message={message}
+          dailyChatId={dailyChatId}
+          dailyChatDate={dailyChatDate}
+          characters={characters}
+          onCollect={handleCollectFromPopup}
+          onCancel={() => {
+            setShowCollectPopup(false);
+            setSelectedText('');
+            window.getSelection()?.removeAllRanges();
+          }}
+          onPlayAudio={onReplayAudio}
+        />
+      )}
     </div>
   );
 };

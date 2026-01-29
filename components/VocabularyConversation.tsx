@@ -194,9 +194,9 @@ export const VocabularyConversation: React.FC<VocabularyConversationProps> = ({
   const handleVocabDifficultyRating = useCallback((rating: VocabularyDifficultyRating) => {
     if (!pendingVocabRating) return;
     
-    // Find dailyChatId for this vocabulary
+    // Find dailyChatId for this vocabulary by checking vocabularyIds
     const dailyChatId = journal.find(dc => 
-      dc.vocabularies?.some(v => v.id === pendingVocabRating.id)
+      dc.vocabularyIds?.includes(pendingVocabRating.id)
     )?.id || journal[journal.length - 1]?.id || 'unknown';
     
     // Mark as rated
@@ -1080,7 +1080,7 @@ export const VocabularyConversation: React.FC<VocabularyConversationProps> = ({
         }
         
         // Now execute the System command
-        const systemResponse = getSystemCommand(botResponses);
+        const systemResponse = getSearchCommand(botResponses);
         const commandText = systemResponse.Text;
         console.log('AI System command (vocab audio):', commandText);
         

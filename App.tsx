@@ -16,10 +16,11 @@ import { VocabularyCollectionScene } from './components/VocabularyCollectionScen
 import { ChatVocabularyModal } from './components/ChatVocabularyModal';
 import { AIAssistantModal } from './components/AIAssistantModal';
 import { ModelSelector } from './components/ModelSelector';
-import type { Message, ChatJournal, DailyChat, Character, SavedData, CharacterThought, VocabularyItem, VocabularyReview, StreakData, KoreanLevel, StoryMeta, StoriesIndex, FSRSSettings, VocabularyDifficultyRating, FSRSRating, VocabularyWithStability } from './types';
+import type { Message, ChatJournal, DailyChat, Character, SavedData, CharacterThought, VocabularyItem, VocabularyReview, StreakData, KoreanLevel, StoryMeta, StoriesIndex, FSRSSettings, VocabularyDifficultyRating, FSRSRating, VocabularyWithStability, VocabularyStore, StoredVocabularyItem, StoredVocabularyMemory, VocabularyMemoryEntry } from './types';
 import { DEFAULT_FSRS_SETTINGS } from './types';
 import { initializeGeminiService, initChat, sendMessage, textToSpeech, translateAndExplainText, translateWord, summarizeConversation, generateCharacterThoughts, generateToneDescription, generateRelationshipSummary, generateContextSuggestion, generateMessageSuggestions, generateVocabulary, generateSceneImage, initAutoChatSession, sendAutoChatMessage, uploadAudio, sendAudioMessage } from './services/geminiService';
-import { getVocabulariesDueForReview, initializeFSRSReview, initializeFSRSWithDifficulty, updateFSRSReview, getReviewDueCount, getTotalVocabulariesLearned, getDifficultVocabulariesForReview, getDifficultVocabulariesCount, getStarredVocabulariesForReview, getStarredVocabulariesCount, toggleVocabularyStar } from './utils/spacedRepetition';
+import { initializeFSRSReview, initializeFSRSWithDifficulty, updateFSRSReview } from './utils/spacedRepetition';
+import { createEmptyVocabularyStore, getAllVocabulariesFromStore, getNewVocabulariesFromStore, getVocabulariesDueFromStore, getDifficultVocabulariesFromStore, getStarredVocabulariesFromStore, getVocabularyStatsFromStore, addVocabulary, upsertReview, upsertMemory, deleteVocabulary, toggleVocabularyStarInStore, getVocabularyById, getVocabularyByKorean, getReviewByVocabularyId, getMemoryByVocabularyId, getTotalLearnedFromStore, getDueCountFromStore, getDifficultCountFromStore, getStarredCountFromStore } from './utils/vocabularyStore';
 import { initializeStreak, updateStreak, checkStreakStatus } from './utils/streakManager';
 import { formatJournalForSearch, parseSystemCommand, executeSystemCommand, type FormattedJournal } from './utils/storySearch';
 import { KOREAN_LEVELS } from './types';
@@ -94,9 +95,9 @@ const App: React.FC = () => {
   
   // Review mode state - store shuffled list to keep consistent order
   const [currentReviewItems, setCurrentReviewItems] = useState<{
-    vocabulary: VocabularyItem;
+    vocabulary: VocabularyItem | StoredVocabularyItem;
     review: VocabularyReview;
-    dailyChat: DailyChat;
+    dailyChat?: DailyChat;
     messages: Message[];
   }[] | null>(null);
 
@@ -160,6 +161,9 @@ const App: React.FC = () => {
     return DEFAULT_FSRS_SETTINGS;
   });
 
+  // Centralized vocabulary store - all vocabularies, reviews, memories in one place
+  const [vocabularyStore, setVocabularyStore] = useState<VocabularyStore>(createEmptyVocabularyStore());
+
   const [isGeminiInitialized, setIsGeminiInitialized] = useState(false);
   const [isDataLoaded, setIsDataLoaded] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
@@ -186,26 +190,23 @@ const App: React.FC = () => {
   const getAllVocabulariesWithStability = useCallback((): VocabularyWithStability[] => {
     const vocabMap = new Map<string, VocabularyWithStability>();
     
-    journal.forEach(dailyChat => {
-      if (dailyChat.vocabularies && dailyChat.reviewSchedule) {
-        dailyChat.vocabularies.forEach(vocab => {
-          const review = dailyChat.reviewSchedule?.find(r => r.vocabularyId === vocab.id);
-          const stability = review?.stability ?? 0;
-          
-          // Keep the entry with higher stability if duplicate
-          const existing = vocabMap.get(vocab.korean);
-          if (!existing || stability > existing.stability) {
-            vocabMap.set(vocab.korean, {
-              korean: vocab.korean,
-              stability: stability,
-            });
-          }
+    // Use vocabulary store instead of scanning journal
+    vocabularyStore.vocabularies.forEach(vocab => {
+      const review = vocabularyStore.reviews.find(r => r.vocabularyId === vocab.id);
+      const stability = review?.stability ?? 0;
+      
+      // Keep the entry with higher stability if duplicate
+      const existing = vocabMap.get(vocab.korean);
+      if (!existing || stability > existing.stability) {
+        vocabMap.set(vocab.korean, {
+          korean: vocab.korean,
+          stability: stability,
         });
       }
     });
     
     return Array.from(vocabMap.values());
-  }, [journal]);
+  }, [vocabularyStore]);
 
   // Get full chat history formatted for AI Assistant #read command
   const getFullChatHistory = useCallback((): string => {
@@ -448,6 +449,18 @@ const App: React.FC = () => {
       console.error("Failed to save streak:", error);
     }
   }, [streak]);
+
+  // Handler to update vocabulary store and save to server
+  const handleUpdateVocabularyStore = useCallback(async (newStore: VocabularyStore) => {
+    setVocabularyStore(newStore);
+    
+    // Save to server
+    try {
+      await http.put(API_URL.API_VOCABULARY_STORE, newStore);
+    } catch (error) {
+      console.error("Failed to save vocabulary store:", error);
+    }
+  }, []);
 
   const updateCurrentChatMessages = useCallback((updater: (prevMessages: Message[]) => Message[]): void => {
     setJournal(prevJournal => {
@@ -1577,28 +1590,24 @@ const App: React.FC = () => {
   }, [journal, getCharactersInChat, characters]);
 
   // Vocabulary handlers
-  const handleCollectVocabulary = useCallback(async (korean: string, messageId: string, dailyChatId: string) => {
+  const handleCollectVocabulary = useCallback(async (
+    korean: string, 
+    vietnamese: string, 
+    memory: string, 
+    linkedMessageIds: string[], 
+    messageId: string, 
+    dailyChatId: string
+  ) => {
     if (!korean.trim()) return;
 
-    // Check if this word already exists
-    const chatIndex = journal.findIndex(dc => dc.id === dailyChatId);
-    if (chatIndex === -1) return;
-
-    const dailyChat = journal[chatIndex];
-    const existingVocab = dailyChat.vocabularies?.find(v => v.korean === korean);
+    // Check if this word already exists in vocabulary store
+    const existingVocab = getVocabularyByKorean(vocabularyStore, korean);
     if (existingVocab) {
       alert('Từ này đã có trong danh sách từ vựng!');
       return;
     }
 
     try {
-      // Translate the word
-      const vietnamese = await translateWord(korean);
-      if (!vietnamese) {
-        alert('Không thể dịch từ này.');
-        return;
-      }
-
       // Create new vocabulary item
       const newVocab: VocabularyItem = {
         id: `vocab-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
@@ -1606,25 +1615,31 @@ const App: React.FC = () => {
         vietnamese
       };
 
-      // Update journal (reviewSchedule will be created after learning in handleVocabConversationComplete)
+      // Add to vocabulary store with storyId and save to server
+      let updatedStore = addVocabulary(vocabularyStore, newVocab, dailyChatId, currentStoryId || '');
+
+      // If there's memory content, add it to the store
+      if (memory.trim() || linkedMessageIds.length > 0) {
+        const memoryEntry: VocabularyMemoryEntry = {
+          vocabularyId: newVocab.id,
+          userMemory: memory,
+          linkedMessageIds: linkedMessageIds,
+          linkedDailyChatId: dailyChatId,
+          createdDate: new Date().toISOString()
+        };
+        updatedStore = upsertMemory(updatedStore, memoryEntry);
+      }
+
+      await handleUpdateVocabularyStore(updatedStore);
+
+      // Update journal to add vocabularyId reference
       setJournal(prevJournal => {
         const newJournal = [...prevJournal];
         const chatIndex = newJournal.findIndex(dc => dc.id === dailyChatId);
         if (chatIndex !== -1) {
           newJournal[chatIndex] = {
             ...newJournal[chatIndex],
-            vocabularies: [...(newJournal[chatIndex].vocabularies || []), newVocab],
-            vocabularyProgress: [
-              ...(newJournal[chatIndex].vocabularyProgress || []),
-              {
-                vocabularyId: newVocab.id,
-                correctCount: 0,
-                incorrectCount: 0,
-                lastPracticed: '',
-                needsReview: false,
-                reviewAttempts: 0
-              }
-            ]
+            vocabularyIds: [...(newJournal[chatIndex].vocabularyIds || []), newVocab.id]
           };
         }
         return newJournal;
@@ -1635,42 +1650,41 @@ const App: React.FC = () => {
       console.error('Error collecting vocabulary:', error);
       alert('Có lỗi xảy ra khi thu thập từ vựng.');
     }
-  }, [journal]);
+  }, [vocabularyStore, currentStoryId, handleUpdateVocabularyStore]);
 
   const handleGenerateVocabulary = useCallback(async (dailyChatId: string) => {
     const chatIndex = journal.findIndex(dc => dc.id === dailyChatId);
     if (chatIndex === -1) return;
 
     const dailyChat = journal[chatIndex];
-    if (dailyChat.vocabularies && dailyChat.vocabularies.length > 0) {
+    // Check if this chat already has vocabularies in the store
+    const chatVocabIds = dailyChat.vocabularyIds || [];
+    if (chatVocabIds.length > 0) {
       return; // Already has vocabularies
     }
 
-    // Collect all existing vocabularies from all daily chats
-    const existingVocabularies = journal
-      .flatMap(dc => dc.vocabularies || [])
-      .filter((v, index, self) => 
-        index === self.findIndex(t => t.korean === v.korean)
-      ); // Remove duplicates
+    // Use vocabulary store for existing vocabularies
+    const existingVocabularies = vocabularyStore.vocabularies;
 
     setIsGeneratingVocabulary(dailyChatId);
     try {
       const vocabularies = await generateVocabulary(dailyChat.messages, currentLevel, existingVocabularies);
       
-      // Don't create reviewSchedule yet - it will be created after learning in handleVocabConversationComplete
+      // Add vocabularies to store with storyId
+      let updatedStore = vocabularyStore;
+      const newVocabIds: string[] = [];
+      for (const vocab of vocabularies) {
+        updatedStore = addVocabulary(updatedStore, vocab, dailyChatId, currentStoryId || '');
+        newVocabIds.push(vocab.id);
+      }
+      setVocabularyStore(updatedStore);
+
+      // Update journal with vocabulary IDs reference
       setJournal(prevJournal => {
         const newJournal = [...prevJournal];
         newJournal[chatIndex] = {
           ...newJournal[chatIndex],
-          vocabularies,
-          vocabularyProgress: vocabularies.map(v => ({
-            vocabularyId: v.id,
-            correctCount: 0,
-            incorrectCount: 0,
-            lastPracticed: '',
-            needsReview: false,
-            reviewAttempts: 0
-          }))
+          vocabularyIds: newVocabIds
         };
         return newJournal;
       });
@@ -1688,19 +1702,30 @@ const App: React.FC = () => {
     } finally {
       setIsGeneratingVocabulary(null);
     }
-  }, [journal]);
+  }, [journal, vocabularyStore, currentLevel, currentStoryId]);
 
   const handleStartVocabulary = useCallback((dailyChatId: string) => {
     const dailyChat = journal.find(dc => dc.id === dailyChatId);
-    if (!dailyChat || !dailyChat.vocabularies || dailyChat.vocabularies.length === 0) {
+    if (!dailyChat) {
+      alert("Chưa có từ vựng để học!");
+      return;
+    }
+
+    // Get vocabularies from store based on dailyChat vocabularyIds
+    const vocabIds = dailyChat.vocabularyIds || [];
+    const vocabs = vocabIds
+      .map(id => getVocabularyById(vocabularyStore, id))
+      .filter((v): v is StoredVocabularyItem => v !== undefined);
+    
+    if (vocabs.length === 0) {
       alert("Chưa có từ vựng để học!");
       return;
     }
 
     setSelectedDailyChatId(dailyChatId);
-    setVocabLearningVocabs(dailyChat.vocabularies);
+    setVocabLearningVocabs(vocabs);
     setView('vocabulary');
-  }, [journal]);
+  }, [journal, vocabularyStore]);
 
   const handleViewContext = useCallback((vocabulary: VocabularyItem, usageIndex: number) => {
     const dailyChat = journal.find(dc => dc.id === selectedDailyChatId);
@@ -1766,65 +1791,29 @@ const App: React.FC = () => {
     if (chatIndex === -1) return;
 
     const dailyChat = journal[chatIndex];
-    if (!dailyChat.vocabularies) return;
+    const vocabIds = dailyChat.vocabularyIds || [];
+    if (vocabIds.length === 0) return;
 
-    // Mark all learned vocabularies as complete (all correct, no wrong)
-    const updatedProgress = dailyChat.vocabularies.map(vocab => {
-      const existingProgress = dailyChat.vocabularyProgress?.find(p => p.vocabularyId === vocab.id);
-      const isLearned = learnedVocabIds.includes(vocab.id);
-      
-      return {
-        vocabularyId: vocab.id,
-        correctCount: (existingProgress?.correctCount || 0) + (isLearned ? 2 : 0), // 2 for conversation
-        incorrectCount: existingProgress?.incorrectCount || 0,
-        lastPracticed: new Date().toISOString(),
-        needsReview: false,
-        reviewAttempts: existingProgress?.reviewAttempts || 0
-      };
-    });
-
-    // Build updated journal synchronously so we can also ensure reviewSchedule entries exist
-    const updatedJournal = journal.map((chat, idx) => {
-      if (idx !== chatIndex) return chat;
-      const newChat = { ...chat, vocabularyProgress: updatedProgress } as DailyChat;
-      newChat.reviewSchedule = newChat.reviewSchedule || [];
-
-      // Ensure review entries exist for learned vocab ids; initialize and mark as reviewed now
-      for (const learnedId of learnedVocabIds) {
-        const exists = newChat.reviewSchedule.some(r => r.vocabularyId === learnedId);
-        if (!exists) {
-          const vocabItem = newChat.vocabularies?.find(v => v.id === learnedId);
-          if (vocabItem) {
-            // Initialize FSRS review - first review will be tomorrow
-            const init = initializeFSRSReview(vocabItem, newChat.id);
-            newChat.reviewSchedule.push(init);
-          }
+    // Update reviews in vocabularyStore for learned vocabularies
+    let updatedStore = vocabularyStore;
+    for (const learnedId of learnedVocabIds) {
+      const vocab = getVocabularyById(vocabularyStore, learnedId);
+      if (vocab) {
+        // Check if review exists
+        const existingReview = getReviewByVocabularyId(vocabularyStore, learnedId);
+        if (!existingReview) {
+          // Initialize FSRS review - first review will be tomorrow
+          const init = initializeFSRSReview(vocab, selectedDailyChatId);
+          updatedStore = upsertReview(updatedStore, init);
         }
       }
+    }
+    
+    setVocabularyStore(updatedStore);
 
-      return newChat;
-    });
-
-    // Update local state first
-    setJournal(updatedJournal);
-
-    // Persist updated journal
+    // Save vocabularyStore
     try {
-      const dataToSave: SavedData = {
-        version: 5,
-        journal: updatedJournal,
-        characters,
-        activeCharacterIds,
-        context,
-        relationshipSummary,
-        currentLevel,
-        chatReviewVocabularies,
-      };
-      if (currentStoryId) {
-        await http.put(`${API_URL.API_STORY}/${currentStoryId}`, { data: dataToSave });
-      } else {
-        await http.post(API_URL.API_SAVE_DATA, { data: dataToSave });
-      }
+      await http.put(API_URL.API_VOCABULARY_STORE, updatedStore);
     } catch (error) {
       console.error("Failed to save vocabulary progress:", error);
     }
@@ -1836,7 +1825,7 @@ const App: React.FC = () => {
     setView('journal');
     setVocabLearningVocabs([]);
     setSelectedDailyChatId(null);
-  }, [selectedDailyChatId, journal, characters, activeCharacterIds, context, relationshipSummary, handleStreakUpdate, currentStoryId, currentLevel, chatReviewVocabularies]);
+  }, [selectedDailyChatId, journal, vocabularyStore, handleStreakUpdate]);
 
   const handleBackFromVocabulary = useCallback(() => {
     setView('journal');
@@ -1852,100 +1841,44 @@ const App: React.FC = () => {
     // Map difficulty rating to FSRS rating: very_easy=4 (Easy), easy=3 (Good), medium=2 (Hard), hard=1 (Again)
     const fsrsRating: FSRSRating = rating === 'very_easy' ? 4 : rating === 'easy' ? 3 : rating === 'medium' ? 2 : 1;
     
-    // Find the vocabulary in any daily chat (for review mode, it might be in a different chat)
-    let foundChatIndex = -1;
-    let foundReviewIndex = -1;
+    // Find existing review in vocabularyStore
+    const existingReview = getReviewByVocabularyId(vocabularyStore, vocab.id);
     
-    for (let i = 0; i < journal.length; i++) {
-      const chat = journal[i];
-      const reviewIdx = chat.reviewSchedule?.findIndex(r => r.vocabularyId === vocab.id) ?? -1;
-      if (reviewIdx !== -1) {
-        foundChatIndex = i;
-        foundReviewIndex = reviewIdx;
-        console.log('[handleVocabDifficultyRated] Found existing review at chatIndex:', foundChatIndex, 'reviewIndex:', foundReviewIndex);
-        break;
-      }
-    }
+    let updatedStore: VocabularyStore;
     
-    let updatedJournal: typeof journal;
-    
-    if (foundChatIndex !== -1 && foundReviewIndex !== -1) {
+    if (existingReview) {
       // UPDATE existing review entry (for review mode) - use unified FSRS logic
-      const existingReview = journal[foundChatIndex].reviewSchedule![foundReviewIndex];
       console.log('[handleVocabDifficultyRated] Existing review BEFORE update:', JSON.stringify(existingReview, null, 2));
       
       const updatedReview = updateFSRSReview(existingReview, fsrsRating, fsrsSettings);
       console.log('[handleVocabDifficultyRated] Updated review AFTER update:', JSON.stringify(updatedReview, null, 2));
       
-      updatedJournal = journal.map((chat, idx) => {
-        if (idx !== foundChatIndex) return chat;
-        
-        return {
-          ...chat,
-          reviewSchedule: [
-            ...chat.reviewSchedule!.slice(0, foundReviewIndex),
-            updatedReview,
-            ...chat.reviewSchedule!.slice(foundReviewIndex + 1)
-          ]
-        };
-      });
-      
+      updatedStore = upsertReview(vocabularyStore, updatedReview);
       console.log(`Updated FSRS review for vocab "${vocab.korean}" with rating "${rating}" (${fsrsRating}), next review: ${updatedReview.nextReviewDate}`);
     } else {
       // CREATE new review entry (for new learning mode)
       console.log('[handleVocabDifficultyRated] No existing review found, creating new one');
-      const chatIndex = journal.findIndex(dc => dc.id === dailyChatId);
-      if (chatIndex === -1) {
-        console.error("Daily chat not found for vocab difficulty rating:", dailyChatId);
-        return;
-      }
       
       const newReview = initializeFSRSWithDifficulty(vocab, dailyChatId, rating);
       console.log('[handleVocabDifficultyRated] New review created:', JSON.stringify(newReview, null, 2));
       
-      updatedJournal = journal.map((chat, idx) => {
-        if (idx !== chatIndex) return chat;
-        
-        return {
-          ...chat,
-          reviewSchedule: [...(chat.reviewSchedule || []), newReview]
-        };
-      });
-      
+      updatedStore = upsertReview(vocabularyStore, newReview);
       console.log(`Created FSRS review for vocab "${vocab.korean}" with rating "${rating}", next review: ${newReview.nextReviewDate}`);
     }
 
     // Update local state
-    setJournal(updatedJournal);
-    console.log('[handleVocabDifficultyRated] setJournal called');
+    setVocabularyStore(updatedStore);
+    console.log('[handleVocabDifficultyRated] setVocabularyStore called');
 
-    // Persist updated journal
+    // Save vocabularyStore
     try {
-      const dataToSave: SavedData = {
-        version: 5,
-        journal: updatedJournal,
-        characters,
-        activeCharacterIds,
-        context,
-        relationshipSummary,
-        currentLevel,
-        realtimeContext,
-        storyPlot,
-        fsrsSettings,
-        chatReviewVocabularies,
-      };
-      if (currentStoryId) {
-        console.log('[handleVocabDifficultyRated] Saving to story:', currentStoryId);
-        await http.put(`${API_URL.API_STORY}/${currentStoryId}`, { data: dataToSave });
-      } else {
-        console.log('[handleVocabDifficultyRated] Saving to default data');
-        await http.post(API_URL.API_SAVE_DATA, { data: dataToSave });
-      }
+      console.log('[handleVocabDifficultyRated] Saving vocabulary store...');
+      await http.put(API_URL.API_VOCABULARY_STORE, updatedStore);
       console.log(`[handleVocabDifficultyRated] Saved FSRS review for vocab "${vocab.korean}" with rating "${rating}"`);
     } catch (error) {
       console.error("[handleVocabDifficultyRated] Failed to save vocabulary FSRS review:", error);
     }
-  }, [journal, characters, activeCharacterIds, context, relationshipSummary, currentLevel, realtimeContext, storyPlot, fsrsSettings, currentStoryId, chatReviewVocabularies]);
+  }, [vocabularyStore, fsrsSettings]);
 
   // FSRS Settings handlers
   const handleUpdateFsrsSettings = useCallback((settings: FSRSSettings) => {
@@ -1967,7 +1900,7 @@ const App: React.FC = () => {
     // Auto-save
     if (currentStoryId) {
       const savedData: SavedData = {
-        version: 5,
+        version: 6,
         journal: updatedJournal,
         characters,
         activeCharacterIds,
@@ -1978,40 +1911,52 @@ const App: React.FC = () => {
         storyPlot,
         fsrsSettings,
         chatReviewVocabularies,
-      };
+              };
       http.put(`${API_URL.API_STORY}/${currentStoryId}`, savedData).catch(err => {
         console.error("Failed to auto-save from memory scene:", err);
       });
     }
-  }, [currentStoryId, characters, activeCharacterIds, context, relationshipSummary, currentLevel, realtimeContext, storyPlot, fsrsSettings]);
+  }, [currentStoryId, characters, activeCharacterIds, context, relationshipSummary, currentLevel, realtimeContext, storyPlot, fsrsSettings, vocabularyStore]);
 
   // Review mode handlers
   const handleStartReview = useCallback(() => {
     // Get difficult vocabularies (Hard/Again) from today for review
-    const reviewItems = getDifficultVocabulariesForReview(journal);
+    const reviewItems = getDifficultVocabulariesFromStore(vocabularyStore, journal);
     
     if (reviewItems.length === 0) {
       alert('Không có từ khó nào cần ôn tập hôm nay!');
       return;
     }
     
+    // Map to compatible type with messages
+    const mappedItems = reviewItems.map(item => ({
+      ...item,
+      messages: item.dailyChat?.messages || []
+    }));
+    
     // Store shuffled list to keep consistent order
-    setCurrentReviewItems(reviewItems);
+    setCurrentReviewItems(mappedItems);
     setView('review');
-  }, [journal]);
+  }, [vocabularyStore, journal]);
 
   // Handler for starred vocabularies review
   const handleStartStarredReview = useCallback(() => {
-    const reviewItems = getStarredVocabulariesForReview(journal);
+    const reviewItems = getStarredVocabulariesFromStore(vocabularyStore, journal);
     
     if (reviewItems.length === 0) {
       alert('Chưa có từ vựng nào được đánh dấu sao!');
       return;
     }
     
-    setCurrentReviewItems(reviewItems);
+    // Map to compatible type with messages
+    const mappedItems = reviewItems.map(item => ({
+      ...item,
+      messages: item.dailyChat?.messages || []
+    }));
+    
+    setCurrentReviewItems(mappedItems);
     setView('review');
-  }, [journal]);
+  }, [vocabularyStore, journal]);
 
   // Handler for completing review (just return to journal, FSRS updates are done via ASK_VOCAB_DIFFICULTY)
   const handleReviewComplete = useCallback(async () => {
@@ -2051,7 +1996,7 @@ const App: React.FC = () => {
     // Save new level
     try {
       const dataToSave: SavedData = {
-        version: 5,
+        version: 6,
         journal,
         characters,
         activeCharacterIds,
@@ -2060,7 +2005,7 @@ const App: React.FC = () => {
         currentLevel: newLevel,
         storyPlot,
         chatReviewVocabularies,
-      };
+              };
       if (currentStoryId) {
         await http.put(`${API_URL.API_STORY}/${currentStoryId}`, { data: dataToSave });
       } else {
@@ -2069,12 +2014,13 @@ const App: React.FC = () => {
     } catch (error) {
       console.error("Failed to save level:", error);
     }
-  }, [currentLevel, journal, characters, activeCharacterIds, context, relationshipSummary, getActiveCharacters, getCurrentChat, currentStoryId, storyPlot, chatReviewVocabularies]);
+  }, [currentLevel, journal, characters, activeCharacterIds, context, relationshipSummary, getActiveCharacters, getCurrentChat, currentStoryId, storyPlot, chatReviewVocabularies, vocabularyStore]);
 
   const handleSaveJournal = async () => {
     try {
-      const dataToSave: SavedData = {
-        version: 5,
+      // Save story data (without vocabularyStore - it's now separate)
+      const dataToSave: Omit<SavedData, 'vocabularyStore'> = {
+        version: 6,
         journal,
         characters,
         activeCharacterIds,
@@ -2085,15 +2031,20 @@ const App: React.FC = () => {
         chatReviewVocabularies,
       };
       
-      let rs;
+      let storyResult;
       if (currentStoryId) {
-        rs = await http.put(`${API_URL.API_STORY}/${currentStoryId}`, { data: dataToSave });
+        storyResult = await http.put(`${API_URL.API_STORY}/${currentStoryId}`, { data: dataToSave });
       } else {
-        rs = await http.post(API_URL.API_SAVE_DATA, { data: dataToSave });
+        storyResult = await http.post(API_URL.API_SAVE_DATA, { data: dataToSave });
       }
       
-      if(rs.ok){
+      // Save vocabulary store to separate global file
+      const vocabResult = await http.put(API_URL.API_VOCABULARY_STORE, vocabularyStore);
+      
+      if(storyResult.ok && vocabResult.ok){
         alert("Đã lưu dữ liệu thành công")
+      } else {
+        alert("Lưu dữ liệu không thành công")
       }
     } catch (error) {
       console.error("Không thể lưu nhật ký:", error);
@@ -2104,7 +2055,7 @@ const App: React.FC = () => {
   const handleDownloadJournal = () => {
     try {
       const dataToSave: SavedData = {
-        version: 5,
+        version: 6,
         journal,
         characters,
         activeCharacterIds,
@@ -2112,7 +2063,8 @@ const App: React.FC = () => {
         relationshipSummary,
         currentLevel,
         chatReviewVocabularies,
-      };
+        // Include vocabularyStore in download for backup purposes
+              };
       const jsonString = JSON.stringify(dataToSave, null, 2);
       const blob = new Blob([jsonString], { type: 'application/json' });
       const url = URL.createObjectURL(blob);
@@ -2242,6 +2194,12 @@ const App: React.FC = () => {
         setStreak(loadedStreak);
       }
 
+      // Load global vocabulary store
+      const vocabResponse = await http.get(API_URL.API_VOCABULARY_STORE);
+      if (vocabResponse.ok && vocabResponse.data) {
+        setVocabularyStore(vocabResponse.data as VocabularyStore);
+      }
+
       // Then load stories index
       const storiesResponse = await http.get(API_URL.API_STORIES);
       if (!storiesResponse.ok) {
@@ -2303,25 +2261,17 @@ const App: React.FC = () => {
     let loadedRelationshipSummary: string = '';
     let loadedLevel: KoreanLevel = 'A1';
     let loadedRealtimeContext: string = '';
+    
     if (Array.isArray(loadedData)) { // v1 format support
       loadedJournal = loadedData.map((chat, index) => ({ 
         ...chat, 
         id: chat.id || `${new Date(chat.date).getTime()}-${index}`,
-        vocabularies: [],
-        vocabularyProgress: []
       }));
       loadedCharacters = initialCharacters;
-    } else if (typeof loadedData === 'object' && (loadedData.version === 2 || loadedData.version === 3 || loadedData.version === 4 || loadedData.version === 5)) { // v2, v3, v4 & v5 format
+    } else if (typeof loadedData === 'object' && (loadedData.version === 2 || loadedData.version === 3 || loadedData.version === 4 || loadedData.version === 5 || loadedData.version === 6)) { // v2-v6 format
       loadedJournal = loadedData.journal.map((chat: any, index: number) => ({
         ...chat,
         id: chat.id || `${new Date(chat.date).getTime()}-${index}`,
-        // Add vocabulary fields for v4→v5 migration
-        vocabularies: (chat.vocabularies || []).map((v: any) => {
-          // Remove usageMessageIds if present (cleanup)
-          const { usageMessageIds, ...rest } = v;
-          return rest;
-        }),
-        vocabularyProgress: chat.vocabularyProgress || []
       }));
       // Add default gender, voice, relations and userOpinion for backward compatibility
       loadedCharacters = loadedData.characters.map((c: any) => ({ 
@@ -2338,6 +2288,7 @@ const App: React.FC = () => {
       loadedRelationshipSummary = loadedData.relationshipSummary || '';
       loadedLevel = loadedData.currentLevel || 'A1';
       loadedRealtimeContext = loadedData.realtimeContext || '';
+      // Note: vocabularyStore is now loaded from global endpoint, not from story data
     } else {
       throw new Error("Tệp nhật ký không hợp lệ hoặc phiên bản không được hỗ trợ.");
     }
@@ -2360,6 +2311,7 @@ const App: React.FC = () => {
     setRealtimeContext(loadedRealtimeContext);
     setStoryPlot(loadedStoryPlot);
     setChatReviewVocabularies(loadedChatReviewVocabularies);
+    // Note: vocabularyStore is already loaded in LoadData, don't override here
 
     const lastChat = loadedJournal[loadedJournal.length - 1];
     const previousSummary = loadedJournal.length > 1 ? loadedJournal[loadedJournal.length - 2].summary : '';
@@ -2559,7 +2511,7 @@ const App: React.FC = () => {
     if (!currentStoryId) return;
 
     const dataToSave: SavedData = {
-      version: 5,
+      version: 6,
       journal,
       characters,
       activeCharacterIds,
@@ -2568,7 +2520,7 @@ const App: React.FC = () => {
       currentLevel,
       storyPlot,
       chatReviewVocabularies,
-    };
+          };
 
     try {
       await http.put(`${API_URL.API_STORY}/${currentStoryId}`, { data: dataToSave });
@@ -2683,7 +2635,7 @@ const App: React.FC = () => {
       setIsSaving(true);
       try {
         const dataToSave: SavedData = {
-          version: 5,
+          version: 6,
           journal,
           characters,
           activeCharacterIds,
@@ -2693,7 +2645,7 @@ const App: React.FC = () => {
           realtimeContext,
           storyPlot,
           chatReviewVocabularies,
-        };
+                  };
         
         if (currentStoryId) {
           await http.put(`${API_URL.API_STORY}/${currentStoryId}`, { data: dataToSave });
@@ -2710,7 +2662,7 @@ const App: React.FC = () => {
     const timeoutId = setTimeout(saveData, 3000); // Debounce 3s
 
     return () => clearTimeout(timeoutId);
-  }, [journal, characters, activeCharacterIds, context, relationshipSummary, currentLevel, isDataLoaded, currentStoryId, realtimeContext, storyPlot, chatReviewVocabularies]);
+  }, [journal, characters, activeCharacterIds, context, relationshipSummary, currentLevel, isDataLoaded, currentStoryId, realtimeContext, storyPlot, chatReviewVocabularies, vocabularyStore]);
 
   const currentMessages = getCurrentChat()?.messages || [];
 
@@ -3014,12 +2966,17 @@ const App: React.FC = () => {
             onUpdateMessage={handleUpdateMessage}
             onUpdateBotMessage={handleUpdateBotMessage}
             onRegenerateTone={handleRegenerateTone}
-            onCollectVocabulary={(korean, messageId) => handleCollectVocabulary(korean, messageId, getCurrentDailyChatId())}
+            onCollectVocabulary={(korean, vietnamese, memory, linkedMessageIds, messageId) => 
+              handleCollectVocabulary(korean, vietnamese, memory, linkedMessageIds, messageId, getCurrentDailyChatId())
+            }
             onRegenerateImage={handleRegenerateImage}
             onDeleteMessage={handleDeleteMessage}
             characters={characters}
             isListeningMode={isListeningMode}
             onToggleListeningMode={() => setIsListeningMode(!isListeningMode)}
+            dailyChatId={getCurrentDailyChatId()}
+            dailyChatDate={getCurrentChat()?.date || new Date().toISOString().split('T')[0]}
+            vocabularyStore={vocabularyStore}
           />
           
           {/* Chat Review Vocabularies Display */}
@@ -3190,11 +3147,10 @@ const App: React.FC = () => {
           onBack={handleBackFromVocabulary}
           playAudio={playAudio}
           isReviewMode={false}
-          reviewSchedule={journal.find(dc => dc.id === selectedDailyChatId)?.reviewSchedule || []}
+          reviewSchedule={vocabularyStore.reviews}
           relationshipSummary={relationshipSummary}
           formattedJournalForSearch={formattedJournalForSearch}
           journal={journal}
-          dailyChatId={selectedDailyChatId}
           onVocabDifficultyRated={handleVocabDifficultyRated}
         />
       ) : view === 'context' && contextViewState ? (
@@ -3228,8 +3184,10 @@ const App: React.FC = () => {
           journal={journal}
           characters={characters}
           fsrsSettings={fsrsSettings}
+          vocabularyStore={vocabularyStore}
           onUpdateJournal={handleUpdateJournalFromMemory}
           onUpdateSettings={handleUpdateFsrsSettings}
+          onUpdateVocabularyStore={handleUpdateVocabularyStore}
           onBack={handleBackFromMemory}
           onPlayAudio={handleReplayAudio}
           onGenerateAudio={textToSpeech}
@@ -3261,8 +3219,8 @@ const App: React.FC = () => {
           onStartStarredReview={handleStartStarredReview}
           onStartMemory={handleStartMemory}
           onStartCollection={() => setView('collection')}
-          reviewDueCount={getDifficultVocabulariesCount(journal)}
-          starredCount={getStarredVocabulariesCount(journal)}
+          reviewDueCount={getDifficultCountFromStore(vocabularyStore)}
+          starredCount={getStarredCountFromStore(vocabularyStore)}
           streak={streak}
           onCollectVocabulary={handleCollectVocabulary}
           onDownloadTxt={handleDownloadTxt}
@@ -3270,6 +3228,7 @@ const App: React.FC = () => {
           onTranslate={getTranslationAndExplanation}
           onStoreTranslation={handleStoreTranslationJournal}
           onUpdateDailySummary={handleUpdateDailySummary}
+          vocabularyStore={vocabularyStore}
         />
       )}
 
@@ -3290,7 +3249,7 @@ const App: React.FC = () => {
       <ChatVocabularyModal
         isOpen={isChatVocabularyModalOpen}
         onClose={() => setIsChatVocabularyModalOpen(false)}
-        journal={journal}
+        vocabularyStore={vocabularyStore}
         selectedVocabularies={chatReviewVocabularies}
         onVocabulariesChange={setChatReviewVocabularies}
       />
