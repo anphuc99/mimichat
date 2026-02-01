@@ -298,7 +298,7 @@ export const VocabularyCollectPopup: React.FC<VocabularyCollectPopupProps> = ({
   if (!isOpen) return null;
 
   return (
-    <div className="vocab-collect-overlay" onClick={onCancel}>
+    <div className="vocab-collect-overlay">
       <div className="vocab-collect-popup" onClick={e => e.stopPropagation()}>
         {/* Header */}
         <div className="popup-header">
