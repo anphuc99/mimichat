@@ -1226,7 +1226,7 @@ export const VocabularyCollectionScene: React.FC<VocabularyCollectionSceneProps>
 
       {/* Settings Modal */}
       {showSettings && (
-        <div className="modal-overlay" onClick={() => setShowSettings(false)}>
+        <div className="modal-overlay">
           <div className="modal-content" onClick={e => e.stopPropagation()}>
             <div className="modal-header">
               <h3>⚙️ Cài đặt</h3>
