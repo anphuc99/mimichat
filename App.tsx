@@ -16,6 +16,7 @@ import { VocabularyCollectionScene } from './components/VocabularyCollectionScen
 import { ChatVocabularyModal } from './components/ChatVocabularyModal';
 import { AIAssistantModal } from './components/AIAssistantModal';
 import { PrivateChatWindow, PrivateChatButton } from './components/PrivateChatWindow';
+import { FloatingActionMenu } from './components/FloatingActionMenu';
 import { ModelSelector } from './components/ModelSelector';
 import type { Message, ChatJournal, DailyChat, Character, SavedData, CharacterThought, VocabularyItem, VocabularyReview, StreakData, KoreanLevel, StoryMeta, StoriesIndex, FSRSSettings, VocabularyDifficultyRating, FSRSRating, VocabularyWithStability, VocabularyStore, StoredVocabularyItem, StoredVocabularyMemory, VocabularyMemoryEntry } from './types';
 import { DEFAULT_FSRS_SETTINGS } from './types';
@@ -1063,7 +1064,7 @@ console.log("Processing bot responses:", responses);
       setIsLoading(false);
       setIsAISearching(false);
     }
-  }, [isLoading, getActiveCharacters, context, updateCurrentChatMessages, processBotResponsesSequentially, handleStreakUpdate, relationshipSummary, currentLevel, realtimeContext, handleSystemCommand]);
+  }, [isLoading, getActiveCharacters, context, updateCurrentChatMessages, processBotResponsesSequentially, handleStreakUpdate, relationshipSummary, currentLevel, chatReviewVocabularies, storyPlot, checkPronunciation]);
 
   const handleUpdateMessage = useCallback(async (messageId: string, newText: string) => {
     if (isLoading) return;
@@ -1440,7 +1441,8 @@ console.log("Processing bot responses:", responses);
       }
 
       if (!botResponses) {
-        throw new Error("Failed to parse AI response on retry.");
+        console.error("Failed to parse AI response after retries.");
+        throw new Error("Failed to parse AI response.");
       }
 
       // Handle System commands (AI story research) - max 3 searches
@@ -1595,6 +1597,7 @@ console.log("Processing bot responses:", responses);
     );
   };
 
+  // End day handler - summarize conversation and prepare for new day
   const handleEndDay = async () => {
     const currentChat = getCurrentChat();
     if (!currentChat || currentChat.messages.length === 0) {
@@ -3055,7 +3058,7 @@ console.log("Processing bot responses:", responses);
                             {story.charactersPreview && story.charactersPreview.length > 0 && (
                               <span className="flex items-center gap-1">
                                 <svg xmlns="http://www.w3.org/2000/svg" className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                                  <path strokeLinecap="round" strokeLinejoin="round" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z" />
+                                  <path strokeLinecap="round" strokeLinejoin="round" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" />
                                 </svg>
                                 {story.charactersPreview.join(', ')}
                               </span>
@@ -3389,6 +3392,16 @@ console.log("Processing bot responses:", responses);
         vocabularyStore={vocabularyStore}
         selectedVocabularies={chatReviewVocabularies}
         onVocabulariesChange={setChatReviewVocabularies}
+      />
+
+      {/* Floating Action Menu */}
+      <FloatingActionMenu
+        onStartCollection={() => setView('collection')}
+        onStartMemory={handleStartMemory}
+        onStartStarredReview={handleStartStarredReview}
+        onStartReview={handleStartReview}
+        starredCount={getStarredCountFromStore(vocabularyStore)}
+        reviewDueCount={getDifficultCountFromStore(vocabularyStore)}
       />
 
       {/* AI Learning Assistant */}

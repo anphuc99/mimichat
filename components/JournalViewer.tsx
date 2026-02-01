@@ -681,53 +681,6 @@ export const JournalViewer: React.FC<JournalViewerProps> = ({
             <div className="flex justify-between items-center mb-4">
                 <h2 className="text-xl font-bold text-gray-700">Nhật ký trò chuyện</h2>
                 <div className="flex items-center space-x-2">
-                    {onStartCollection && (
-                        <button 
-                            onClick={onStartCollection}
-                            className="px-4 py-2 bg-gradient-to-r from-emerald-500 to-teal-600 text-white rounded-lg hover:from-emerald-600 hover:to-teal-700 transition-all shadow-md flex items-center space-x-2"
-                            title="Thu thập từ vựng - Học từ mới từ kho từ vựng"
-                        >
-                            <span>📚</span>
-                            <span>Thu thập</span>
-                        </button>
-                    )}
-                    {onStartMemory && (
-                        <button 
-                            onClick={onStartMemory}
-                            className="px-4 py-2 bg-purple-500 text-white rounded-lg hover:bg-purple-600 transition-colors flex items-center space-x-2"
-                            title="Ký ức từ vựng - Học & ôn tập với ký ức cá nhân"
-                        >
-                            <span>🧠</span>
-                            <span>Ký ức</span>
-                        </button>
-                    )}
-                    {onStartStarredReview && (
-                        <button 
-                            onClick={onStartStarredReview}
-                            className="relative px-4 py-2 bg-yellow-500 text-white rounded-lg hover:bg-yellow-600 transition-colors flex items-center space-x-2"
-                            title="Học từ đã đánh dấu sao"
-                        >
-                            <span>⭐</span>
-                            <span>Từ sao</span>
-                            {starredCount !== undefined && starredCount > 0 && (
-                                <span className="absolute -top-2 -right-2 bg-yellow-700 text-white text-xs font-bold rounded-full w-6 h-6 flex items-center justify-center">
-                                    {starredCount}
-                                </span>
-                            )}
-                        </button>
-                    )}
-                    <button 
-                        onClick={onStartReview}
-                        className="relative px-4 py-2 bg-orange-500 text-white rounded-lg hover:bg-orange-600 transition-colors flex items-center space-x-2"
-                    >
-                        <span>🔄</span>
-                        <span>Tổng ôn</span>
-                        {reviewDueCount > 0 && (
-                            <span className="absolute -top-2 -right-2 bg-red-500 text-white text-xs font-bold rounded-full w-6 h-6 flex items-center justify-center">
-                                {reviewDueCount}
-                            </span>
-                        )}
-                    </button>
                     <button 
                         onClick={onBackToChat} 
                         className="px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition-colors"
