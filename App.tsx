@@ -18,12 +18,12 @@ import { AIAssistantModal } from './components/AIAssistantModal';
 import { PrivateChatWindow, PrivateChatButton } from './components/PrivateChatWindow';
 import { FloatingActionMenu } from './components/FloatingActionMenu';
 import { ModelSelector } from './components/ModelSelector';
-import type { Message, ChatJournal, DailyChat, Character, SavedData, CharacterThought, VocabularyItem, VocabularyReview, StreakData, KoreanLevel, StoryMeta, StoriesIndex, FSRSSettings, VocabularyDifficultyRating, FSRSRating, VocabularyWithStability, VocabularyStore, StoredVocabularyItem, StoredVocabularyMemory, VocabularyMemoryEntry } from './types';
+import type { Message, ChatJournal, DailyChat, Character, SavedData, CharacterThought, VocabularyItem, VocabularyReview, StreakData, KoreanLevel, StoryMeta, StoriesIndex, FSRSSettings, VocabularyDifficultyRating, FSRSRating, VocabularyWithStability, VocabularyStore, StoredVocabularyItem, StoredVocabularyMemory, VocabularyMemoryEntry, DailyTaskConfig } from './types';
 import { DEFAULT_FSRS_SETTINGS } from './types';
 import { initializeGeminiService, initChat, sendMessage, textToSpeech, translateAndExplainText, translateWord, summarizeConversation, generateCharacterThoughts, generateToneDescription, generateRelationshipSummary, generateContextSuggestion, generateMessageSuggestions, generateVocabulary, generateSceneImage, initAutoChatSession, sendAutoChatMessage, uploadAudio, sendAudioMessage } from './services/geminiService';
 import { initializeFSRSReview, initializeFSRSWithDifficulty, updateFSRSReview } from './utils/spacedRepetition';
-import { createEmptyVocabularyStore, getAllVocabulariesFromStore, getNewVocabulariesFromStore, getVocabulariesDueFromStore, getDifficultVocabulariesFromStore, getStarredVocabulariesFromStore, getVocabularyStatsFromStore, addVocabulary, upsertReview, upsertMemory, deleteVocabulary, toggleVocabularyStarInStore, getVocabularyById, getVocabularyByKorean, getReviewByVocabularyId, getMemoryByVocabularyId, getTotalLearnedFromStore, getDueCountFromStore, getDifficultCountFromStore, getStarredCountFromStore } from './utils/vocabularyStore';
-import { initializeStreak, updateStreak, checkStreakStatus } from './utils/streakManager';
+import { createEmptyVocabularyStore, getAllVocabulariesFromStore, getNewVocabulariesFromStore, getVocabulariesDueFromStore, getDifficultVocabulariesFromStore, getStarredVocabulariesFromStore, getVocabularyStatsFromStore, addVocabulary, upsertReview, upsertMemory, deleteVocabulary, toggleVocabularyStarInStore, getVocabularyById, getVocabularyByKorean, getReviewByVocabularyId, getMemoryByVocabularyId, getTotalLearnedFromStore, getDueCountFromStore, getDifficultCountFromStore, getStarredCountFromStore, getTodayLearnedCountFromStore } from './utils/vocabularyStore';
+import { initializeStreak, updateStreak, checkStreakStatus, updateTaskProgress, areAllTasksCompleted, parseDailyTasksCSV } from './utils/streakManager';
 import { formatJournalForSearch, parseSystemCommand, executeSystemCommand, type FormattedJournal } from './utils/storySearch';
 import { KOREAN_LEVELS } from './types';
 import http, { API_URL } from './services/HTTPService';
@@ -108,6 +108,9 @@ const App: React.FC = () => {
   // Streak state
   const [streak, setStreak] = useState<StreakData>(initializeStreak());
   const [showStreakCelebration, setShowStreakCelebration] = useState(false);
+  
+  // Daily tasks config
+  const [dailyTasksConfig, setDailyTasksConfig] = useState<DailyTaskConfig>([]);
 
   // Level state
   const [currentLevel, setCurrentLevel] = useState<KoreanLevel>('A1');
@@ -444,8 +447,20 @@ const App: React.FC = () => {
   }, []);
 
   // Helper function to update streak and show celebration
-  const handleStreakUpdate = useCallback(async (activityType: 'chat' | 'review' | 'learn') => {
-    const { updatedStreak, isNewStreak, streakIncreased } = updateStreak(streak, activityType);
+  const handleStreakUpdate = useCallback(async (
+    activityType: 'chat' | 'review' | 'learn',
+    learnedCount?: number,
+    reviewDueCount?: number
+  ) => {
+    let currentStreak = streak;
+    
+    // Update task progress if provided
+    if (learnedCount !== undefined && reviewDueCount !== undefined) {
+      currentStreak = updateTaskProgress(currentStreak, learnedCount, reviewDueCount);
+    }
+    
+    // Pass config to updateStreak
+    const { updatedStreak, isNewStreak, streakIncreased } = updateStreak(currentStreak, activityType, dailyTasksConfig);
     
     setStreak(updatedStreak);
     
@@ -1792,12 +1807,17 @@ console.log("Processing bot responses:", responses);
         return newJournal;
       });
 
+      // Update streak/task progress for "learn"
+      const currentLearned = streak.taskProgress?.learnedCount || 0;
+      const reviewDue = getDueCountFromStore(updatedStore);
+      await handleStreakUpdate('learn', currentLearned + 1, reviewDue);
+
       // alert(`Đã thêm từ "${korean}" (${vietnamese}) vào danh sách!`);
     } catch (error) {
       console.error('Error collecting vocabulary:', error);
       alert('Có lỗi xảy ra khi thu thập từ vựng.');
     }
-  }, [vocabularyStore, currentStoryId, handleUpdateVocabularyStore]);
+  }, [streak, vocabularyStore, currentStoryId, handleUpdateVocabularyStore, handleStreakUpdate]);
 
   const handleGenerateVocabulary = useCallback(async (dailyChatId: string) => {
     const chatIndex = journal.findIndex(dc => dc.id === dailyChatId);
@@ -1966,13 +1986,17 @@ console.log("Processing bot responses:", responses);
     }
 
     // Update streak after completing vocabulary learning
-    await handleStreakUpdate('learn');
+    // Calculate new learned count
+    const currentLearned = streak.taskProgress?.learnedCount || 0;
+    const newLearnedCount = currentLearned + learnedVocabIds.length;
+    const reviewDue = getDueCountFromStore(updatedStore);
+    await handleStreakUpdate('learn', newLearnedCount, reviewDue);
 
     // Return to journal
     setView('journal');
     setVocabLearningVocabs([]);
     setSelectedDailyChatId(null);
-  }, [selectedDailyChatId, journal, vocabularyStore, handleStreakUpdate]);
+  }, [selectedDailyChatId, journal, vocabularyStore, streak, handleStreakUpdate]);
 
   const handleBackFromVocabulary = useCallback(() => {
     setView('journal');
@@ -2336,16 +2360,40 @@ console.log("Processing bot responses:", responses);
     try {
       // Load streak from separate file first
       const streakResponse = await http.get(API_URL.API_STREAK);
+      // Load Daily Tasks Config
+      let loadedDailyTasksConfig: DailyTaskConfig = [];
+      try {
+        const dailyTasksResponse = await http.get(API_URL.API_DAILY_TASKS);
+        if (dailyTasksResponse.ok && typeof dailyTasksResponse.data === 'string') {
+          loadedDailyTasksConfig = parseDailyTasksCSV(dailyTasksResponse.data);
+          if (loadedDailyTasksConfig.length > 0) {
+            setDailyTasksConfig(loadedDailyTasksConfig);
+          }
+        }
+      } catch (err) {
+        console.warn('Failed to load daily tasks config', err);
+      }
+
+      let loadedStreak: StreakData = initializeStreak();
       if (streakResponse.ok && streakResponse.data) {
-        const loadedStreak = checkStreakStatus(streakResponse.data as StreakData);
-        setStreak(loadedStreak);
+        loadedStreak = checkStreakStatus(streakResponse.data as StreakData);
       }
 
       // Load global vocabulary store
+      let loadedVocabStore: VocabularyStore = createEmptyVocabularyStore();
       const vocabResponse = await http.get(API_URL.API_VOCABULARY_STORE);
       if (vocabResponse.ok && vocabResponse.data) {
-        setVocabularyStore(vocabResponse.data as VocabularyStore);
+        loadedVocabStore = vocabResponse.data as VocabularyStore;
+        setVocabularyStore(loadedVocabStore);
       }
+      
+      // Calculate and update task progress from vocabulary store
+      // We trust the store's "Created Today + Reviewed Today" count as the source of truth
+      const todayLearnedCount = getTodayLearnedCountFromStore(loadedVocabStore);
+      const reviewDueCount = getDueCountFromStore(loadedVocabStore);
+      
+      loadedStreak = updateTaskProgress(loadedStreak, todayLearnedCount, reviewDueCount);
+      setStreak(loadedStreak);
 
       // Then load stories index
       const storiesResponse = await http.get(API_URL.API_STORIES);
@@ -2883,7 +2931,7 @@ console.log("Processing bot responses:", responses);
           </button>
           
           {/* Compact Streak Display */}
-          <StreakDisplay streak={streak} compact={true} />
+          <StreakDisplay streak={streak} compact={true} dailyTasksConfig={dailyTasksConfig} />
           
           {/* Vocabulary Count */}
           {/*<div 
@@ -3348,12 +3396,12 @@ console.log("Processing bot responses:", responses);
           onPlayAudio={handleReplayAudio}
           onGenerateAudio={textToSpeech}
           onTranslate={getTranslationAndExplanation}
-          onStreakUpdate={() => handleStreakUpdate('review')}
+          onStreakUpdate={(learnedCount, reviewDueCount) => handleStreakUpdate('learn', learnedCount, reviewDueCount)}
         />
       ) : view === 'collection' ? (
         <VocabularyCollectionScene
           onBack={() => setView('journal')}
-          onStreakUpdate={() => handleStreakUpdate('learn')}
+          onStreakUpdate={() => handleStreakUpdate('review')}
           characters={characters}
           onPlayAudio={handleReplayAudio}
           onGenerateAudio={textToSpeech}
@@ -3385,6 +3433,7 @@ console.log("Processing bot responses:", responses);
           onStoreTranslation={handleStoreTranslationJournal}
           onUpdateDailySummary={handleUpdateDailySummary}
           vocabularyStore={vocabularyStore}
+          dailyTasksConfig={dailyTasksConfig}
         />
       )}
 

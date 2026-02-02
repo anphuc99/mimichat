@@ -1,6 +1,6 @@
 
 import React, { useState } from 'react';
-import type { ChatJournal, DailyChat, StreakData, Character, VocabularyStore } from '../types';
+import type { ChatJournal, DailyChat, StreakData, Character, VocabularyStore, DailyTaskConfig } from '../types';
 import { MessageBubble } from './MessageBubble';
 import { StreakDisplay } from './StreakDisplay';
 
@@ -438,6 +438,7 @@ interface JournalViewerProps {
   onStoreTranslation: (messageId: string, translation: string, dailyChatId: string) => void;
   onUpdateDailySummary?: (dailyChatId: string, newSummary: string) => void;
   vocabularyStore?: VocabularyStore;
+  dailyTasksConfig?: DailyTaskConfig;
 }
 
 export const JournalViewer: React.FC<JournalViewerProps> = ({ 
@@ -466,6 +467,7 @@ export const JournalViewer: React.FC<JournalViewerProps> = ({
     onStoreTranslation,
     onUpdateDailySummary,
     vocabularyStore,
+    dailyTasksConfig
 }) => {
     const [isViewingSummary, setIsViewingSummary] = useState(false);
     const [isEditingSummary, setIsEditingSummary] = useState(false);
@@ -868,7 +870,7 @@ export const JournalViewer: React.FC<JournalViewerProps> = ({
 
             {/* Streak Display Section */}
             <div className="mb-6">
-                <StreakDisplay streak={streak} />
+                <StreakDisplay streak={streak} dailyTasksConfig={dailyTasksConfig} />
             </div>
 
             {/* Relationship Summary Section */}

@@ -29,7 +29,9 @@ import {
   deleteVocabulary,
   updateVocabulary,
   toggleVocabularyStarInStore,
-  addManualVocabulary
+  addManualVocabulary,
+  getTodayLearnedCountFromStore,
+  getDueCountFromStore
 } from '../utils/vocabularyStore';
 import VocabularyMemoryFlashcard from './VocabularyMemoryFlashcard';
 import VocabularyMemoryEditor from './VocabularyMemoryEditor';
@@ -56,7 +58,7 @@ interface VocabularyMemorySceneProps {
   onPlayAudio?: (audioData: string, characterName?: string) => void;
   onGenerateAudio?: (text: string, tone: string, voiceName: string) => Promise<string | null>;
   onTranslate?: (text: string) => Promise<string>;
-  onStreakUpdate?: () => void;
+  onStreakUpdate?: (learnedCount: number, reviewDueCount: number) => void;
 }
 
 export const VocabularyMemoryScene: React.FC<VocabularyMemorySceneProps> = ({
@@ -228,16 +230,19 @@ export const VocabularyMemoryScene: React.FC<VocabularyMemorySceneProps> = ({
       remembered: rating >= 2 ? prev.remembered + 1 : prev.remembered,
       forgot: rating === 1 ? prev.forgot + 1 : prev.forgot
     }));
+
+    // Update streak task progress immediately
+    const todayLearnedCount = getTodayLearnedCountFromStore(newStore);
+    const reviewDueCount = getDueCountFromStore(newStore, fsrsSettings);
+    onStreakUpdate?.(todayLearnedCount, reviewDueCount);
     
     // Move to next card or complete
     if (currentReviewIndex < reviewQueue.length - 1) {
       setCurrentReviewIndex(prev => prev + 1);
     } else {
       setIsReviewComplete(true);
-      // Update streak when completing review session
-      onStreakUpdate?.();
     }
-  }, [vocabularyStore, onUpdateVocabularyStore, reviewQueue, currentReviewIndex, onStreakUpdate]);
+  }, [vocabularyStore, onUpdateVocabularyStore, reviewQueue, currentReviewIndex, onStreakUpdate, fsrsSettings]);
 
   // Handle skip
   const handleSkip = useCallback(() => {
@@ -920,15 +925,17 @@ export const VocabularyMemoryScene: React.FC<VocabularyMemorySceneProps> = ({
     // Update stats
     setNewWordsSessionStats(prev => {
       const newLearned = prev.learned + 1;
-      // Update streak when learned at least 10 words
-      if (newLearned >= 10) {
-        onStreakUpdate?.();
-      }
       return {
         ...prev,
         learned: newLearned
       };
     });
+    
+    // Update streak with task progress
+    // Use getTodayLearnedCountFromStore to count words learned TODAY (first-time rated)
+    const todayLearnedCount = getTodayLearnedCountFromStore(newStore);
+    const reviewDueCount = getDueCountFromStore(newStore, fsrsSettings);
+    onStreakUpdate?.(todayLearnedCount, reviewDueCount);
 
     // Move to next word
     setNewWordState('word');
@@ -940,7 +947,7 @@ export const VocabularyMemoryScene: React.FC<VocabularyMemorySceneProps> = ({
     } else {
       setIsNewWordsComplete(true);
     }
-  }, [vocabularyStore, onUpdateVocabularyStore, newWordsQueue, currentNewWordIndex, onStreakUpdate, newWordCardDirection]);
+  }, [vocabularyStore, onUpdateVocabularyStore, newWordsQueue, currentNewWordIndex, onStreakUpdate, newWordCardDirection, fsrsSettings]);
 
   // Get word usage count for current difficult word
   const currentDifficultWordUsageCount = useMemo(() => {

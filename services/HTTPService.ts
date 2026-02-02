@@ -31,6 +31,8 @@ export const API_URL = {
     API_VOCABULARY_COLLECTION: '/api/vocabulary-collection',
     // Global Vocabulary Store API
     API_VOCABULARY_STORE: '/api/vocabulary-store',
+    // Daily Tasks Configuration API
+    API_DAILY_TASKS: '/api/daily-tasks',
 };
 
 export interface HttpResponse<T = any> {
@@ -95,9 +97,9 @@ class HTTPService {
 			});
 			const text = await res.text();
 			let parsed: any;
-			try { parsed = text ? JSON.parse(text) : undefined; } catch { parsed = undefined; }
+			try { parsed = text ? JSON.parse(text) : undefined; } catch { parsed = text; } // Return raw text if JSON parse fails
 			if (!res.ok) {
-				return { ok: false, status: res.status, error: parsed?.error || text || 'Request failed' };
+				return { ok: false, status: res.status, error: (typeof parsed === 'object' ? parsed?.error : undefined) || text || 'Request failed' };
 			}
 			return { ok: true, status: res.status, data: parsed };
 		} catch (e: any) {

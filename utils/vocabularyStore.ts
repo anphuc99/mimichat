@@ -522,6 +522,50 @@ export function getTotalLearnedFromStore(store: VocabularyStore): number {
 }
 
 /**
+ * Get count of new words learned TODAY (first-time rated words)
+ * A word is considered "newly learned today" if:
+ * - It has reviewHistory with exactly 1 entry (first time rated)
+ * - That entry's date is today
+ */
+export function getTodayLearnedCountFromStore(store: VocabularyStore): number {
+  const todayStr = getVietnamDateString(new Date());
+  let count = 0;
+  const countedIds = new Set<string>();
+
+  // 1. Count reviewed (studied) words first
+  for (const review of store.reviews) {
+    // Check if this is a newly learned word (first time rated today)
+    if (review.reviewHistory && review.reviewHistory.length >= 1) {
+      // Get the first review entry (when the word was first learned)
+      const firstReview = review.reviewHistory[0];
+      const firstReviewDateStr = getVietnamDateString(new Date(firstReview.date));
+      
+      // Count if the first review was today
+      if (firstReviewDateStr === todayStr) {
+        count++;
+        countedIds.add(review.vocabularyId);
+      }
+    }
+  }
+
+  // 2. Count collected (but not yet studied) words
+  // If "Học từ mới" task includes just collecting/adding words
+  for (const vocab of store.vocabularies) {
+    if (countedIds.has(vocab.id)) continue; // Already counted via review
+    
+    // Check creation date
+    if (vocab.createdDate) {
+      const createdDateStr = getVietnamDateString(new Date(vocab.createdDate));
+      if (createdDateStr === todayStr) {
+        count++;
+      }
+    }
+  }
+
+  return count;
+}
+
+/**
  * Get count of due reviews
  */
 export function getDueCountFromStore(
@@ -538,7 +582,7 @@ export function getDueCountFromStore(
     }
   }
 
-  return Math.min(count, settings.maxReviewsPerDay);
+  return count;
 }
 
 /**

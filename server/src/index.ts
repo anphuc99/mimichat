@@ -432,6 +432,53 @@ app.put("/api/streak", (req: Request, res: Response) => {
 });
 
 // ---------------------------
+// Daily Tasks API (CSV)
+// ---------------------------
+const DAILY_TASKS_PATH = path.join(__dirname, "data", "daily_tasks.csv");
+
+// Initialize daily tasks file if not exists
+if (!fs.existsSync(DAILY_TASKS_PATH)) {
+  const defaultCSV = `id,type,target,label,enabled
+learn,count,20,Học từ mới,true
+review,completed,0,Ôn tập,true`;
+  fs.writeFileSync(DAILY_TASKS_PATH, defaultCSV, "utf-8");
+}
+
+// GET /api/daily-tasks - Get daily tasks config (CSV)
+app.get("/api/daily-tasks", (req: Request, res: Response) => {
+  try {
+    if (!fs.existsSync(DAILY_TASKS_PATH)) {
+      res.status(404).json({ error: "Daily tasks configuration not found" });
+      return;
+    }
+    const csvData = fs.readFileSync(DAILY_TASKS_PATH, "utf-8");
+    res.setHeader('Content-Type', 'text/csv');
+    res.send(csvData);
+  } catch (e: any) {
+    res.status(500).json({ error: e.message || "Failed to load daily tasks" });
+  }
+});
+
+// PUT /api/daily-tasks - Update daily tasks config (CSV)
+app.put("/api/daily-tasks", (req: Request, res: Response) => {
+  try {
+    // Expect raw text body or json with csv property?
+    // Let's assume the client sends the CSV string in the body or inside a JSON object.
+    // For simplicity with existing patterns, let's assume JSON { csv: string } or raw text.
+    // Given the express setup: app.use(express.json(...)), let's use JSON.
+    const { csv } = req.body;
+    if (typeof csv !== 'string') {
+        res.status(400).json({ error: "Invalid CSV data" });
+        return;
+    }
+    fs.writeFileSync(DAILY_TASKS_PATH, csv, "utf-8");
+    res.json({ success: true });
+  } catch (e: any) {
+    res.status(500).json({ error: e.message || "Failed to save daily tasks" });
+  }
+});
+
+// ---------------------------
 // Vocabulary Collection APIs
 // ---------------------------
 interface VocabularyCollectionItem {

@@ -216,10 +216,27 @@ export interface VocabularyStore {
   progress: { [vocabularyId: string]: VocabularyProgress };
 }
 
+export interface TaskProgress {
+  learnedCount: number;        // Words learned today
+  reviewDueCount: number;      // Words still due for review
+}
+
+export interface DailyTaskItem {
+  id: string; // 'learn' or 'review'
+  type: 'count' | 'completed';
+  target: number;
+  label: string;
+  enabled: boolean;
+}
+
+export type DailyTaskConfig = DailyTaskItem[];
+
 export interface StreakData {
   currentStreak: number;
   longestStreak: number;
   lastActivityDate: string | null; // ISO date string (YYYY-MM-DD)
+  taskProgress?: TaskProgress;  // Task progress for the current day
+  lastProgressDate?: string | null; // Date when taskProgress was last updated (important for partial progress persistence)
 }
 
 export type KoreanLevel = 'A0' | 'A1' | 'A2' | 'B1' | 'B2' | 'C1' | 'C2';
