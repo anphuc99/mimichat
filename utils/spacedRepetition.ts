@@ -7,8 +7,17 @@ import { fsrs, createEmptyCard, Rating, State, type Card, type Grade, type FSRS 
 // Using ts-fsrs library for accurate calculations
 // ============================================================================
 
-// Create FSRS instance with default parameters
-const f: FSRS = fsrs();
+const fsrsCache = new Map<number, FSRS>();
+
+function getFsrsScheduler(settings?: FSRSSettings): FSRS {
+  const desiredRetention = settings?.desiredRetention ?? DEFAULT_FSRS_SETTINGS.desiredRetention;
+  const normalized = Math.max(0.5, Math.min(0.97, desiredRetention));
+  const key = Number(normalized.toFixed(3));
+  if (!fsrsCache.has(key)) {
+    fsrsCache.set(key, fsrs({ request_retention: normalized }));
+  }
+  return fsrsCache.get(key)!;
+}
 
 /**
  * Map our 4-level rating to ts-fsrs Rating
@@ -94,9 +103,10 @@ export function calculateRetrievability(stability: number, elapsedDays: number):
  * Calculate interval (in days) for a new card based on FSRS rating
  * Uses ts-fsrs to compute the actual scheduled interval
  */
-export function calculateNewCardInterval(rating: FSRSRating): number {
+export function calculateNewCardInterval(rating: FSRSRating, settings?: FSRSSettings): number {
   const newCard = createEmptyCard();
-  const result = f.repeat(newCard, new Date());
+  const scheduler = getFsrsScheduler(settings);
+  const result = scheduler.repeat(newCard, new Date());
   const grade = mapRatingToTsFsrs(rating);
   return result[grade].card.scheduled_days;
 }
@@ -104,18 +114,20 @@ export function calculateNewCardInterval(rating: FSRSRating): number {
 /**
  * @deprecated Kept for backward compatibility - ts-fsrs handles this internally
  */
-export function getInitialStability(rating: FSRSRating): number {
+export function getInitialStability(rating: FSRSRating, settings?: FSRSSettings): number {
   const card = createEmptyCard();
-  const result = f.repeat(card, new Date())[mapRatingToTsFsrs(rating)].card;
+  const scheduler = getFsrsScheduler(settings);
+  const result = scheduler.repeat(card, new Date())[mapRatingToTsFsrs(rating)].card;
   return result.stability;
 }
 
 /**
  * @deprecated Kept for backward compatibility - ts-fsrs handles this internally
  */
-export function getInitialDifficulty(rating: FSRSRating): number {
+export function getInitialDifficulty(rating: FSRSRating, settings?: FSRSSettings): number {
   const card = createEmptyCard();
-  const result = f.repeat(card, new Date())[mapRatingToTsFsrs(rating)].card;
+  const scheduler = getFsrsScheduler(settings);
+  const result = scheduler.repeat(card, new Date())[mapRatingToTsFsrs(rating)].card;
   return result.difficulty;
 }
 
@@ -180,12 +192,13 @@ export function updateFSRSAfterReview(
   settings: FSRSSettings = DEFAULT_FSRS_SETTINGS
 ): VocabularyReview {
   const now = new Date();
+  const scheduler = getFsrsScheduler(settings);
   
   // Convert to ts-fsrs Card format
   const card = reviewToCard(review);
   
   // Get scheduling options for all ratings
-  const schedulingCards = f.repeat(card, now);
+  const schedulingCards = scheduler.repeat(card, now);
   
   // Get the result for the selected rating
   const tsFsrsRating = mapRatingToTsFsrs(rating);

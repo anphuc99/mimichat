@@ -31,6 +31,8 @@ export const API_URL = {
     API_VOCABULARY_COLLECTION: '/api/vocabulary-collection',
     // Global Vocabulary Store API
     API_VOCABULARY_STORE: '/api/vocabulary-store',
+	// Translation Drill Store API
+	API_TRANSLATION_STORE: '/api/translation-store',
     // Daily Tasks Configuration API
     API_DAILY_TASKS: '/api/daily-tasks',
 };

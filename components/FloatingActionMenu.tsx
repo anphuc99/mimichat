@@ -5,8 +5,10 @@ interface FloatingActionMenuProps {
     onStartMemory?: () => void;
     onStartStarredReview?: () => void;
     onStartReview: () => void;
+    onStartTranslation?: () => void;
     starredCount?: number;
     reviewDueCount: number;
+    translationDueCount?: number;
 }
 
 export const FloatingActionMenu: React.FC<FloatingActionMenuProps> = ({
@@ -14,10 +16,13 @@ export const FloatingActionMenu: React.FC<FloatingActionMenuProps> = ({
     onStartMemory,
     onStartStarredReview,
     onStartReview,
+    onStartTranslation,
     starredCount,
     reviewDueCount,
+    translationDueCount,
 }) => {
     const [isOpen, setIsOpen] = useState(false);
+    const totalBadges = reviewDueCount + (starredCount || 0) + (translationDueCount || 0);
 
     return (
         <div className="fixed bottom-60 right-4 z-50 flex flex-col items-end gap-3 pointer-events-none">
@@ -71,6 +76,24 @@ export const FloatingActionMenu: React.FC<FloatingActionMenuProps> = ({
                         )}
                     </button>
                 )}
+                {onStartTranslation && (
+                    <button
+                        onClick={() => {
+                            onStartTranslation();
+                            setIsOpen(false);
+                        }}
+                        className="relative px-4 py-2 bg-blue-500 text-white rounded-full shadow-lg hover:bg-blue-600 hover:scale-105 transition-all flex items-center space-x-2 whitespace-nowrap"
+                        title="Luyện dịch ngẫu nhiên các đoạn chat gần nhất"
+                    >
+                        <span>📝</span>
+                        <span className="font-medium">Luyện dịch</span>
+                        {translationDueCount !== undefined && translationDueCount > 0 && (
+                            <span className="absolute -top-2 -right-2 bg-blue-700 text-white text-xs font-bold rounded-full w-6 h-6 flex items-center justify-center border-2 border-white">
+                                {translationDueCount}
+                            </span>
+                        )}
+                    </button>
+                )}
                 <button 
                     onClick={() => {
                         onStartReview();
@@ -103,9 +126,9 @@ export const FloatingActionMenu: React.FC<FloatingActionMenuProps> = ({
                 </svg>
                 
                 {/* Badge for total notifications */}
-                {!isOpen && (reviewDueCount > 0 || (starredCount || 0) > 0) && (
+                {!isOpen && totalBadges > 0 && (
                     <span className="absolute -top-1 -right-1 bg-red-500 text-white text-xs font-bold rounded-full w-5 h-5 flex items-center justify-center border-2 border-white">
-                        {reviewDueCount + (starredCount || 0)}
+                        {totalBadges}
                     </span>
                 )}
             </button>

@@ -54,7 +54,7 @@ export function initializeStreak(): StreakData {
     currentStreak: 0,
     longestStreak: 0,
     lastActivityDate: null,
-    taskProgress: { learnedCount: 0, reviewDueCount: 0 },
+    taskProgress: { learnedCount: 0, reviewDueCount: 0, translationCount: 0 },
     lastProgressDate: null
   };
 }
@@ -72,22 +72,34 @@ export function areAllTasksCompleted(streak: StreakData, config?: DailyTaskConfi
     return taskProgress.learnedCount >= 20 && taskProgress.reviewDueCount === 0;
   }
 
-  // Check based on config
-  const learnTask = config.find(t => t.id === 'learn');
-  const reviewTask = config.find(t => t.id === 'review');
-
-  let learnComplete = true;
-  if (learnTask && learnTask.enabled) {
-      learnComplete = taskProgress.learnedCount >= learnTask.target;
+  const enabledTasks = config.filter(task => task.enabled);
+  if (enabledTasks.length === 0) {
+    return false;
   }
 
-  let reviewComplete = true;
-  if (reviewTask && reviewTask.enabled) {
-      // For review, user typically sets target=0 (means 0 due left)
-      reviewComplete = taskProgress.reviewDueCount <= reviewTask.target;
-  }
+  const getProgressValue = (taskId: string): number => {
+    switch (taskId) {
+      case 'learn':
+        return taskProgress.learnedCount;
+      case 'review':
+        return taskProgress.reviewDueCount;
+      case 'translation':
+        return taskProgress.translationCount || 0;
+      default:
+        return 0;
+    }
+  };
 
-  return learnComplete && reviewComplete;
+  return enabledTasks.every(task => {
+    const progressValue = getProgressValue(task.id);
+    if (task.type === 'count') {
+      return progressValue >= task.target;
+    }
+    if (task.type === 'completed') {
+      return progressValue <= task.target;
+    }
+    return false;
+  });
 }
 
 /**
@@ -95,14 +107,19 @@ export function areAllTasksCompleted(streak: StreakData, config?: DailyTaskConfi
  */
 export function updateTaskProgress(
   streak: StreakData,
-  learnedCount: number,
-  reviewDueCount: number
+  updates: Partial<TaskProgress>
 ): StreakData {
+  const currentProgress: TaskProgress = {
+    learnedCount: streak.taskProgress?.learnedCount || 0,
+    reviewDueCount: streak.taskProgress?.reviewDueCount || 0,
+    translationCount: streak.taskProgress?.translationCount || 0
+  };
+
   return {
     ...streak,
     taskProgress: {
-      learnedCount,
-      reviewDueCount
+      ...currentProgress,
+      ...updates
     },
     lastProgressDate: getTodayDateString() 
   };
@@ -125,7 +142,7 @@ export function hasActivityToday(streak: StreakData): boolean {
  */
 export function updateStreak(
   streak: StreakData,
-  activityType: 'chat' | 'review' | 'learn',
+  activityType: 'chat' | 'review' | 'learn' | 'translation',
   config?: DailyTaskConfig
 ): { updatedStreak: StreakData; isNewStreak: boolean; streakIncreased: boolean } {
   const today = getTodayDateString();
@@ -264,7 +281,8 @@ export function checkStreakStatus(streak: StreakData): StreakData {
        ...updatedStreak,
        taskProgress: {
          learnedCount: 0,
-         reviewDueCount: streak.taskProgress?.reviewDueCount || 0 // Keep due count from store
+         reviewDueCount: streak.taskProgress?.reviewDueCount || 0,
+         translationCount: 0
        },
        lastProgressDate: today // Update to today so we don't reset again this session
      };

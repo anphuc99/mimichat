@@ -11,7 +11,33 @@ interface StreakDisplayProps {
 export const StreakDisplay: React.FC<StreakDisplayProps> = ({ streak, compact = false, dailyTasksConfig }) => {
   const status = getStreakStatus(streak);
   const tasksCompleted = areAllTasksCompleted(streak, dailyTasksConfig);
-  const taskProgress = streak.taskProgress || { learnedCount: 0, reviewDueCount: 0 };
+  const taskProgress = streak.taskProgress || { learnedCount: 0, reviewDueCount: 0, translationCount: 0 };
+
+  const getProgressValue = (taskId: string): number => {
+    switch (taskId) {
+      case 'learn':
+        return taskProgress.learnedCount;
+      case 'review':
+        return taskProgress.reviewDueCount;
+      case 'translation':
+        return taskProgress.translationCount || 0;
+      default:
+        return 0;
+    }
+  };
+
+  const getTaskIcon = (taskId: string) => {
+    switch (taskId) {
+      case 'learn':
+        return '📖';
+      case 'review':
+        return '🔄';
+      case 'translation':
+        return '📝';
+      default:
+        return '⭐';
+    }
+  };
   
   // Determine fire color based on streak length
   const getFireEmoji = (streakCount: number) => {
@@ -82,12 +108,16 @@ export const StreakDisplay: React.FC<StreakDisplayProps> = ({ streak, compact = 
                 } else {
                   progressText = `${due} còn lại`;
                 }
+              } else if (task.id === 'translation') {
+                const progress = getProgressValue(task.id);
+                isCompleted = progress >= task.target;
+                progressText = `${progress}/${task.target}`;
               }
 
               return (
                 <div key={task.id} className="flex items-center justify-between">
                   <span className="text-sm flex items-center gap-2">
-                    {task.id === 'learn' ? '📖' : '🔄'} {task.label}:
+                    {getTaskIcon(task.id)} {task.label}:
                   </span>
                   <span className={`text-sm font-medium ${isCompleted ? 'text-green-600' : 'text-gray-500'}`}>
                     {progressText}

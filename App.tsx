@@ -13,13 +13,14 @@ import { AutoChatModal } from './components/AutoChatModal';
 import { RealtimeContextEditor } from './components/RealtimeContextEditor';
 import { VocabularyMemoryScene } from './components/VocabularyMemoryScene';
 import { VocabularyCollectionScene } from './components/VocabularyCollectionScene';
+import { TranslationDrill } from './components/TranslationDrill';
 import { ChatVocabularyModal } from './components/ChatVocabularyModal';
 import { AIAssistantModal } from './components/AIAssistantModal';
 import { PrivateChatWindow, PrivateChatButton } from './components/PrivateChatWindow';
 import { FloatingActionMenu } from './components/FloatingActionMenu';
 import { ModelSelector } from './components/ModelSelector';
-import type { Message, ChatJournal, DailyChat, Character, SavedData, CharacterThought, VocabularyItem, VocabularyReview, StreakData, KoreanLevel, StoryMeta, StoriesIndex, FSRSSettings, VocabularyDifficultyRating, FSRSRating, VocabularyWithStability, VocabularyStore, StoredVocabularyItem, StoredVocabularyMemory, VocabularyMemoryEntry, DailyTaskConfig } from './types';
-import { DEFAULT_FSRS_SETTINGS } from './types';
+import type { Message, ChatJournal, DailyChat, Character, SavedData, CharacterThought, VocabularyItem, VocabularyReview, StreakData, KoreanLevel, StoryMeta, StoriesIndex, FSRSSettings, VocabularyDifficultyRating, FSRSRating, VocabularyWithStability, VocabularyStore, StoredVocabularyItem, StoredVocabularyMemory, VocabularyMemoryEntry, DailyTaskConfig, TaskProgress, TranslationDrillSettings, TranslationDrillStore } from './types';
+import { DEFAULT_FSRS_SETTINGS, DEFAULT_TRANSLATION_DRILL_SETTINGS } from './types';
 import { initializeGeminiService, initChat, sendMessage, textToSpeech, translateAndExplainText, translateWord, summarizeConversation, generateCharacterThoughts, generateToneDescription, generateRelationshipSummary, generateContextSuggestion, generateMessageSuggestions, generateVocabulary, generateSceneImage, initAutoChatSession, sendAutoChatMessage, uploadAudio, sendAudioMessage } from './services/geminiService';
 import { initializeFSRSReview, initializeFSRSWithDifficulty, updateFSRSReview } from './utils/spacedRepetition';
 import { createEmptyVocabularyStore, getAllVocabulariesFromStore, getNewVocabulariesFromStore, getVocabulariesDueFromStore, getDifficultVocabulariesFromStore, getStarredVocabulariesFromStore, getVocabularyStatsFromStore, addVocabulary, upsertReview, upsertMemory, deleteVocabulary, toggleVocabularyStarInStore, getVocabularyById, getVocabularyByKorean, getReviewByVocabularyId, getMemoryByVocabularyId, getTotalLearnedFromStore, getDueCountFromStore, getDifficultCountFromStore, getStarredCountFromStore, getTodayLearnedCountFromStore } from './utils/vocabularyStore';
@@ -27,6 +28,7 @@ import { initializeStreak, updateStreak, checkStreakStatus, updateTaskProgress, 
 import { formatJournalForSearch, parseSystemCommand, executeSystemCommand, type FormattedJournal } from './utils/storySearch';
 import { KOREAN_LEVELS } from './types';
 import http, { API_URL } from './services/HTTPService';
+import { createEmptyTranslationDrillStore, getTodayTranslationCount, getTranslationReviewDueCount, getStoredTranslationCard, upsertStoredTranslationCard, buildStoredTranslationCard, ensureStoredTranslationCard, findMessageById } from './utils/translationDrillStore';
 
 const initialCharacters: Character[] = [
   { 
@@ -68,7 +70,7 @@ const App: React.FC = () => {
   const [journal, setJournal] = useState<ChatJournal>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [isSummarizing, setIsSummarizing] = useState(false);
-  const [view, setView] = useState<'chat' | 'journal' | 'vocabulary' | 'context' | 'review' | 'memory' | 'collection'>('chat');
+  const [view, setView] = useState<'chat' | 'journal' | 'vocabulary' | 'context' | 'review' | 'memory' | 'collection' | 'translation'>('chat');
 
   const [characters, setCharacters] = useState<Character[]>(initialCharacters);
   const [activeCharacterIds, setActiveCharacterIds] = useState<string[]>(['mimi']);
@@ -171,6 +173,21 @@ const App: React.FC = () => {
     return DEFAULT_FSRS_SETTINGS;
   });
 
+  const [translationSettings, setTranslationSettings] = useState<TranslationDrillSettings>(() => {
+    const saved = localStorage.getItem('translationSettings');
+    if (saved) {
+      try {
+        const parsed = JSON.parse(saved);
+        const desiredRetention = typeof parsed?.desiredRetention === 'number' ? parsed.desiredRetention : DEFAULT_TRANSLATION_DRILL_SETTINGS.desiredRetention;
+        return { desiredRetention: Math.max(0.7, Math.min(0.95, desiredRetention)) };
+      } catch {
+        return DEFAULT_TRANSLATION_DRILL_SETTINGS;
+      }
+    }
+    return DEFAULT_TRANSLATION_DRILL_SETTINGS;
+  });
+  const [translationDrillStore, setTranslationDrillStore] = useState<TranslationDrillStore>(createEmptyTranslationDrillStore());
+
   // Centralized vocabulary store - all vocabularies, reviews, memories in one place
   const [vocabularyStore, setVocabularyStore] = useState<VocabularyStore>(createEmptyVocabularyStore());
 
@@ -191,6 +208,13 @@ const App: React.FC = () => {
     const completedJournals = journal.length > 1 ? journal.slice(0, -1) : [];
     return formatJournalForSearch(completedJournals);
   }, [journal]);
+
+  const translationDueCount = useMemo(() => getTranslationReviewDueCount(translationDrillStore), [translationDrillStore]);
+
+  const currentStoryMeta = useMemo(() => {
+    if (!currentStoryId) return undefined;
+    return storiesIndex.stories.find(story => story.id === currentStoryId);
+  }, [currentStoryId, storiesIndex]);
 
   const getActiveCharacters = useCallback(() => {
     return characters.filter(c => activeCharacterIds.includes(c.id));
@@ -448,15 +472,25 @@ const App: React.FC = () => {
 
   // Helper function to update streak and show celebration
   const handleStreakUpdate = useCallback(async (
-    activityType: 'chat' | 'review' | 'learn',
+    activityType: 'chat' | 'review' | 'learn' | 'translation',
     learnedCount?: number,
-    reviewDueCount?: number
+    reviewDueCount?: number,
+    translationCount?: number
   ) => {
     let currentStreak = streak;
-    
-    // Update task progress if provided
-    if (learnedCount !== undefined && reviewDueCount !== undefined) {
-      currentStreak = updateTaskProgress(currentStreak, learnedCount, reviewDueCount);
+
+    const taskUpdates: Partial<TaskProgress> = {};
+    if (learnedCount !== undefined) {
+      taskUpdates.learnedCount = learnedCount;
+    }
+    if (reviewDueCount !== undefined) {
+      taskUpdates.reviewDueCount = reviewDueCount;
+    }
+    if (translationCount !== undefined) {
+      taskUpdates.translationCount = translationCount;
+    }
+    if (Object.keys(taskUpdates).length > 0) {
+      currentStreak = updateTaskProgress(currentStreak, taskUpdates);
     }
     
     // Pass config to updateStreak
@@ -476,7 +510,7 @@ const App: React.FC = () => {
     } catch (error) {
       console.error("Failed to save streak:", error);
     }
-  }, [streak]);
+  }, [streak, dailyTasksConfig]);
 
   // Handler to update vocabulary store and save to server
   const handleUpdateVocabularyStore = useCallback(async (newStore: VocabularyStore) => {
@@ -1612,7 +1646,8 @@ console.log("Processing bot responses:", responses);
   }, [updateCurrentChatMessages]);
 
   // Store translation for journal messages
-  const handleStoreTranslationJournal = (messageId: string, translation: string, dailyChatId: string) => {
+  const handleStoreTranslationJournal = (messageId: string, translation: string, dailyChatId?: string) => {
+    if (!dailyChatId) return;
     setJournal(prevJournal =>
       prevJournal.map(dailyChat =>
         dailyChat.id === dailyChatId
@@ -2057,12 +2092,97 @@ console.log("Processing bot responses:", responses);
     localStorage.setItem('fsrsSettings', JSON.stringify(settings));
   }, []);
 
+  const mergeTranslationStoreData = useCallback((
+    baseStore: TranslationDrillStore,
+    incomingStore?: TranslationDrillStore,
+    journalData?: ChatJournal,
+    meta?: { storyId?: string; storyName?: string }
+  ): TranslationDrillStore => {
+    if (!incomingStore) return baseStore;
+
+    let workingStore = baseStore;
+    let changed = false;
+    const normalizedIncoming: TranslationDrillStore = {
+      version: Math.max(incomingStore.version ?? 1, 2),
+      reviews: incomingStore.reviews || [],
+      cards: incomingStore.cards || []
+    };
+
+    for (const card of normalizedIncoming.cards) {
+      if (!getStoredTranslationCard(workingStore, card.messageId)) {
+        const sanitizedCard = {
+          ...card,
+          storyId: card.storyId || meta?.storyId,
+          storyName: card.storyName || meta?.storyName,
+          createdAt: card.createdAt || new Date().toISOString()
+        };
+        workingStore = upsertStoredTranslationCard(workingStore, sanitizedCard);
+        changed = true;
+      }
+    }
+
+    for (const review of normalizedIncoming.reviews) {
+      if (!workingStore.reviews.some(r => r.vocabularyId === review.vocabularyId)) {
+        workingStore = {
+          ...workingStore,
+          reviews: [...workingStore.reviews, review]
+        };
+        changed = true;
+      }
+      if (!getStoredTranslationCard(workingStore, review.vocabularyId) && journalData) {
+        const found = findMessageById(journalData, review.vocabularyId);
+        if (found) {
+          const nextStore = ensureStoredTranslationCard(workingStore, found.message, found.dailyChat, meta);
+          if (nextStore !== workingStore) {
+            workingStore = nextStore;
+            changed = true;
+          }
+        }
+      }
+    }
+
+    if (!changed) {
+      return workingStore;
+    }
+
+    return {
+      ...workingStore,
+      version: Math.max(workingStore.version ?? 1, normalizedIncoming.version, 2)
+    };
+  }, []);
+
+  const handleUpdateTranslationSettings = useCallback((settings: TranslationDrillSettings) => {
+    const normalized = Math.max(0.7, Math.min(0.95, settings.desiredRetention));
+    const next = { desiredRetention: normalized };
+    setTranslationSettings(next);
+    localStorage.setItem('translationSettings', JSON.stringify(next));
+  }, []);
+
+  const handleTranslationStoreChange = useCallback((store: TranslationDrillStore) => {
+    setTranslationDrillStore(store);
+    http.put(API_URL.API_TRANSLATION_STORE, store).catch(error => {
+      console.error('Failed to save translation store:', error);
+    });
+  }, []);
+
+  const handleTranslationProgressChange = useCallback((todayCount: number) => {
+    handleStreakUpdate('translation', undefined, undefined, todayCount);
+  }, [handleStreakUpdate]);
+
   // Memory Scene handler
   const handleStartMemory = useCallback(() => {
     setView('memory');
   }, []);
 
   const handleBackFromMemory = useCallback(() => {
+    setView('journal');
+  }, []);
+
+  const handleStartTranslationDrill = useCallback(() => {
+    setView('translation');
+  }, []);
+
+  const handleBackFromTranslationDrill = useCallback(() => {
     setView('journal');
   }, []);
 
@@ -2175,6 +2295,7 @@ console.log("Processing bot responses:", responses);
         relationshipSummary,
         currentLevel: newLevel,
         storyPlot,
+        translationSettings,
         chatReviewVocabularies,
               };
       if (currentStoryId) {
@@ -2185,7 +2306,7 @@ console.log("Processing bot responses:", responses);
     } catch (error) {
       console.error("Failed to save level:", error);
     }
-  }, [currentLevel, journal, characters, activeCharacterIds, context, relationshipSummary, getActiveCharacters, getCurrentChat, currentStoryId, storyPlot, chatReviewVocabularies, vocabularyStore]);
+  }, [currentLevel, journal, characters, activeCharacterIds, context, relationshipSummary, getActiveCharacters, getCurrentChat, currentStoryId, storyPlot, chatReviewVocabularies, vocabularyStore, translationSettings]);
 
   const handleSaveJournal = async () => {
     try {
@@ -2199,6 +2320,7 @@ console.log("Processing bot responses:", responses);
         relationshipSummary,
         currentLevel,
         storyPlot,
+        translationSettings,
         chatReviewVocabularies,
       };
       
@@ -2233,6 +2355,9 @@ console.log("Processing bot responses:", responses);
         context,
         relationshipSummary,
         currentLevel,
+        storyPlot,
+        translationSettings,
+        translationDrillStore,
         chatReviewVocabularies,
         // Include vocabularyStore in download for backup purposes
               };
@@ -2386,13 +2511,35 @@ console.log("Processing bot responses:", responses);
         loadedVocabStore = vocabResponse.data as VocabularyStore;
         setVocabularyStore(loadedVocabStore);
       }
+
+      // Load global translation drill store
+      let loadedTranslationStore: TranslationDrillStore = createEmptyTranslationDrillStore();
+      try {
+        const translationResponse = await http.get(API_URL.API_TRANSLATION_STORE);
+        if (translationResponse.ok && translationResponse.data) {
+          const incoming = translationResponse.data as TranslationDrillStore;
+          loadedTranslationStore = {
+            version: Math.max(incoming.version ?? 1, 2),
+            reviews: incoming.reviews || [],
+            cards: incoming.cards || []
+          };
+        }
+      } catch (err) {
+        console.warn('Failed to load translation store:', err);
+      }
+      setTranslationDrillStore(loadedTranslationStore);
       
       // Calculate and update task progress from vocabulary store
       // We trust the store's "Created Today + Reviewed Today" count as the source of truth
       const todayLearnedCount = getTodayLearnedCountFromStore(loadedVocabStore);
       const reviewDueCount = getDueCountFromStore(loadedVocabStore);
       
-      loadedStreak = updateTaskProgress(loadedStreak, todayLearnedCount, reviewDueCount);
+      const translationCountToday = getTodayTranslationCount(loadedTranslationStore);
+      loadedStreak = updateTaskProgress(loadedStreak, {
+        learnedCount: todayLearnedCount,
+        reviewDueCount,
+        translationCount: translationCountToday
+      });
       setStreak(loadedStreak);
 
       // Then load stories index
@@ -2413,7 +2560,7 @@ console.log("Processing bot responses:", responses);
       
       // Load the last opened story or first story
       const storyToLoad = storiesData.lastOpenedStoryId || storiesData.stories[0].id;
-      await loadStory(storyToLoad);
+      await loadStory(storyToLoad, { translationStore: loadedTranslationStore });
 
     } catch (error) {
       console.error("Không thể tải dữ liệu:", error);
@@ -2422,7 +2569,7 @@ console.log("Processing bot responses:", responses);
     }
   };
 
-  const loadStory = async (storyId: string) => {
+  const loadStory = async (storyId: string, options?: { translationStore?: TranslationDrillStore }) => {
     try {
       const response = await http.get(`${API_URL.API_STORY}/${storyId}`);
       if (!response.ok) {
@@ -2430,7 +2577,7 @@ console.log("Processing bot responses:", responses);
       }
       
       const loadedData = response.data;
-      await processLoadedData(loadedData, storyId);
+      await processLoadedData(loadedData, storyId, options?.translationStore ?? translationDrillStore);
 
     } catch (error) {
       console.error("Không thể tải truyện:", error);
@@ -2442,13 +2589,17 @@ console.log("Processing bot responses:", responses);
     try {
       const response = await http.get(API_URL.API_DATA);
       const loadedData = (response as any).data ?? response;
-      await processLoadedData(loadedData, null);
+      await processLoadedData(loadedData, null, translationDrillStore);
     } catch (error) {
       console.error("Không thể tải dữ liệu legacy:", error);
     }
   };
 
-  const processLoadedData = async (loadedData: any, storyId: string | null) => {
+  const processLoadedData = async (
+    loadedData: any,
+    storyId: string | null,
+    baseTranslationStore: TranslationDrillStore = translationDrillStore
+  ) => {
     let loadedJournal: ChatJournal;
     let loadedCharacters: Character[];
     let loadedActiveIds: string[] = ['mimi'];
@@ -2493,6 +2644,9 @@ console.log("Processing bot responses:", responses);
 
     // Load chatReviewVocabularies directly
     const loadedChatReviewVocabularies = loadedData.chatReviewVocabularies || [];
+    const normalizedTranslationSettings: TranslationDrillSettings = loadedData.translationSettings
+      ? { desiredRetention: Math.max(0.7, Math.min(0.95, loadedData.translationSettings.desiredRetention ?? DEFAULT_TRANSLATION_DRILL_SETTINGS.desiredRetention)) }
+      : DEFAULT_TRANSLATION_DRILL_SETTINGS;
 
     if (!Array.isArray(loadedJournal) || loadedJournal.length === 0) throw new Error("Dữ liệu nhật ký không hợp lệ.");
 
@@ -2506,6 +2660,22 @@ console.log("Processing bot responses:", responses);
     setRealtimeContext(loadedRealtimeContext);
     setStoryPlot(loadedStoryPlot);
     setChatReviewVocabularies(loadedChatReviewVocabularies);
+    setTranslationSettings(normalizedTranslationSettings);
+    localStorage.setItem('translationSettings', JSON.stringify(normalizedTranslationSettings));
+
+    if (loadedData.translationDrillStore) {
+      const storyName = storyId ? storiesIndex.stories.find(story => story.id === storyId)?.name : undefined;
+      const mergedStore = mergeTranslationStoreData(
+        baseTranslationStore,
+        loadedData.translationDrillStore,
+        loadedJournal,
+        { storyId: storyId || undefined, storyName }
+      );
+      if (mergedStore !== baseTranslationStore) {
+        handleTranslationStoreChange(mergedStore);
+        setStreak(prev => updateTaskProgress(prev || initializeStreak(), { translationCount: getTodayTranslationCount(mergedStore) }));
+      }
+    }
     // Note: vocabularyStore is already loaded in LoadData, don't override here
 
     const lastChat = loadedJournal[loadedJournal.length - 1];
@@ -2714,6 +2884,7 @@ console.log("Processing bot responses:", responses);
       relationshipSummary,
       currentLevel,
       storyPlot,
+      translationSettings,
       chatReviewVocabularies,
           };
 
@@ -2798,6 +2969,21 @@ console.log("Processing bot responses:", responses);
         setCurrentLevel(loadedLevel);
         setStoryPlot(loadedStoryPlot);
         setChatReviewVocabularies(loadedChatReviewVocabularies);
+        const importedTranslationSettings: TranslationDrillSettings = loadedData.translationSettings
+          ? { desiredRetention: Math.max(0.7, Math.min(0.95, loadedData.translationSettings.desiredRetention ?? DEFAULT_TRANSLATION_DRILL_SETTINGS.desiredRetention)) }
+          : DEFAULT_TRANSLATION_DRILL_SETTINGS;
+        setTranslationSettings(importedTranslationSettings);
+        localStorage.setItem('translationSettings', JSON.stringify(importedTranslationSettings));
+        if (loadedData.translationDrillStore) {
+          const mergedStore = mergeTranslationStoreData(
+            createEmptyTranslationDrillStore(),
+            loadedData.translationDrillStore,
+            loadedJournal,
+            { storyId: currentStoryId || undefined, storyName: loadedData.storyName }
+          );
+          handleTranslationStoreChange(mergedStore);
+          setStreak(prev => updateTaskProgress(prev || initializeStreak(), { translationCount: getTodayTranslationCount(mergedStore) }));
+        }
 
         const lastChat = loadedJournal[loadedJournal.length - 1];
         const previousSummary = loadedJournal.length > 1 ? loadedJournal[loadedJournal.length - 2].summary : '';
@@ -2839,6 +3025,7 @@ console.log("Processing bot responses:", responses);
           currentLevel,
           realtimeContext,
           storyPlot,
+            translationSettings,
           chatReviewVocabularies,
                   };
         
@@ -2857,7 +3044,7 @@ console.log("Processing bot responses:", responses);
     const timeoutId = setTimeout(saveData, 3000); // Debounce 3s
 
     return () => clearTimeout(timeoutId);
-  }, [journal, characters, activeCharacterIds, context, relationshipSummary, currentLevel, isDataLoaded, currentStoryId, realtimeContext, storyPlot, chatReviewVocabularies, vocabularyStore]);
+  }, [journal, characters, activeCharacterIds, context, relationshipSummary, currentLevel, isDataLoaded, currentStoryId, realtimeContext, storyPlot, chatReviewVocabularies, vocabularyStore, translationSettings]);
 
   const currentMessages = getCurrentChat()?.messages || [];
 
@@ -3398,6 +3585,19 @@ console.log("Processing bot responses:", responses);
           onTranslate={getTranslationAndExplanation}
           onStreakUpdate={(learnedCount, reviewDueCount) => handleStreakUpdate('learn', learnedCount, reviewDueCount)}
         />
+      ) : view === 'translation' ? (
+        <TranslationDrill
+          journal={journal}
+          translationStore={translationDrillStore}
+          settings={translationSettings}
+          onSettingsChange={handleUpdateTranslationSettings}
+          onUpdateStore={handleTranslationStoreChange}
+          onBack={handleBackFromTranslationDrill}
+          onTranslate={getTranslationAndExplanation}
+          onStoreTranslation={handleStoreTranslationJournal}
+          onProgressChange={handleTranslationProgressChange}
+          onPlayAudio={handleReplayAudio}
+        />
       ) : view === 'collection' ? (
         <VocabularyCollectionScene
           onBack={() => setView('journal')}
@@ -3465,8 +3665,10 @@ console.log("Processing bot responses:", responses);
         onStartMemory={handleStartMemory}
         onStartStarredReview={handleStartStarredReview}
         onStartReview={handleStartReview}
+        onStartTranslation={handleStartTranslationDrill}
         starredCount={getStarredCountFromStore(vocabularyStore)}
         reviewDueCount={getDifficultCountFromStore(vocabularyStore)}
+        translationDueCount={translationDueCount}
       />
 
       {/* AI Learning Assistant */}

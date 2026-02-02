@@ -807,6 +807,47 @@ app.put("/api/vocabulary-store", (req: Request, res: Response) => {
   }
 });
 
+// ===========================================================
+// TRANSLATION DRILL STORE API (Global translation drill data)
+// ===========================================================
+const TRANSLATION_STORE_PATH = path.join(DATA_DIR, "translation-store.json");
+
+function getTranslationStore() {
+  if (!fs.existsSync(TRANSLATION_STORE_PATH)) {
+    const defaultStore = { version: 2, reviews: [], cards: [] };
+    fs.writeFileSync(TRANSLATION_STORE_PATH, JSON.stringify(defaultStore, null, 2));
+    return defaultStore;
+  }
+  return JSON.parse(fs.readFileSync(TRANSLATION_STORE_PATH, "utf-8"));
+}
+
+function saveTranslationStore(data: any) {
+  const normalized = {
+    version: data?.version || 2,
+    reviews: Array.isArray(data?.reviews) ? data.reviews : [],
+    cards: Array.isArray(data?.cards) ? data.cards : []
+  };
+  fs.writeFileSync(TRANSLATION_STORE_PATH, JSON.stringify(normalized, null, 2));
+}
+
+app.get("/api/translation-store", (req: Request, res: Response) => {
+  try {
+    const store = getTranslationStore();
+    res.json(store);
+  } catch (e: any) {
+    res.status(500).json({ error: e.message || "Failed to load translation store" });
+  }
+});
+
+app.put("/api/translation-store", (req: Request, res: Response) => {
+  try {
+    saveTranslationStore(req.body);
+    res.json({ success: true });
+  } catch (e: any) {
+    res.status(500).json({ error: e.message || "Failed to save translation store" });
+  }
+});
+
 // PUT /api/story/:id/name - Rename story
 app.put("/api/story/:id/name", (req: Request, res: Response) => {
   try {

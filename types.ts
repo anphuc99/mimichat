@@ -92,6 +92,14 @@ export const DEFAULT_FSRS_SETTINGS: FSRSSettings = {
   desiredRetention: 0.9
 };
 
+export interface TranslationDrillSettings {
+  desiredRetention: number; // Target recall probability (0.7 - 0.95)
+}
+
+export const DEFAULT_TRANSLATION_DRILL_SETTINGS: TranslationDrillSettings = {
+  desiredRetention: 0.8
+};
+
 // FSRS Default Parameters (v4)
 export const FSRS_PARAMS = {
   w: [0.4872, 1.4003, 3.7145, 13.8206, 5.1618, 1.2298, 0.8975, 0.031, 1.6474, 0.1367, 1.0461, 2.1072, 0.0793, 0.3246, 1.587, 0.2272, 2.8755],
@@ -216,9 +224,34 @@ export interface VocabularyStore {
   progress: { [vocabularyId: string]: VocabularyProgress };
 }
 
+// Translation reviews reuse VocabularyReview fields; vocabularyId stores messageId
+export interface TranslationReview extends VocabularyReview {}
+
+export interface StoredTranslationCard {
+  messageId: string;
+  storyId?: string;
+  storyName?: string;
+  dailyChatId?: string;
+  dailyChatDate?: string;
+  dailyChatSummary?: string;
+  characterName?: string;
+  text: string;
+  translation?: string;
+  audioData?: string;
+  createdAt: string;
+  updatedAt?: string;
+}
+
+export interface TranslationDrillStore {
+  version: number;
+  reviews: TranslationReview[];
+  cards: StoredTranslationCard[];
+}
+
 export interface TaskProgress {
   learnedCount: number;        // Words learned today
   reviewDueCount: number;      // Words still due for review
+  translationCount: number;    // Completed translation drills today
 }
 
 export interface DailyTaskItem {
@@ -313,6 +346,8 @@ export interface SavedData {
   realtimeContext?: string; // Ngữ cảnh realtime có thể thay đổi trong lúc chat
   storyPlot?: string; // Mô tả cốt truyện
   fsrsSettings?: FSRSSettings; // FSRS algorithm settings
+  translationSettings?: TranslationDrillSettings; // Settings for translation drills
+  translationDrillStore?: TranslationDrillStore; // Legacy translation drill data (stored globally now)
   chatReviewVocabularies?: VocabularyItem[]; // Manually selected vocabularies for chat review
   // Note: vocabularyStore is now a separate global file (vocabulary-store.json)
 }
