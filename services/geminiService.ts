@@ -256,10 +256,36 @@ Serious: .
 Neutral: unchanged
 
 ====================================
-TONE FORMAT
+TONE FORMAT (CRITICAL FOR TTS)
 ====================================
-"<Emotion>, <pitch>"
-Pitch: low pitch | medium pitch | high pitch
+Format: "<Emotion>, <pitch>"
+
+VALID EMOTIONS (use EXACTLY these values):
+- Neutral (default, calm)
+- Happy (cheerful, positive)
+- Sad (melancholic, sorrowful)
+- Angry (irritated, frustrated)
+- Scared (fearful, nervous)
+- Shy (timid, embarrassed)
+- Disgusted (repulsed, contempt)
+- Surprised (shocked, startled)
+- Whisper (quiet, secretive)
+- Shouting (loud, yelling)
+- Excited (enthusiastic, energetic)
+- Serious (stern, formal)
+- Affectionate (loving, tender)
+
+VALID PITCH LEVELS:
+- low pitch (deep, mature voice)
+- medium pitch (normal, default)
+- high pitch (bright, youthful voice)
+
+EXAMPLES:
+- "Happy, high pitch"
+- "Sad, low pitch"
+- "Angry, medium pitch"
+- "Whisper, low pitch"
+- "Excited, high pitch"
 
 ====================================
 INPUT MODE
@@ -550,19 +576,19 @@ export const sendAutoChatMessage = async (chat: Chat, command: 'START' | 'CONTIN
 
 export const textToSpeech = async (
   text: string,
-  tone: string = 'cheerfully',
-  voiceName: string = 'echo',
+  tone: string = 'Neutral, medium pitch',
+  voiceId: string = '',
   force: boolean = false
 ): Promise<string | null> => {
   // Regex to remove a wide range of emojis.
   const emojiRegex = /(\u00a9|\u00ae|[\u2000-\u3300]|\ud83c[\ud000-\udfff]|\ud83d[\ud000-\udfff]|\ud83e[\ud000-\udfff])/g;
   const textWithoutEmoji = text.replace("**", "").replace(emojiRegex, '').trim();
 
-  if (!textWithoutEmoji) {
+  if (!textWithoutEmoji || !voiceId) {
     return null;
   }
   try {
-    let url = API_URL.API_TTS + `?text=${encodeURIComponent(textWithoutEmoji)}&voice=${encodeURIComponent(voiceName)}&instructions=${encodeURIComponent(`Say slowly ${tone}`)}`;
+    let url = API_URL.API_TTS + `?text=${encodeURIComponent(textWithoutEmoji)}&voice=${encodeURIComponent(voiceId)}&tone=${encodeURIComponent(tone)}`;
     if (force) {
       url += `&force=true`;
     }
@@ -573,7 +599,7 @@ export const textToSpeech = async (
     return null;
 
   } catch (error) {
-    console.error("Gemini TTS API error:", error);
+    console.error("ElevenLabs TTS API error:", error);
     return null;
   }
 };

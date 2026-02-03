@@ -1,5 +1,5 @@
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import type { Character, RelationInfo } from '../types';
 import http, { API_URL } from '../services/HTTPService';
 
@@ -16,19 +16,15 @@ interface CharacterManagerProps {
   setStoryPlot: React.Dispatch<React.SetStateAction<string>>;
 }
 
-const AVAILABLE_VOICES = [
-    { value: "alloy", label: "Alloy – Nữ trẻ, tự nhiên" },
-    { value: "ballad", label: "Ballad – Nữ dịu dàng, mềm, tình cảm" },
-    { value: "coral", label: "Coral – Nữ tươi sáng, rõ ràng" },
-
-    { value: "cedar", label: "Cedar – Nam trưởng thành, trầm ấm" },
-
-    { value: "echo", label: "Echo – Trung tính, nhẹ, có chiều sâu" },
-    { value: "fable", label: "Fable – Kể chuyện, truyền cảm" },
-    { value: "marin", label: "Marin – Nhẹ nhàng, mang hơi thở biển" },
-    { value: "nova", label: "Nova – Trẻ trung, năng lượng" },
-    { value: "onyx", label: "Onyx – Giọng trầm, huyền bí" },
-];
+// Voice interface from ElevenLabs API
+interface ElevenLabsVoice {
+  id: string;
+  name: string;
+  category?: string;
+  description?: string;
+  labels?: Record<string, string>;
+  preview_url?: string;
+}
 
 export const CharacterManager: React.FC<CharacterManagerProps> = ({ 
     isOpen, 
@@ -45,7 +41,7 @@ export const CharacterManager: React.FC<CharacterManagerProps> = ({
   const [newCharName, setNewCharName] = useState('');
   const [newCharPersonality, setNewCharPersonality] = useState('');
   const [newCharGender, setNewCharGender] = useState<'male' | 'female'>('female');
-  const [newCharVoiceName, setNewCharVoiceName] = useState('Kore');
+  const [newCharVoiceName, setNewCharVoiceName] = useState('');
   const [newCharPitch, setNewCharPitch] = useState(0);
   const [newCharSpeakingRate, setNewCharSpeakingRate] = useState(1.0);
   const [newCharAvatar, setNewCharAvatar] = useState<string | undefined>(undefined);
@@ -55,7 +51,7 @@ export const CharacterManager: React.FC<CharacterManagerProps> = ({
   const [editedName, setEditedName] = useState('');
   const [editedPersonality, setEditedPersonality] = useState('');
   const [editedGender, setEditedGender] = useState<'male' | 'female'>('female');
-  const [editedVoiceName, setEditedVoiceName] = useState('Kore');
+  const [editedVoiceName, setEditedVoiceName] = useState('');
   const [editedPitch, setEditedPitch] = useState(0);
   const [editedSpeakingRate, setEditedSpeakingRate] = useState(1.0);
   const [editedAvatar, setEditedAvatar] = useState<string | undefined>(undefined);
@@ -65,7 +61,35 @@ export const CharacterManager: React.FC<CharacterManagerProps> = ({
   const [showOpinionsSection, setShowOpinionsSection] = useState(false);
 
   const [isPreviewing, setIsPreviewing] = useState<string | null>(null);
+  
+  // Dynamic voices from ElevenLabs
+  const [availableVoices, setAvailableVoices] = useState<ElevenLabsVoice[]>([]);
+  const [isLoadingVoices, setIsLoadingVoices] = useState(false);
 
+  // Fetch voices from ElevenLabs when modal opens
+  useEffect(() => {
+    if (isOpen && availableVoices.length === 0) {
+      fetchVoices();
+    }
+  }, [isOpen]);
+
+  const fetchVoices = async () => {
+    setIsLoadingVoices(true);
+    try {
+      const response = await http.get(API_URL.API_ELEVENLABS_VOICES);
+      if (response.ok && response.data?.voices) {
+        setAvailableVoices(response.data.voices);
+        // Set default voice if not set
+        if (response.data.voices.length > 0 && !newCharVoiceName) {
+          setNewCharVoiceName(response.data.voices[0].id);
+        }
+      }
+    } catch (error) {
+      console.error("Failed to fetch ElevenLabs voices:", error);
+    } finally {
+      setIsLoadingVoices(false);
+    }
+  };
 
   if (!isOpen) return null;
 
@@ -149,7 +173,7 @@ export const CharacterManager: React.FC<CharacterManagerProps> = ({
     setNewCharName('');
     setNewCharPersonality('');
     setNewCharGender('female');
-    setNewCharVoiceName('Kore');
+    setNewCharVoiceName(availableVoices.length > 0 ? availableVoices[0].id : '');
     setNewCharPitch(0);
     setNewCharSpeakingRate(1.0);
     setNewCharAvatar(undefined);
@@ -161,7 +185,8 @@ export const CharacterManager: React.FC<CharacterManagerProps> = ({
     setEditedName(char.name);
     setEditedPersonality(char.personality);
     setEditedGender(char.gender);
-    setEditedVoiceName(char.voiceName || 'Kore');
+    // Use existing voice or first available voice
+    setEditedVoiceName(char.voiceName || (availableVoices.length > 0 ? availableVoices[0].id : ''));
     setEditedPitch(char.pitch ?? 0);
     setEditedSpeakingRate(char.speakingRate ?? 1.0);
     setEditedAvatar(char.avatar);
@@ -211,15 +236,23 @@ export const CharacterManager: React.FC<CharacterManagerProps> = ({
     }
   };
 
-  const handlePreviewAudio = async (previewId: string, voice: string, pitch: number, rate: number) => {
+  const handlePreviewAudio = async (previewId: string, voiceId: string, pitch: number, rate: number) => {
+    if (!voiceId) {
+      alert("Chưa chọn giọng nói");
+      return;
+    }
+    
     setIsPreviewing(previewId);
     try {
-        // const audioData = await textToSpeech("안녕하세요", 'cheerfully', voice);
-        // if (audioData) {
-        //     playAudio(audioData, rate, pitch);
-        // }
-        console.log(voice)
-        playAudio(voice, rate, pitch)
+        // Fetch or generate voice preview from server
+        const response = await http.get(`${API_URL.API_VOICE_PREVIEW}/${voiceId}`);
+        if (response.ok && response.data?.url) {
+            // Play the preview audio
+            const audioUrl = `${http.getBaseUrl()}${response.data.url}`;
+            playAudio(audioUrl, rate, pitch);
+        } else {
+            throw new Error(response.data?.error || "Failed to get voice preview");
+        }
     } catch (error) {
         console.error("Failed to play preview audio:", error);
         alert("Không thể phát âm thanh xem trước.");
@@ -286,8 +319,23 @@ export const CharacterManager: React.FC<CharacterManagerProps> = ({
                             <option value="female">Nữ</option>
                             <option value="male">Nam</option>
                           </select>
-                           <select value={editedVoiceName} onChange={(e) => setEditedVoiceName(e.target.value)} className="w-1/2 px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-400">
-                            {AVAILABLE_VOICES.map(voice => <option key={voice.value} value={voice.value}>{voice.label}</option>)}
+                           <select 
+                             value={editedVoiceName} 
+                             onChange={(e) => setEditedVoiceName(e.target.value)} 
+                             className="w-1/2 px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-400"
+                             disabled={isLoadingVoices}
+                           >
+                            {isLoadingVoices ? (
+                              <option>Đang tải...</option>
+                            ) : availableVoices.length > 0 ? (
+                              availableVoices.map(voice => (
+                                <option key={voice.id} value={voice.id}>
+                                  {voice.name}{voice.labels?.gender ? ` (${voice.labels.gender})` : ''}
+                                </option>
+                              ))
+                            ) : (
+                              <option>Không có giọng nói</option>
+                            )}
                           </select>
                         </div>
                         <div>
@@ -460,8 +508,23 @@ export const CharacterManager: React.FC<CharacterManagerProps> = ({
                     <option value="female">Nữ</option>
                     <option value="male">Nam</option>
                   </select>
-                  <select value={newCharVoiceName} onChange={(e) => setNewCharVoiceName(e.target.value)} className="w-1/2 px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-400">
-                    {AVAILABLE_VOICES.map(voice => <option key={voice.value} value={voice.value}>{voice.label}</option>)}
+                  <select 
+                    value={newCharVoiceName} 
+                    onChange={(e) => setNewCharVoiceName(e.target.value)} 
+                    className="w-1/2 px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-400"
+                    disabled={isLoadingVoices}
+                  >
+                    {isLoadingVoices ? (
+                      <option>Đang tải...</option>
+                    ) : availableVoices.length > 0 ? (
+                      availableVoices.map(voice => (
+                        <option key={voice.id} value={voice.id}>
+                          {voice.name}{voice.labels?.gender ? ` (${voice.labels.gender})` : ''}
+                        </option>
+                      ))
+                    ) : (
+                      <option>Không có giọng nói</option>
+                    )}
                   </select>
                 </div>
                 <div>

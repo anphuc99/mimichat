@@ -12,13 +12,15 @@ import path from "path";
 // import ffmpegInstaller from "@ffmpeg-installer/ffmpeg";
 import os from "os";
 import { Readable } from "stream";
-import { textToSpeech } from "./modules/openai.js";  
-import GeminiService from "./modules/geminiService";
+import { ElevenLabsService, Emotion, PitchLevel } from "./modules/eleven.js";  
+import GeminiService from "./modules/geminiService.js";
 import AdmZip from "adm-zip";
 
 import { google } from 'googleapis';
 import { pipeline } from 'stream/promises';
 
+// Initialize ElevenLabs service
+const elevenLabsService = new ElevenLabsService();
 
 const DRIVE_FOLDER_ID = process.env.GOOGLE_DRIVE_FOLDER_ID || '';
 const GOOGLE_API_KEY = process.env.GOOGLE_API_KEY || ''; 
@@ -108,6 +110,10 @@ app.use((req: Request, res: Response, next: NextFunction) => {
 
   if(req.path === "/api/get-data") return next();
 
+  if(req.path === "/api/elevenlabs/voices") return next();
+
+  if(req.path.startsWith("/api/voice-preview")) return next();
+
   const authHeader = req.headers["authorization"];
   const token = authHeader && authHeader.split(" ")[1];
 
@@ -154,6 +160,80 @@ app.get("/api/get-api-key", (req: Request, res: Response) => {
 
 app.get("/health", async (req: Request, res: Response) => {
   res.json({ status: "ok" });
+});
+
+// ---------------------------
+// ElevenLabs Voices API
+// ---------------------------
+app.get("/api/elevenlabs/voices", async (req: Request, res: Response) => {
+  try {
+    const voices = await elevenLabsService.getVoices();
+    res.json({ 
+      success: true, 
+      voices: voices.map(v => ({
+        id: v.voice_id,
+        name: v.name,
+        category: v.category,
+        description: v.description,
+        labels: v.labels,
+        preview_url: v.preview_url
+      }))
+    });
+  } catch (error: any) {
+    console.error("Failed to fetch ElevenLabs voices:", error);
+    res.status(500).json({ error: error.message || "Failed to fetch voices" });
+  }
+});
+
+// ---------------------------
+// Voice Preview API
+// ---------------------------
+const VOICE_PREVIEW_DIR = path.join(__dirname, "data", "voice-previews");
+if (!fs.existsSync(VOICE_PREVIEW_DIR)) {
+  fs.mkdirSync(VOICE_PREVIEW_DIR, { recursive: true });
+}
+
+// Serve voice preview files
+app.use('/voice-previews', express.static(VOICE_PREVIEW_DIR));
+
+// GET /api/voice-preview/:voiceId - Get or generate voice preview
+app.get("/api/voice-preview/:voiceId", async (req: Request, res: Response) => {
+  const { voiceId } = req.params;
+  
+  if (!voiceId) {
+    return res.status(400).json({ error: "Missing voiceId" });
+  }
+  
+  const previewPath = path.join(VOICE_PREVIEW_DIR, `${voiceId}.mp3`);
+  
+  // Check if preview already exists
+  if (fs.existsSync(previewPath)) {
+    return res.json({ 
+      success: true, 
+      url: `/voice-previews/${voiceId}.mp3`,
+      cached: true 
+    });
+  }
+  
+  // Generate new preview
+  try {
+    await elevenLabsService.generateAudio(
+      "안녕하세요!",
+      voiceId,
+      "Happy",
+      previewPath,
+      "medium"
+    );
+    
+    res.json({ 
+      success: true, 
+      url: `/voice-previews/${voiceId}.mp3`,
+      cached: false 
+    });
+  } catch (error: any) {
+    console.error("Failed to generate voice preview:", error);
+    res.status(500).json({ error: error.message || "Failed to generate preview" });
+  }
 });
 
 // ---------------------------
@@ -1609,25 +1689,81 @@ function addToAudioList(audioId: string): void {
   }
 }
 
+// Valid emotions for ElevenLabs
+const VALID_EMOTIONS: Emotion[] = [
+  "Neutral", "Happy", "Sad", "Angry", "Scared", "Shy",
+  "Disgusted", "Surprised", "Whisper", "Shouting", "Excited", "Serious", "Affectionate"
+];
+
+// Valid pitch levels
+const VALID_PITCH_LEVELS: PitchLevel[] = ["low", "medium", "high"];
+
+// Parse tone string to extract emotion and pitch
+// Format: "<Emotion>, <pitch>" e.g. "Happy, high pitch" or "Sad, low pitch"
+function parseTone(tone: string): { emotion: Emotion; pitch: PitchLevel } {
+  if (!tone) {
+    return { emotion: "Neutral", pitch: "medium" };
+  }
+  
+  const parts = tone.split(",").map(s => s.trim().toLowerCase());
+  
+  // Find emotion (first part that matches valid emotions)
+  let emotion: Emotion = "Neutral";
+  for (const validEmotion of VALID_EMOTIONS) {
+    if (parts[0]?.toLowerCase() === validEmotion.toLowerCase()) {
+      emotion = validEmotion;
+      break;
+    }
+  }
+  
+  // Find pitch from second part
+  let pitch: PitchLevel = "medium";
+  if (parts[1]) {
+    if (parts[1].includes("low")) {
+      pitch = "low";
+    } else if (parts[1].includes("high")) {
+      pitch = "high";
+    }
+  }
+  
+  return { emotion, pitch };
+}
+
 app.get("/api/text-to-speech", async (req: Request, res: Response) => {
   const text = req.query.text as string;
-  const voice = (req.query.voice as string) || "echo";  
-  const format = "mp3";
-  const instructions = (req.query.instructions as string) || undefined;  
+  const voiceId = (req.query.voice as string); // Now expects voice ID directly
+  const tone = (req.query.tone as string) || "Neutral, medium pitch"; // New format: "<Emotion>, <pitch>"
   const force = req.query.force === 'true';
-  const output = crypto.createHash("md5").update(normalizeText(text) + voice + normalizeText(instructions)).digest("hex");
-  if(!force && fs.existsSync(path.join(__dirname, "data/audio", output + "." + format))) {
+  
+  if (!text || !voiceId) {
+    return res.status(400).json({ error: "Missing text or voice parameter" });
+  }
+  
+  // Parse emotion and pitch from tone
+  const { emotion, pitch } = parseTone(tone);
+  
+  // Generate hash for caching
+  const output = crypto.createHash("md5").update(normalizeText(text) + voiceId + emotion + pitch).digest("hex");
+  const outputPath = path.join(__dirname, "data/audio", output + ".mp3");
+  
+  if(!force && fs.existsSync(outputPath)) {
     return res.json({ success: true, output });
   }
-  else if (fs.existsSync(path.join(__dirname, "data/audio", output + "." + format))){
-    await unlinkSync(path.join(__dirname, "data/audio", output + "." + format));
+  
+  if (force && fs.existsSync(outputPath)){
+    try {
+      unlinkSync(outputPath);
+    } catch (e) {
+      // ignore
+    }
   }
+  
   try {    
-    const result = await textToSpeech(text, voice, format, output, instructions);
-    // await convertWavToMp3(path.join(__dirname, "data/audio", output + ".wav"))
-    // unlink(path.join(__dirname, "data/audio", output + ".wav"), () => {});
-    res.json(result);
+    await elevenLabsService.generateAudio(text, voiceId, emotion, outputPath, pitch);
+    addToAudioList(output);
+    res.json({ success: true, output });
   } catch (e: any) {
+    console.error("ElevenLabs TTS error:", e);
     res.status(500).json({ error: e.message || "TTS failed" });
   }
 });

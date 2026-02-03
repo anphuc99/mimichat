@@ -18,6 +18,9 @@ export const API_URL = {
     API_UPLOAD_IMAGE_MESSAGE: '/api/upload-image-message',
 	API_SAVE_DATA: '/api/save-data',
 	API_TTS: '/api/text-to-speech',
+    // ElevenLabs API
+    API_ELEVENLABS_VOICES: '/api/elevenlabs/voices',
+    API_VOICE_PREVIEW: '/api/voice-preview',
     // Story APIs
     API_STORIES: '/api/stories',
     API_STORY: '/api/story',
