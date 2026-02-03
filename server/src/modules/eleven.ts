@@ -157,13 +157,13 @@ export class ElevenLabsService {
         switch (emotion) {
             // --- Nhóm Tiêu cực ---
             case "Angry": 
-                settings = { speed: 0.8, stability: 0.35, similarity_boost: 0.8, style: 0.6, use_speaker_boost: true };
+                settings = { speed: 0.8, stability: 0.5, similarity_boost: 0.8, style: 0.6, use_speaker_boost: true };
                 break;
             case "Shouting": // Hét: Stability cực thấp để giọng vỡ, gắt
-                settings = { speed: 0.6, stability: 0.15, similarity_boost: 0.9, style: 1.0, use_speaker_boost: true };
+                settings = { speed: 0.6, stability: 0.5, similarity_boost: 0.9, style: 1.0, use_speaker_boost: true };
                 break;
             case "Disgusted": // Khinh bỉ: Style cao để nhấn nhá sự ghê tởm
-                settings = { speed: 0.7, stability: 0.45, similarity_boost: 0.7, style: 0.8, use_speaker_boost: true };
+                settings = { speed: 0.7, stability: 0.5, similarity_boost: 0.7, style: 0.8, use_speaker_boost: true };
                 break;
             case "Serious": // Nghiêm túc (Mẹ/Linh): Stability cao để giọng lạnh, đều
                 settings = { speed: 0.7, stability: 0.85, similarity_boost: 0.75, style: 0.1, use_speaker_boost: true };
@@ -171,18 +171,18 @@ export class ElevenLabsService {
 
             // --- Nhóm Tích cực/Năng lượng ---
             case "Happy": 
-                settings = { speed: 0.7, stability: 0.60, similarity_boost: 0.8, style: 0.65, use_speaker_boost: true };
+                settings = { speed: 0.8, stability: 0.60, similarity_boost: 0.8, style: 0.65, use_speaker_boost: true };
                 break;
             case "Excited": // Hào hứng (Klee): Style cao, stability trung bình để giọng nảy
-                settings = { speed: 0.7, stability: 0.50, similarity_boost: 0.8, style: 0.9, use_speaker_boost: true };
+                settings = { speed: 0.8, stability: 0.50, similarity_boost: 0.8, style: 0.9, use_speaker_boost: true };
                 break;
             
             // --- Nhóm Yếu đuối/Nhẹ nhàng ---
             case "Sad":   
-                settings = { speed: 0.7, stability: 0.40, similarity_boost: 0.7, style: 0.3, use_speaker_boost: true };
+                settings = { speed: 0.7, stability: 0.5, similarity_boost: 0.7, style: 0.3, use_speaker_boost: true };
                 break;
             case "Scared": 
-                settings = { speed: 0.7, stability: 0.30, similarity_boost: 0.6, style: 0.8, use_speaker_boost: true };
+                settings = { speed: 0.7, stability: 0.5, similarity_boost: 0.6, style: 0.8, use_speaker_boost: true };
                 break;
             case "Shy":
                 settings = { speed: 0.7, stability: 0.55, similarity_boost: 0.9, style: 0.1, use_speaker_boost: true };
@@ -195,7 +195,7 @@ export class ElevenLabsService {
                 break;
 
             case "Surprised": 
-                settings = { speed: 0.7, stability: 0.40, similarity_boost: 0.7, style: 0.7, use_speaker_boost: true };
+                settings = { speed: 0.7, stability: 0.50, similarity_boost: 0.7, style: 0.7, use_speaker_boost: true };
                 break;
 
             default: // Neutral
