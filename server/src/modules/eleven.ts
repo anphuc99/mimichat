@@ -150,75 +150,75 @@ export class ElevenLabsService {
     }
 
     // --- EMOTION SETTINGS WITH PITCH ADJUSTMENT ---
-    private getEmotionalSettings(emotion: Emotion, pitch: PitchLevel = "medium"): VoiceSettings {
-        // Base settings by emotion
-        let settings: VoiceSettings;
+    // private getEmotionalSettings(emotion: Emotion, pitch: PitchLevel = "medium"): VoiceSettings {
+    //     // Base settings by emotion
+    //     let settings: VoiceSettings;
         
-        switch (emotion) {
-            // --- Nhóm Tiêu cực ---
-            case "Angry": 
-                settings = { speed: 0.8, stability: 0.5, similarity_boost: 0.8, style: 0.6, use_speaker_boost: true };
-                break;
-            case "Shouting": // Hét: Stability cực thấp để giọng vỡ, gắt
-                settings = { speed: 0.6, stability: 0.5, similarity_boost: 0.9, style: 1.0, use_speaker_boost: true };
-                break;
-            case "Disgusted": // Khinh bỉ: Style cao để nhấn nhá sự ghê tởm
-                settings = { speed: 0.7, stability: 0.5, similarity_boost: 0.7, style: 0.8, use_speaker_boost: true };
-                break;
-            case "Serious": // Nghiêm túc (Mẹ/Linh): Stability cao để giọng lạnh, đều
-                settings = { speed: 0.7, stability: 0.85, similarity_boost: 0.75, style: 0.1, use_speaker_boost: true };
-                break;
+    //     switch (emotion) {
+    //         // --- Nhóm Tiêu cực ---
+    //         case "Angry": 
+    //             settings = { speed: 0.8, stability: 0.5, similarity_boost: 0.8, style: 0.6, use_speaker_boost: true };
+    //             break;
+    //         case "Shouting": // Hét: Stability cực thấp để giọng vỡ, gắt
+    //             settings = { speed: 0.6, stability: 0.5, similarity_boost: 0.9, style: 1.0, use_speaker_boost: true };
+    //             break;
+    //         case "Disgusted": // Khinh bỉ: Style cao để nhấn nhá sự ghê tởm
+    //             settings = { speed: 0.7, stability: 0.5, similarity_boost: 0.7, style: 0.8, use_speaker_boost: true };
+    //             break;
+    //         case "Serious": // Nghiêm túc (Mẹ/Linh): Stability cao để giọng lạnh, đều
+    //             settings = { speed: 0.7, stability: 0.85, similarity_boost: 0.75, style: 0.1, use_speaker_boost: true };
+    //             break;
 
-            // --- Nhóm Tích cực/Năng lượng ---
-            case "Happy": 
-                settings = { speed: 0.8, stability: 0.60, similarity_boost: 0.8, style: 0.65, use_speaker_boost: true };
-                break;
-            case "Excited": // Hào hứng (Klee): Style cao, stability trung bình để giọng nảy
-                settings = { speed: 0.8, stability: 0.50, similarity_boost: 0.8, style: 0.9, use_speaker_boost: true };
-                break;
+    //         // --- Nhóm Tích cực/Năng lượng ---
+    //         case "Happy": 
+    //             settings = { speed: 0.8, stability: 0.60, similarity_boost: 0.8, style: 0.65, use_speaker_boost: true };
+    //             break;
+    //         case "Excited": // Hào hứng (Klee): Style cao, stability trung bình để giọng nảy
+    //             settings = { speed: 0.8, stability: 0.50, similarity_boost: 0.8, style: 0.9, use_speaker_boost: true };
+    //             break;
             
-            // --- Nhóm Yếu đuối/Nhẹ nhàng ---
-            case "Sad":   
-                settings = { speed: 0.7, stability: 0.5, similarity_boost: 0.7, style: 0.3, use_speaker_boost: true };
-                break;
-            case "Scared": 
-                settings = { speed: 0.7, stability: 0.5, similarity_boost: 0.6, style: 0.8, use_speaker_boost: true };
-                break;
-            case "Shy":
-                settings = { speed: 0.7, stability: 0.55, similarity_boost: 0.9, style: 0.1, use_speaker_boost: true };
-                break;
-            case "Whisper": // Thì thầm: Cần stability cao để rõ chữ, không bị noise
-                settings = { speed: 0.7, stability: 0.80, similarity_boost: 0.6, style: 0.0, use_speaker_boost: true };
-                break;
-            case "Affectionate": // Nũng nịu: Stability cao để giọng ấm áp, mượt mà
-                settings = { speed: 0.7, stability: 0.80, similarity_boost: 0.8, style: 0.45, use_speaker_boost: true };
-                break;
+    //         // --- Nhóm Yếu đuối/Nhẹ nhàng ---
+    //         case "Sad":   
+    //             settings = { speed: 0.7, stability: 0.5, similarity_boost: 0.7, style: 0.3, use_speaker_boost: true };
+    //             break;
+    //         case "Scared": 
+    //             settings = { speed: 0.7, stability: 0.5, similarity_boost: 0.6, style: 0.8, use_speaker_boost: true };
+    //             break;
+    //         case "Shy":
+    //             settings = { speed: 0.7, stability: 0.55, similarity_boost: 0.9, style: 0.1, use_speaker_boost: true };
+    //             break;
+    //         case "Whisper": // Thì thầm: Cần stability cao để rõ chữ, không bị noise
+    //             settings = { speed: 0.7, stability: 0.80, similarity_boost: 0.6, style: 0.0, use_speaker_boost: true };
+    //             break;
+    //         case "Affectionate": // Nũng nịu: Stability cao để giọng ấm áp, mượt mà
+    //             settings = { speed: 0.7, stability: 0.80, similarity_boost: 0.8, style: 0.45, use_speaker_boost: true };
+    //             break;
 
-            case "Surprised": 
-                settings = { speed: 0.7, stability: 0.50, similarity_boost: 0.7, style: 0.7, use_speaker_boost: true };
-                break;
+    //         case "Surprised": 
+    //             settings = { speed: 0.7, stability: 0.50, similarity_boost: 0.7, style: 0.7, use_speaker_boost: true };
+    //             break;
 
-            default: // Neutral
-                settings = { speed: 0.7, stability: 0.75, similarity_boost: 0.75, style: 0.0, use_speaker_boost: true };
-        }
+    //         default: // Neutral
+    //             settings = { speed: 0.7, stability: 0.75, similarity_boost: 0.75, style: 0.0, use_speaker_boost: true };
+    //     }
 
-        // Adjust settings based on pitch level
-        // Low pitch: increase stability, decrease style for deeper voice
-        // High pitch: decrease stability slightly, increase style for brighter voice
-        switch (pitch) {
-            case "low":
-                settings.stability = Math.min(1.0, settings.stability + 0.1);
-                settings.style = Math.max(0, settings.style - 0.15);
-                break;
-            case "high":
-                settings.stability = Math.max(0, settings.stability - 0.05);
-                settings.style = Math.min(1.0, settings.style + 0.1);
-                break;
-            // medium: no adjustment
-        }
+    //     // Adjust settings based on pitch level
+    //     // Low pitch: increase stability, decrease style for deeper voice
+    //     // High pitch: decrease stability slightly, increase style for brighter voice
+    //     switch (pitch) {
+    //         case "low":
+    //             settings.stability = Math.min(1.0, settings.stability + 0.1);
+    //             settings.style = Math.max(0, settings.style - 0.15);
+    //             break;
+    //         case "high":
+    //             settings.stability = Math.max(0, settings.stability - 0.05);
+    //             settings.style = Math.min(1.0, settings.style + 0.1);
+    //             break;
+    //         // medium: no adjustment
+    //     }
 
-        return settings;
-    }
+    //     return settings;
+    // }
 
     public async generateAudio(
         text: string, 
@@ -232,7 +232,7 @@ export class ElevenLabsService {
         }
         if (!voiceId) throw new Error(`Missing Voice ID`);
 
-        const voiceSettings = this.getEmotionalSettings(emotion, pitch);
+        // const voiceSettings = this.getEmotionalSettings(emotion, pitch);
         const promptText = text;
 
         console.log(`🎙️ [${voiceId} | ${emotion} | ${pitch}]: ${promptText}`);
@@ -241,8 +241,8 @@ export class ElevenLabsService {
             const audio = await this.client.generate({
                 voice: voiceId,
                 text: promptText,
-                model_id: "eleven_flash_v2_5",
-                voice_settings: voiceSettings,
+                model_id: "eleven_multilingual_v2",
+                voice_settings: {speed: 0.8, stability: 0.8, similarity_boost: 0.75, style: 0.3, use_speaker_boost: true},
                 output_format: "mp3_44100_128"
             });
 
