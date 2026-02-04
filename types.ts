@@ -7,6 +7,23 @@ export interface RelationInfo {
   closeness?: number;
 }
 
+// ElevenLabs Voice Settings - configurable per character
+export interface VoiceSettings {
+  speed: number;           // 0.25 - 4.0, default 0.8
+  stability: number;       // 0 - 1, default 0.8
+  similarity_boost: number; // 0 - 1, default 0.75
+  style: number;           // 0 - 1, default 0.3
+  use_speaker_boost: boolean; // default true
+}
+
+export const DEFAULT_VOICE_SETTINGS: VoiceSettings = {
+  speed: 0.8,
+  stability: 0.8,
+  similarity_boost: 0.75,
+  style: 0.3,
+  use_speaker_boost: true,
+};
+
 export interface Character {
   id: string;
   name: string;
@@ -19,6 +36,7 @@ export interface Character {
   avatar?: string;
   relations?: { [targetCharacterId: string]: RelationInfo };
   userOpinion?: RelationInfo;
+  voiceSettings?: VoiceSettings; // ElevenLabs voice settings
 }
 
 export type ChatType = 'public' | 'private';

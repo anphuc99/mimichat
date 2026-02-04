@@ -1735,6 +1735,22 @@ app.get("/api/text-to-speech", async (req: Request, res: Response) => {
   const tone = (req.query.tone as string) || "Neutral, medium pitch"; // New format: "<Emotion>, <pitch>"
   const force = req.query.force === 'true';
   
+  // Parse voice settings from query params (optional)
+  const voiceSettings = {
+    speed: req.query.speed ? parseFloat(req.query.speed as string) : undefined,
+    stability: req.query.stability ? parseFloat(req.query.stability as string) : undefined,
+    similarity_boost: req.query.similarity_boost ? parseFloat(req.query.similarity_boost as string) : undefined,
+    style: req.query.style ? parseFloat(req.query.style as string) : undefined,
+    use_speaker_boost: req.query.use_speaker_boost ? req.query.use_speaker_boost === 'true' : undefined,
+  };
+  
+  // Check if any voice settings were provided
+  const hasVoiceSettings = voiceSettings.speed !== undefined || 
+                          voiceSettings.stability !== undefined || 
+                          voiceSettings.similarity_boost !== undefined || 
+                          voiceSettings.style !== undefined || 
+                          voiceSettings.use_speaker_boost !== undefined;
+  
   if (!text || !voiceId) {
     return res.status(400).json({ error: "Missing text or voice parameter" });
   }
@@ -1742,8 +1758,9 @@ app.get("/api/text-to-speech", async (req: Request, res: Response) => {
   // Parse emotion and pitch from tone
   const { emotion, pitch } = parseTone(tone);
   
-  // Generate hash for caching
-  const output = crypto.createHash("md5").update(normalizeText(text) + voiceId + emotion + pitch).digest("hex");
+  // Generate hash for caching - include voice settings if provided
+  const settingsHash = hasVoiceSettings ? JSON.stringify(voiceSettings) : '';
+  const output = crypto.createHash("md5").update(normalizeText(text) + voiceId + emotion + pitch + settingsHash).digest("hex");
   const outputPath = path.join(__dirname, "data/audio", output + ".mp3");
   
   if(!force && fs.existsSync(outputPath)) {
@@ -1759,7 +1776,7 @@ app.get("/api/text-to-speech", async (req: Request, res: Response) => {
   }
   
   try {    
-    await elevenLabsService.generateAudio(text, voiceId, emotion, outputPath, pitch);
+    await elevenLabsService.generateAudio(text, voiceId, emotion, outputPath, pitch, hasVoiceSettings ? voiceSettings : undefined);
     addToAudioList(output);
     res.json({ success: true, output });
   } catch (e: any) {

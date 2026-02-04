@@ -55,6 +55,24 @@ interface VoiceSettings {
     use_speaker_boost: boolean;
 }
 
+// Custom voice settings from client (optional override)
+export interface CustomVoiceSettings {
+    speed?: number;
+    stability?: number;
+    similarity_boost?: number;
+    style?: number;
+    use_speaker_boost?: boolean;
+}
+
+// Default voice settings
+const DEFAULT_VOICE_SETTINGS: VoiceSettings = {
+    speed: 0.8,
+    stability: 0.5,
+    similarity_boost: 0.75,
+    style: 0.3,
+    use_speaker_boost: true,
+};
+
 export class ElevenLabsService {
     private client: ElevenLabsClient | null = null;
     private cachedVoices: ElevenLabsVoice[] | null = null;
@@ -149,100 +167,162 @@ export class ElevenLabsService {
         return voice?.voice_id || null;
     }
 
-    // --- EMOTION SETTINGS WITH PITCH ADJUSTMENT ---
-    // private getEmotionalSettings(emotion: Emotion, pitch: PitchLevel = "medium"): VoiceSettings {
-    //     // Base settings by emotion
-    //     let settings: VoiceSettings;
+    // --- EMOTION-BASED SETTINGS ADJUSTMENT ---
+    // Tinh chỉnh settings dựa trên cảm xúc, chỉ tăng/giảm delta từ base settings
+    private adjustSettingsForEmotion(
+        baseSettings: VoiceSettings, 
+        emotion: Emotion, 
+        pitch: PitchLevel = "medium"
+    ): VoiceSettings {
+        // Clone settings để không modify original
+        const settings: VoiceSettings = { ...baseSettings };
         
-    //     switch (emotion) {
-    //         // --- Nhóm Tiêu cực ---
-    //         case "Angry": 
-    //             settings = { speed: 0.8, stability: 0.5, similarity_boost: 0.8, style: 0.6, use_speaker_boost: true };
-    //             break;
-    //         case "Shouting": // Hét: Stability cực thấp để giọng vỡ, gắt
-    //             settings = { speed: 0.6, stability: 0.5, similarity_boost: 0.9, style: 1.0, use_speaker_boost: true };
-    //             break;
-    //         case "Disgusted": // Khinh bỉ: Style cao để nhấn nhá sự ghê tởm
-    //             settings = { speed: 0.7, stability: 0.5, similarity_boost: 0.7, style: 0.8, use_speaker_boost: true };
-    //             break;
-    //         case "Serious": // Nghiêm túc (Mẹ/Linh): Stability cao để giọng lạnh, đều
-    //             settings = { speed: 0.7, stability: 0.85, similarity_boost: 0.75, style: 0.1, use_speaker_boost: true };
-    //             break;
+        // Helper để clamp giá trị trong khoảng [0, 1]
+        const clamp = (val: number, min: number = 0, max: number = 1) => Math.max(min, Math.min(max, val));
+        
+        // Điều chỉnh theo cảm xúc (delta-based)
+        switch (emotion) {
+            // --- Nhóm Tiêu cực ---
+            case "Angry": 
+                // Giận dữ: giảm stability, tăng style để giọng gắt hơn
+                settings.stability = clamp(settings.stability - 0.15);
+                settings.style = clamp(settings.style + 0.25);
+                settings.speed = clamp((settings.speed || 0.8) + 0.1, 0.25, 2.0);
+                break;
+                
+            case "Shouting":
+                // Hét: stability thấp nhất, style cao nhất
+                settings.stability = clamp(settings.stability - 0.25);
+                settings.style = clamp(settings.style + 0.4);
+                settings.speed = clamp((settings.speed || 0.8) - 0.1, 0.25, 2.0);
+                break;
+                
+            case "Disgusted":
+                // Khinh bỉ: giảm stability, tăng style
+                settings.stability = clamp(settings.stability - 0.15);
+                settings.style = clamp(settings.style + 0.3);
+                break;
+                
+            case "Serious":
+                // Nghiêm túc: tăng stability để giọng đều, giảm style
+                settings.stability = clamp(settings.stability + 0.15);
+                settings.style = clamp(settings.style - 0.2);
+                settings.speed = clamp((settings.speed || 0.8) - 0.05, 0.25, 2.0);
+                break;
 
-    //         // --- Nhóm Tích cực/Năng lượng ---
-    //         case "Happy": 
-    //             settings = { speed: 0.8, stability: 0.60, similarity_boost: 0.8, style: 0.65, use_speaker_boost: true };
-    //             break;
-    //         case "Excited": // Hào hứng (Klee): Style cao, stability trung bình để giọng nảy
-    //             settings = { speed: 0.8, stability: 0.50, similarity_boost: 0.8, style: 0.9, use_speaker_boost: true };
-    //             break;
+            // --- Nhóm Tích cực/Năng lượng ---
+            case "Happy": 
+                // Vui vẻ: tăng style, tăng speed một chút
+                settings.style = clamp(settings.style + 0.2);
+                settings.speed = clamp((settings.speed || 0.8) + 0.05, 0.25, 2.0);
+                break;
+                
+            case "Excited":
+                // Hào hứng: tăng style mạnh, giảm stability để giọng năng động
+                settings.stability = clamp(settings.stability - 0.1);
+                settings.style = clamp(settings.style + 0.35);
+                settings.speed = clamp((settings.speed || 0.8) + 0.1, 0.25, 2.0);
+                break;
             
-    //         // --- Nhóm Yếu đuối/Nhẹ nhàng ---
-    //         case "Sad":   
-    //             settings = { speed: 0.7, stability: 0.5, similarity_boost: 0.7, style: 0.3, use_speaker_boost: true };
-    //             break;
-    //         case "Scared": 
-    //             settings = { speed: 0.7, stability: 0.5, similarity_boost: 0.6, style: 0.8, use_speaker_boost: true };
-    //             break;
-    //         case "Shy":
-    //             settings = { speed: 0.7, stability: 0.55, similarity_boost: 0.9, style: 0.1, use_speaker_boost: true };
-    //             break;
-    //         case "Whisper": // Thì thầm: Cần stability cao để rõ chữ, không bị noise
-    //             settings = { speed: 0.7, stability: 0.80, similarity_boost: 0.6, style: 0.0, use_speaker_boost: true };
-    //             break;
-    //         case "Affectionate": // Nũng nịu: Stability cao để giọng ấm áp, mượt mà
-    //             settings = { speed: 0.7, stability: 0.80, similarity_boost: 0.8, style: 0.45, use_speaker_boost: true };
-    //             break;
+            // --- Nhóm Yếu đuối/Nhẹ nhàng ---
+            case "Sad":
+                // Buồn: giảm speed, giảm style, giữ stability
+                settings.style = clamp(settings.style + 0.1);
+                settings.speed = clamp((settings.speed || 0.8) - 0.1, 0.25, 2.0);
+                break;
+                
+            case "Scared":
+                // Sợ hãi: giảm stability để giọng run, tăng style
+                settings.stability = clamp(settings.stability - 0.2);
+                settings.style = clamp(settings.style + 0.25);
+                break;
+                
+            case "Shy":
+                // Ngại ngùng: tăng stability, giảm style, giảm speed
+                settings.stability = clamp(settings.stability + 0.1);
+                settings.style = clamp(settings.style - 0.15);
+                settings.speed = clamp((settings.speed || 0.8) - 0.05, 0.25, 2.0);
+                break;
+                
+            case "Whisper":
+                // Thì thầm: tăng stability cao để rõ chữ, giảm style về 0
+                settings.stability = clamp(settings.stability + 0.2);
+                settings.style = clamp(settings.style - 0.3);
+                settings.speed = clamp((settings.speed || 0.8) - 0.1, 0.25, 2.0);
+                break;
+                
+            case "Affectionate":
+                // Nũng nịu/âu yếm: tăng stability, tăng style vừa phải
+                settings.stability = clamp(settings.stability + 0.1);
+                settings.style = clamp(settings.style + 0.15);
+                break;
 
-    //         case "Surprised": 
-    //             settings = { speed: 0.7, stability: 0.50, similarity_boost: 0.7, style: 0.7, use_speaker_boost: true };
-    //             break;
+            case "Surprised":
+                // Ngạc nhiên: giảm stability, tăng style
+                settings.stability = clamp(settings.stability - 0.15);
+                settings.style = clamp(settings.style + 0.25);
+                break;
 
-    //         default: // Neutral
-    //             settings = { speed: 0.7, stability: 0.75, similarity_boost: 0.75, style: 0.0, use_speaker_boost: true };
-    //     }
+            // Neutral: không điều chỉnh
+            default:
+                break;
+        }
 
-    //     // Adjust settings based on pitch level
-    //     // Low pitch: increase stability, decrease style for deeper voice
-    //     // High pitch: decrease stability slightly, increase style for brighter voice
-    //     switch (pitch) {
-    //         case "low":
-    //             settings.stability = Math.min(1.0, settings.stability + 0.1);
-    //             settings.style = Math.max(0, settings.style - 0.15);
-    //             break;
-    //         case "high":
-    //             settings.stability = Math.max(0, settings.stability - 0.05);
-    //             settings.style = Math.min(1.0, settings.style + 0.1);
-    //             break;
-    //         // medium: no adjustment
-    //     }
+        // Điều chỉnh theo pitch
+        switch (pitch) {
+            case "low":
+                // Giọng trầm: tăng stability, giảm style
+                settings.stability = clamp(settings.stability + 0.08);
+                settings.style = clamp(settings.style - 0.1);
+                break;
+            case "high":
+                // Giọng cao: giảm stability một chút, tăng style
+                settings.stability = clamp(settings.stability - 0.05);
+                settings.style = clamp(settings.style + 0.08);
+                break;
+            // medium: không điều chỉnh
+        }
 
-    //     return settings;
-    // }
+        return settings;
+    }
 
     public async generateAudio(
         text: string, 
         voiceId: string, 
         emotion: Emotion = "Neutral", 
         outputFilePath: string,
-        pitch: PitchLevel = "medium"
+        pitch: PitchLevel = "medium",
+        customSettings?: CustomVoiceSettings
     ): Promise<string> {
         if (!this.client) {
             throw new Error("ElevenLabs service not available - missing API key");
         }
         if (!voiceId) throw new Error(`Missing Voice ID`);
 
-        // const voiceSettings = this.getEmotionalSettings(emotion, pitch);
+        // Merge custom settings with defaults (base settings từ character)
+        const baseSettings: VoiceSettings = {
+            speed: customSettings?.speed ?? DEFAULT_VOICE_SETTINGS.speed,
+            stability: customSettings?.stability ?? DEFAULT_VOICE_SETTINGS.stability,
+            similarity_boost: customSettings?.similarity_boost ?? DEFAULT_VOICE_SETTINGS.similarity_boost,
+            style: customSettings?.style ?? DEFAULT_VOICE_SETTINGS.style,
+            use_speaker_boost: customSettings?.use_speaker_boost ?? DEFAULT_VOICE_SETTINGS.use_speaker_boost,
+        };
+
+        // Điều chỉnh settings theo cảm xúc và pitch
+        const voiceSettings = this.adjustSettingsForEmotion(baseSettings, emotion, pitch);
+
         const promptText = text;
 
         console.log(`🎙️ [${voiceId} | ${emotion} | ${pitch}]: ${promptText}`);
+        console.log(`🎛️ Base Settings:`, baseSettings);
+        console.log(`🎭 Adjusted for ${emotion}:`, voiceSettings);
 
         try {
             const audio = await this.client.generate({
                 voice: voiceId,
                 text: promptText,
                 model_id: "eleven_multilingual_v2",
-                voice_settings: {speed: 0.8, stability: 0.8, similarity_boost: 0.75, style: 0.3, use_speaker_boost: true},
+                voice_settings: voiceSettings,
                 output_format: "mp3_44100_128"
             });
 

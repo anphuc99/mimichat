@@ -537,10 +537,11 @@ console.log("Processing bot responses:", responses);
       const voiceName = character?.voiceName || 'echo';
       const pitch = character?.pitch;
       const speakingRate = character?.speakingRate;
+      const voiceSettings = character?.voiceSettings;
 
       let audioData: string | null = null;
       if (speechText) {
-        audioData = await textToSpeech(speechText, tone, voiceName);
+        audioData = await textToSpeech(speechText, tone, voiceName, false, voiceSettings);
       }
 
       const rawTextForCopy = `User Said: ${userPromptRef.current}\n${characterName} Said: ${speechText}\nAction: ${Action}\nTone: ${tone}`;
@@ -1267,7 +1268,8 @@ console.log("Processing bot responses:", responses);
       const voiceName = character?.voiceName || 'echo';
       const pitch = character?.pitch;
       const speakingRate = character?.speakingRate;
-      const newAudioData = await textToSpeech(newText, newTone, voiceName);
+      const voiceSettings = character?.voiceSettings;
+      const newAudioData = await textToSpeech(newText, newTone, voiceName, false, voiceSettings);
 
       updateCurrentChatMessages(prevMessages => {
         const newMessages = [...prevMessages];
@@ -1547,7 +1549,14 @@ console.log("Processing bot responses:", responses);
       const voiceName = character?.voiceName || 'echo';
       const pitch = character?.pitch;
       const speakingRate = character?.speakingRate;
-      const audioData = await textToSpeech(messageToUpdate.text, tone, voiceName, force);
+      const voiceSettings = character?.voiceSettings;
+      
+      // Xóa cache audio cũ nếu force regenerate để tránh phát lại audio cũ từ cache
+      if (force && messageToUpdate.audioData) {
+        audioCacheRef.current.delete(messageToUpdate.audioData);
+      }
+      
+      const audioData = await textToSpeech(messageToUpdate.text, tone, voiceName, force, voiceSettings);
 
       if (audioData) {
         updateCurrentChatMessages(prevMessages =>
@@ -1699,7 +1708,8 @@ console.log("Processing bot responses:", responses);
         parsedThoughts.map(async (thought: any) => {
           const character = characters.find(c => c.name === thought.CharacterName);
           const voiceName = character?.voiceName || 'echo';
-          const audioData = await textToSpeech(thought.Text, thought.Tone || 'thoughtfully', voiceName);
+          const voiceSettings = character?.voiceSettings;
+          const audioData = await textToSpeech(thought.Text, thought.Tone || 'thoughtfully', voiceName, false, voiceSettings);
           return {
             characterName: thought.CharacterName,
             text: thought.Text,

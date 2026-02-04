@@ -111,13 +111,14 @@ export const AutoChatModal: React.FC<AutoChatModalProps> = ({
       const voiceName = character?.voiceName || 'echo';
       const pitch = character?.pitch;
       const speakingRate = character?.speakingRate;
+      const voiceSettings = character?.voiceSettings;
       const tone = Tone || 'cheerfully';
       const translation = Translation;
 
       // Tạo audio TRƯỚC
       let audioData: string | null = null;
       if (generateAudio && Text) {
-        audioData = await textToSpeech(Text, tone, voiceName);
+        audioData = await textToSpeech(Text, tone, voiceName, false, voiceSettings);
       }
 
       const msgId = `auto-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;

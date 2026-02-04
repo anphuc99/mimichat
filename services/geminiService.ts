@@ -1,5 +1,5 @@
 import { GoogleGenAI, Chat, GenerateContentResponse, Content, Modality, Type } from "@google/genai";
-import type { Message, Character, VocabularyItem, VocabularyWithStability } from '../types';
+import type { Message, Character, VocabularyItem, VocabularyWithStability, VoiceSettings } from '../types';
 import http, { API_URL } from './HTTPService';
 
 let API_KEY: string | null = null;
@@ -240,20 +240,20 @@ DIALOGUE RULES
 - Split multiple ideas into multiple JSON objects.
 
 ====================================
-TTS TEXT FORMATTING
+TTS TEXT FORMATTING RULES (Apply strictly to 'Text' field):
 ====================================
-Angry: !!!
-Shouting: !!!!!
-Disgusted: 응... ...  
-Sad: ... ...  
-Scared: 아... ...  
-Surprised: 흥?! ?!  
-Shy: ...  
-Affectionate: 흥...  
-Happy: !  
-Excited: 와! !!!  
-Serious: .  
-Neutral: unchanged
+- **Angry**: Add "!!!" at the end. (e.g.: "하지 마!!!")
+- **Shouting**: Add "!!!!!" at the end. (e.g.: "오빠!!!!!")
+- **Disgusted**: Start with "응... " and end with "...". (e.g.: "응... 싫어...")
+- **Sad**: Start with "..." and end with "...". (e.g.: "...오빠...")
+- **Scared**: Start with "아... " and end with "...". (e.g.: "아... 무서워...")
+- **Surprised**: Start with "흥?! " and end with "?!". (e.g.: "흥?! 진짜?!")
+- **Shy**: End with "...". (e.g.: "고마워...")
+- **Affectionate**: Start with "흥~ " and end with " <3". (e.g.: "흥~ 오빠 <3")
+- **Happy**: End with "! ^^". (e.g.: "좋아! ^^")
+- **Excited**: Start with "와! " and end with "!!!". (e.g.: "와! 신난다!!!")
+- **Serious**: End with ".". (e.g.: "안 돼.")
+- **Neutral**: Keep the text unchanged.
 
 ====================================
 TONE FORMAT (CRITICAL FOR TTS)
@@ -578,7 +578,8 @@ export const textToSpeech = async (
   text: string,
   tone: string = 'Neutral, medium pitch',
   voiceId: string = '',
-  force: boolean = false
+  force: boolean = false,
+  voiceSettings?: VoiceSettings
 ): Promise<string | null> => {
   // Regex to remove a wide range of emojis.
   const emojiRegex = /(\u00a9|\u00ae|[\u2000-\u3300]|\ud83c[\ud000-\udfff]|\ud83d[\ud000-\udfff]|\ud83e[\ud000-\udfff])/g;
@@ -591,6 +592,14 @@ export const textToSpeech = async (
     let url = API_URL.API_TTS + `?text=${encodeURIComponent(textWithoutEmoji)}&voice=${encodeURIComponent(voiceId)}&tone=${encodeURIComponent(tone)}`;
     if (force) {
       url += `&force=true`;
+    }
+    // Add voice settings as query params if provided
+    if (voiceSettings) {
+      url += `&speed=${voiceSettings.speed}`;
+      url += `&stability=${voiceSettings.stability}`;
+      url += `&similarity_boost=${voiceSettings.similarity_boost}`;
+      url += `&style=${voiceSettings.style}`;
+      url += `&use_speaker_boost=${voiceSettings.use_speaker_boost}`;
     }
     const rs = await http.get(url)
     if (rs.ok && rs.data?.output) {

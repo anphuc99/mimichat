@@ -1,6 +1,7 @@
 
 import React, { useState, useEffect } from 'react';
-import type { Character, RelationInfo } from '../types';
+import type { Character, RelationInfo, VoiceSettings } from '../types';
+import { DEFAULT_VOICE_SETTINGS } from '../types';
 import http, { API_URL } from '../services/HTTPService';
 
 interface CharacterManagerProps {
@@ -59,6 +60,14 @@ export const CharacterManager: React.FC<CharacterManagerProps> = ({
   const [editedRelations, setEditedRelations] = useState<{ [targetCharacterId: string]: RelationInfo }>({});
   const [editedUserOpinion, setEditedUserOpinion] = useState<RelationInfo>({ opinion: '', sentiment: 'neutral', closeness: 0 });
   const [showOpinionsSection, setShowOpinionsSection] = useState(false);
+  
+  // Voice Settings states for editing
+  const [editedVoiceSettings, setEditedVoiceSettings] = useState<VoiceSettings>(DEFAULT_VOICE_SETTINGS);
+  const [showVoiceSettingsSection, setShowVoiceSettingsSection] = useState(false);
+  
+  // Voice Settings for new character
+  const [newCharVoiceSettings, setNewCharVoiceSettings] = useState<VoiceSettings>(DEFAULT_VOICE_SETTINGS);
+  const [showNewVoiceSettingsSection, setShowNewVoiceSettingsSection] = useState(false);
 
   const [isPreviewing, setIsPreviewing] = useState<string | null>(null);
   
@@ -168,6 +177,7 @@ export const CharacterManager: React.FC<CharacterManagerProps> = ({
       appearance: newCharAppearance,
       relations: {},
       userOpinion: { opinion: '', sentiment: 'neutral', closeness: 0 },
+      voiceSettings: { ...newCharVoiceSettings },
     };
     setCharacters(prev => [...prev, newCharacter]);
     setNewCharName('');
@@ -178,6 +188,8 @@ export const CharacterManager: React.FC<CharacterManagerProps> = ({
     setNewCharSpeakingRate(1.0);
     setNewCharAvatar(undefined);
     setNewCharAppearance('');
+    setNewCharVoiceSettings(DEFAULT_VOICE_SETTINGS);
+    setShowNewVoiceSettingsSection(false);
   };
   
   const startEditing = (char: Character) => {
@@ -193,12 +205,15 @@ export const CharacterManager: React.FC<CharacterManagerProps> = ({
     setEditedAppearance(char.appearance || '');
     setEditedRelations(char.relations || {});
     setEditedUserOpinion(char.userOpinion || { opinion: '', sentiment: 'neutral', closeness: 0 });
+    setEditedVoiceSettings(char.voiceSettings || DEFAULT_VOICE_SETTINGS);
     setShowOpinionsSection(false);
+    setShowVoiceSettingsSection(false);
   };
 
   const cancelEditing = () => {
     setEditingCharId(null);
     setShowOpinionsSection(false);
+    setShowVoiceSettingsSection(false);
   };
 
   const saveChanges = () => {
@@ -218,12 +233,14 @@ export const CharacterManager: React.FC<CharacterManagerProps> = ({
               appearance: editedAppearance,
               relations: editedRelations,
               userOpinion: editedUserOpinion,
+              voiceSettings: editedVoiceSettings,
             }
           : char
       )
     );
     setEditingCharId(null);
     setShowOpinionsSection(false);
+    setShowVoiceSettingsSection(false);
   };
 
   const isPredefined = (charId: string) => ['mimi', 'lisa', 'klee'].includes(charId);
@@ -352,6 +369,52 @@ export const CharacterManager: React.FC<CharacterManagerProps> = ({
                             {editedAvatar && <img src={editedAvatar} alt="Avatar Preview" className="w-10 h-10 rounded-full object-cover" />}
                             <input type="file" accept="image/*" onChange={(e) => handleFileChange(e, false)} className="text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100" />
                           </div>
+                        </div>
+
+                        {/* Voice Settings Section */}
+                        <div className="border-t border-gray-300 pt-3 mt-2">
+                          <button 
+                            type="button"
+                            onClick={() => setShowVoiceSettingsSection(!showVoiceSettingsSection)}
+                            className="flex items-center justify-between w-full text-left text-sm font-semibold text-gray-700 hover:text-blue-600 transition-colors"
+                          >
+                            <span>🎤 Cài đặt giọng nói (ElevenLabs)</span>
+                            <svg xmlns="http://www.w3.org/2000/svg" className={`h-5 w-5 transform transition-transform ${showVoiceSettingsSection ? 'rotate-180' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                            </svg>
+                          </button>
+
+                          {showVoiceSettingsSection && (
+                            <div className="mt-3 space-y-3 bg-purple-50 p-3 rounded-lg border border-purple-200">
+                              <div>
+                                <label className="text-sm font-medium text-gray-700">Speed: {editedVoiceSettings.speed.toFixed(2)}</label>
+                                <input type="range" min="0.25" max="2.0" step="0.05" value={editedVoiceSettings.speed} onChange={(e) => setEditedVoiceSettings(prev => ({ ...prev, speed: parseFloat(e.target.value) }))} className="w-full h-2 bg-purple-200 rounded-lg appearance-none cursor-pointer" />
+                                <p className="text-xs text-gray-500">Tốc độ đọc (0.25 - 2.0)</p>
+                              </div>
+                              <div>
+                                <label className="text-sm font-medium text-gray-700">Stability: {editedVoiceSettings.stability.toFixed(2)}</label>
+                                <input type="range" min="0" max="1" step="0.05" value={editedVoiceSettings.stability} onChange={(e) => setEditedVoiceSettings(prev => ({ ...prev, stability: parseFloat(e.target.value) }))} className="w-full h-2 bg-purple-200 rounded-lg appearance-none cursor-pointer" />
+                                <p className="text-xs text-gray-500">Độ ổn định giọng. Cao = nhất quán, Thấp = biểu cảm</p>
+                              </div>
+                              <div>
+                                <label className="text-sm font-medium text-gray-700">Similarity Boost: {editedVoiceSettings.similarity_boost.toFixed(2)}</label>
+                                <input type="range" min="0" max="1" step="0.05" value={editedVoiceSettings.similarity_boost} onChange={(e) => setEditedVoiceSettings(prev => ({ ...prev, similarity_boost: parseFloat(e.target.value) }))} className="w-full h-2 bg-purple-200 rounded-lg appearance-none cursor-pointer" />
+                                <p className="text-xs text-gray-500">Độ giống giọng gốc (0 - 1)</p>
+                              </div>
+                              <div>
+                                <label className="text-sm font-medium text-gray-700">Style: {editedVoiceSettings.style.toFixed(2)}</label>
+                                <input type="range" min="0" max="1" step="0.05" value={editedVoiceSettings.style} onChange={(e) => setEditedVoiceSettings(prev => ({ ...prev, style: parseFloat(e.target.value) }))} className="w-full h-2 bg-purple-200 rounded-lg appearance-none cursor-pointer" />
+                                <p className="text-xs text-gray-500">Cường độ phong cách (0 = tự nhiên, 1 = cường điệu)</p>
+                              </div>
+                              <div className="flex items-center justify-between">
+                                <label className="text-sm font-medium text-gray-700">Speaker Boost:</label>
+                                <input type="checkbox" checked={editedVoiceSettings.use_speaker_boost} onChange={(e) => setEditedVoiceSettings(prev => ({ ...prev, use_speaker_boost: e.target.checked }))} className="h-5 w-5 rounded text-purple-500 focus:ring-purple-400" />
+                              </div>
+                              <button type="button" onClick={() => setEditedVoiceSettings(DEFAULT_VOICE_SETTINGS)} className="w-full px-3 py-1 text-xs bg-gray-200 text-gray-700 rounded-md hover:bg-gray-300">
+                                Đặt lại mặc định
+                              </button>
+                            </div>
+                          )}
                         </div>
 
                         {/* Opinions Section */}
@@ -542,6 +605,53 @@ export const CharacterManager: React.FC<CharacterManagerProps> = ({
                     <input type="file" accept="image/*" onChange={(e) => handleFileChange(e, true)} className="text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100" />
                   </div>
                 </div>
+                
+                {/* Voice Settings Section for New Character */}
+                <div className="border-t border-gray-300 pt-3 mt-2">
+                  <button 
+                    type="button"
+                    onClick={() => setShowNewVoiceSettingsSection(!showNewVoiceSettingsSection)}
+                    className="flex items-center justify-between w-full text-left text-sm font-semibold text-gray-700 hover:text-blue-600 transition-colors"
+                  >
+                    <span>🎤 Cài đặt giọng nói (ElevenLabs)</span>
+                    <svg xmlns="http://www.w3.org/2000/svg" className={`h-5 w-5 transform transition-transform ${showNewVoiceSettingsSection ? 'rotate-180' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                    </svg>
+                  </button>
+
+                  {showNewVoiceSettingsSection && (
+                    <div className="mt-3 space-y-3 bg-purple-50 p-3 rounded-lg border border-purple-200">
+                      <div>
+                        <label className="text-sm font-medium text-gray-700">Speed: {newCharVoiceSettings.speed.toFixed(2)}</label>
+                        <input type="range" min="0.25" max="2.0" step="0.05" value={newCharVoiceSettings.speed} onChange={(e) => setNewCharVoiceSettings(prev => ({ ...prev, speed: parseFloat(e.target.value) }))} className="w-full h-2 bg-purple-200 rounded-lg appearance-none cursor-pointer" />
+                        <p className="text-xs text-gray-500">Tốc độ đọc (0.25 - 2.0)</p>
+                      </div>
+                      <div>
+                        <label className="text-sm font-medium text-gray-700">Stability: {newCharVoiceSettings.stability.toFixed(2)}</label>
+                        <input type="range" min="0" max="1" step="0.05" value={newCharVoiceSettings.stability} onChange={(e) => setNewCharVoiceSettings(prev => ({ ...prev, stability: parseFloat(e.target.value) }))} className="w-full h-2 bg-purple-200 rounded-lg appearance-none cursor-pointer" />
+                        <p className="text-xs text-gray-500">Độ ổn định giọng. Cao = nhất quán, Thấp = biểu cảm</p>
+                      </div>
+                      <div>
+                        <label className="text-sm font-medium text-gray-700">Similarity Boost: {newCharVoiceSettings.similarity_boost.toFixed(2)}</label>
+                        <input type="range" min="0" max="1" step="0.05" value={newCharVoiceSettings.similarity_boost} onChange={(e) => setNewCharVoiceSettings(prev => ({ ...prev, similarity_boost: parseFloat(e.target.value) }))} className="w-full h-2 bg-purple-200 rounded-lg appearance-none cursor-pointer" />
+                        <p className="text-xs text-gray-500">Độ giống giọng gốc (0 - 1)</p>
+                      </div>
+                      <div>
+                        <label className="text-sm font-medium text-gray-700">Style: {newCharVoiceSettings.style.toFixed(2)}</label>
+                        <input type="range" min="0" max="1" step="0.05" value={newCharVoiceSettings.style} onChange={(e) => setNewCharVoiceSettings(prev => ({ ...prev, style: parseFloat(e.target.value) }))} className="w-full h-2 bg-purple-200 rounded-lg appearance-none cursor-pointer" />
+                        <p className="text-xs text-gray-500">Cường độ phong cách (0 = tự nhiên, 1 = cường điệu)</p>
+                      </div>
+                      <div className="flex items-center justify-between">
+                        <label className="text-sm font-medium text-gray-700">Speaker Boost:</label>
+                        <input type="checkbox" checked={newCharVoiceSettings.use_speaker_boost} onChange={(e) => setNewCharVoiceSettings(prev => ({ ...prev, use_speaker_boost: e.target.checked }))} className="h-5 w-5 rounded text-purple-500 focus:ring-purple-400" />
+                      </div>
+                      <button type="button" onClick={() => setNewCharVoiceSettings(DEFAULT_VOICE_SETTINGS)} className="w-full px-3 py-1 text-xs bg-gray-200 text-gray-700 rounded-md hover:bg-gray-300">
+                        Đặt lại mặc định
+                      </button>
+                    </div>
+                  )}
+                </div>
+
                 <div className="flex justify-between items-center">
                     <button type="button" onClick={() => handlePreviewAudio('new', newCharVoiceName, newCharPitch, newCharSpeakingRate)} disabled={isPreviewing !== null} className="px-4 py-2 text-sm bg-gray-200 text-gray-700 rounded-md hover:bg-gray-300 disabled:opacity-50">Nghe thử</button>
                     <button type="submit" className="px-4 py-2 bg-green-500 text-white rounded-md hover:bg-green-600 transition-colors disabled:bg-green-300" disabled={!newCharName.trim() || !newCharPersonality.trim()}>
