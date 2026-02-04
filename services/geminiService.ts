@@ -743,6 +743,40 @@ export const translateAndExplainText = async (text: string): Promise<string> => 
   }
 };
 
+export const explainTranslation = async (korean: string, vietnamese: string): Promise<string> => {
+  if (!korean.trim() || !vietnamese.trim()) {
+    return "Không có gì để giải thích.";
+  }
+  try {
+    const prompt = `Bạn là giáo viên tiếng Hàn. Hãy giải thích câu tiếng Hàn và bản dịch tiếng Việt dưới đây, tập trung vào từ vựng và ngữ pháp, trình bày ngắn gọn.
+
+Câu tiếng Hàn: "${korean}"
+Bản dịch tiếng Việt: "${vietnamese}"
+
+Yêu cầu:
+- Giải thích từ vựng quan trọng
+- Giải thích cấu trúc ngữ pháp chính
+- Trình bày bằng HTML đơn giản (dùng <b>, <ul>, <li>)`;
+
+    const response = await ai.models.generateContent({
+      model: currentTextModel,
+      contents: prompt,
+    });
+
+    let htmlContent = response.text.trim();
+    if (htmlContent.startsWith('```html') && htmlContent.endsWith('```')) {
+      htmlContent = htmlContent.substring(7, htmlContent.length - 3).trim();
+    } else if (htmlContent.startsWith('```') && htmlContent.endsWith('```')) {
+      htmlContent = htmlContent.substring(3, htmlContent.length - 3).trim();
+    }
+
+    return htmlContent;
+  } catch (error) {
+    console.error("Gemini explain translation error:", error);
+    return "<p>Xin lỗi, đã xảy ra lỗi trong quá trình giải thích.</p>";
+  }
+};
+
 export const translateWord = async (word: string): Promise<string> => {
   if (!word.trim()) {
     return "";

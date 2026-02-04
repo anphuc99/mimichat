@@ -55,6 +55,13 @@ interface VoiceSettings {
     use_speaker_boost: boolean;
 }
 
+type ElevenLabsVoiceSettingsPayload = {
+    stability: number;
+    similarity_boost: number;
+    style: number;
+    use_speaker_boost: boolean;
+};
+
 // Custom voice settings from client (optional override)
 export interface CustomVoiceSettings {
     speed?: number;
@@ -227,7 +234,7 @@ export class ElevenLabsService {
             // --- Nhóm Yếu đuối/Nhẹ nhàng ---
             case "Sad":
                 // Buồn: giảm speed, giảm style, giữ stability
-                settings.style = clamp(settings.style + 0.1);
+                settings.style = clamp(settings.style - 0.1);
                 settings.speed = clamp((settings.speed || 0.8) - 0.1, 0.25, 2.0);
                 break;
                 
@@ -299,17 +306,37 @@ export class ElevenLabsService {
         }
         if (!voiceId) throw new Error(`Missing Voice ID`);
 
+        const clamp01 = (val: number) => Math.max(0, Math.min(1, val));
+        const clampSpeed = (val: number) => Math.max(0.25, Math.min(2.0, val));
+
         // Merge custom settings with defaults (base settings từ character)
+        // NOTE: stability/similarity_boost/style của ElevenLabs phải nằm trong [0, 1]
         const baseSettings: VoiceSettings = {
-            speed: customSettings?.speed ?? DEFAULT_VOICE_SETTINGS.speed,
-            stability: customSettings?.stability ?? DEFAULT_VOICE_SETTINGS.stability,
-            similarity_boost: customSettings?.similarity_boost ?? DEFAULT_VOICE_SETTINGS.similarity_boost,
-            style: customSettings?.style ?? DEFAULT_VOICE_SETTINGS.style,
-            use_speaker_boost: customSettings?.use_speaker_boost ?? DEFAULT_VOICE_SETTINGS.use_speaker_boost,
+            speed: clampSpeed(customSettings?.speed ?? DEFAULT_VOICE_SETTINGS.speed ?? 0.8),
+            stability: clamp01(customSettings?.stability ?? DEFAULT_VOICE_SETTINGS.stability),
+            similarity_boost: clamp01(customSettings?.similarity_boost ?? DEFAULT_VOICE_SETTINGS.similarity_boost),
+            style: clamp01(customSettings?.style ?? DEFAULT_VOICE_SETTINGS.style),
+            use_speaker_boost: Boolean(customSettings?.use_speaker_boost ?? DEFAULT_VOICE_SETTINGS.use_speaker_boost),
         };
 
         // Điều chỉnh settings theo cảm xúc và pitch
-        const voiceSettings = this.adjustSettingsForEmotion(baseSettings, emotion, pitch);
+        // (sau điều chỉnh vẫn clamp lại để không bao giờ <0 hoặc >1)
+        const adjusted = this.adjustSettingsForEmotion(baseSettings, emotion, pitch);
+        const voiceSettings: VoiceSettings = {
+            ...adjusted,
+            speed: adjusted.speed !== undefined ? clampSpeed(adjusted.speed) : undefined,
+            stability: clamp01(adjusted.stability),
+            similarity_boost: clamp01(adjusted.similarity_boost),
+            style: clamp01(adjusted.style),
+            use_speaker_boost: Boolean(adjusted.use_speaker_boost),
+        };
+
+        const voiceSettingsPayload: ElevenLabsVoiceSettingsPayload = {
+            stability: voiceSettings.stability,
+            similarity_boost: voiceSettings.similarity_boost,
+            style: voiceSettings.style,
+            use_speaker_boost: voiceSettings.use_speaker_boost,
+        };
 
         const promptText = text;
 
@@ -322,7 +349,7 @@ export class ElevenLabsService {
                 voice: voiceId,
                 text: promptText,
                 model_id: "eleven_multilingual_v2",
-                voice_settings: voiceSettings,
+                voice_settings: voiceSettingsPayload,
                 output_format: "mp3_44100_128"
             });
 
