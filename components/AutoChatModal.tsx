@@ -109,6 +109,7 @@ export const AutoChatModal: React.FC<AutoChatModalProps> = ({
 
       const character = characters.find(c => c.name === CharacterName);
       const voiceName = character?.voiceName || 'echo';
+      const voiceModel = character?.voiceModel || 'elevenlabs';
       const pitch = character?.pitch;
       const speakingRate = character?.speakingRate;
       const voiceSettings = character?.voiceSettings;
@@ -118,7 +119,7 @@ export const AutoChatModal: React.FC<AutoChatModalProps> = ({
       // Tạo audio TRƯỚC
       let audioData: string | null = null;
       if (generateAudio && Text) {
-        audioData = await textToSpeech(Text, tone, voiceName, false, voiceSettings);
+        audioData = await textToSpeech(Text, tone, voiceName, false, voiceSettings, voiceModel);
       }
 
       const msgId = `auto-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;

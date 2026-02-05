@@ -138,6 +138,11 @@ const App: React.FC = () => {
   // Story plot state - mô tả cốt truyện
   const [storyPlot, setStoryPlot] = useState<string>('');
 
+  // Related journal state - các ngày chat liên quan trong cùng story để AI tham khảo
+  const [relatedJournalIds, setRelatedJournalIds] = useState<string[]>([]);
+  const [relatedJournalMessages, setRelatedJournalMessages] = useState<string>('');
+  const [isRelatedJournalPickerOpen, setIsRelatedJournalPickerOpen] = useState(false);
+
   // Pronunciation check state - kiểm tra phát âm
   const [checkPronunciation, setCheckPronunciation] = useState<boolean>(false);
 
@@ -283,6 +288,39 @@ const App: React.FC = () => {
     initializeApp();
   }, []);
 
+  // Build related journal messages when relatedJournalIds changes
+  useEffect(() => {
+    if (relatedJournalIds.length === 0) {
+      setRelatedJournalMessages('');
+      return;
+    }
+
+    const allMessages: string[] = [];
+    
+    for (const journalId of relatedJournalIds) {
+      const dailyChat = journal.find(dc => dc.id === journalId);
+      if (dailyChat && dailyChat.messages && dailyChat.messages.length > 0) {
+        const formattedMessages: string[] = [`\n[Ngày ${dailyChat.date}${dailyChat.summary ? ` - ${dailyChat.summary}` : ''}]`];
+        
+        for (const msg of dailyChat.messages) {
+          if (msg.sender === 'user') {
+            formattedMessages.push(`User: ${msg.text}`);
+          } else if (msg.characterName) {
+            formattedMessages.push(`${msg.characterName}: ${msg.text}`);
+          }
+        }
+        
+        if (formattedMessages.length > 1) {
+          allMessages.push(formattedMessages.join('\n'));
+        }
+      }
+    }
+    
+    const combinedMessages = allMessages.join('\n\n');
+    console.log('Related journal messages loaded:', combinedMessages.slice(0, 500) + '...');
+    setRelatedJournalMessages(combinedMessages);
+  }, [relatedJournalIds, journal]);
+
   useEffect(() => {
     if (!isGeminiInitialized || !isDataLoaded) return;
     
@@ -304,14 +342,15 @@ const App: React.FC = () => {
           currentLevel,
           chatReviewVocabularies,
           storyPlot,
-          checkPronunciation
+          checkPronunciation,
+          relatedJournalMessages
         );
         
         console.log("Chat re-initialized with new context/characters.");
       }
     };
     initializeChatSession();
-  }, [context, activeCharacterIds, characters, relationshipSummary, getActiveCharacters, isGeminiInitialized, isDataLoaded, storyPlot, checkPronunciation, chatReviewVocabularies]);
+  }, [context, activeCharacterIds, characters, relationshipSummary, getActiveCharacters, isGeminiInitialized, isDataLoaded, storyPlot, checkPronunciation, chatReviewVocabularies, relatedJournalMessages]);
 
 
   useEffect(() => {
@@ -584,13 +623,14 @@ console.log("Processing bot responses:", responses);
 
       const character = characters.find(c => c.name === characterName);
       const voiceName = character?.voiceName || 'echo';
+      const voiceModel = character?.voiceModel || 'elevenlabs';
       const pitch = character?.pitch;
       const speakingRate = character?.speakingRate;
       const voiceSettings = character?.voiceSettings;
 
       let audioData: string | null = null;
       if (speechText) {
-        audioData = await textToSpeech(speechText, tone, voiceName, false, voiceSettings);
+        audioData = await textToSpeech(speechText, tone, voiceName, false, voiceSettings, voiceModel);
       }
 
       const rawTextForCopy = `User Said: ${userPromptRef.current}\n${characterName} Said: ${speechText}\nAction: ${Action}\nTone: ${tone}`;
@@ -656,7 +696,7 @@ console.log("Processing bot responses:", responses);
           role: msg.sender === 'user' ? 'user' : 'model',
           parts: [{ text: msg.rawText || msg.text }],
         })) : [];
-        chatRef.current = await initChat(activeChars, context, history, '', relationshipSummary, currentLevel, chatReviewVocabularies, storyPlot, checkPronunciation);
+        chatRef.current = await initChat(activeChars, context, history, '', relationshipSummary, currentLevel, chatReviewVocabularies, storyPlot, checkPronunciation, relatedJournalMessages);
       }
 
       // Add private chat marker to message
@@ -759,7 +799,7 @@ console.log("Processing bot responses:", responses);
           parts: [{ text: msg.rawText || msg.text }],
         })) : [];
         console.log(historyForGemini);
-        chatRef.current = await initChat(activeChars, context, historyForGemini, '', relationshipSummary, currentLevel, chatReviewVocabularies, storyPlot, checkPronunciation);
+        chatRef.current = await initChat(activeChars, context, historyForGemini, '', relationshipSummary, currentLevel, chatReviewVocabularies, storyPlot, checkPronunciation, relatedJournalMessages);
       }
       
       let botResponseText = await sendMessage(chatRef.current, messageForAI);
@@ -950,7 +990,7 @@ console.log("Processing bot responses:", responses);
           role: msg.sender === 'user' ? 'user' : 'model',
           parts: [{ text: msg.rawText || msg.text }],
         })) : [];
-        chatRef.current = await initChat(activeChars, context, history, '', relationshipSummary, currentLevel, chatReviewVocabularies, storyPlot, checkPronunciation);
+        chatRef.current = await initChat(activeChars, context, history, '', relationshipSummary, currentLevel, chatReviewVocabularies, storyPlot, checkPronunciation, relatedJournalMessages);
       }
       
       // Build context prefix for voice messages if realtime context is available
@@ -1152,7 +1192,7 @@ console.log("Processing bot responses:", responses);
       }));
 
       const activeChars = getActiveCharacters();
-      chatRef.current = await initChat(activeChars, context, historyForGemini, '', relationshipSummary, currentLevel, chatReviewVocabularies, storyPlot, checkPronunciation);
+      chatRef.current = await initChat(activeChars, context, historyForGemini, '', relationshipSummary, currentLevel, chatReviewVocabularies, storyPlot, checkPronunciation, relatedJournalMessages);
 
       let botResponseText = await sendMessage(chatRef.current, newText);
 
@@ -1315,10 +1355,11 @@ console.log("Processing bot responses:", responses);
       const oldMessage = currentChat.messages[messageIndex];
       const character = characters.find(c => c.name === oldMessage.characterName);
       const voiceName = character?.voiceName || 'echo';
+      const voiceModel = character?.voiceModel || 'elevenlabs';
       const pitch = character?.pitch;
       const speakingRate = character?.speakingRate;
       const voiceSettings = character?.voiceSettings;
-      const newAudioData = await textToSpeech(newText, newTone, voiceName, false, voiceSettings);
+      const newAudioData = await textToSpeech(newText, newTone, voiceName, false, voiceSettings, voiceModel);
 
       updateCurrentChatMessages(prevMessages => {
         const newMessages = [...prevMessages];
@@ -1428,7 +1469,7 @@ console.log("Processing bot responses:", responses);
       })).slice(0, -1);
 
       const activeChars = getActiveCharacters();
-      chatRef.current = await initChat(activeChars, context, historyForGemini, '', relationshipSummary, currentLevel, chatReviewVocabularies, storyPlot, checkPronunciation);
+      chatRef.current = await initChat(activeChars, context, historyForGemini, '', relationshipSummary, currentLevel, chatReviewVocabularies, storyPlot, checkPronunciation, relatedJournalMessages);
 
       let botResponseText = await sendMessage(chatRef.current, lastUserMessage.text);
 
@@ -1596,6 +1637,7 @@ console.log("Processing bot responses:", responses);
 
       const character = characters.find(c => c.name === messageToUpdate.characterName);
       const voiceName = character?.voiceName || 'echo';
+      const voiceModel = character?.voiceModel || 'elevenlabs';
       const pitch = character?.pitch;
       const speakingRate = character?.speakingRate;
       const voiceSettings = character?.voiceSettings;
@@ -1605,7 +1647,7 @@ console.log("Processing bot responses:", responses);
         audioCacheRef.current.delete(messageToUpdate.audioData);
       }
       
-      const audioData = await textToSpeech(messageToUpdate.text, tone, voiceName, force, voiceSettings);
+      const audioData = await textToSpeech(messageToUpdate.text, tone, voiceName, force, voiceSettings, voiceModel);
 
       if (audioData) {
         updateCurrentChatMessages(prevMessages =>
@@ -1703,6 +1745,9 @@ console.log("Processing bot responses:", responses);
       }));
 
       const activeChars = getActiveCharacters();
+      // Clear related journal IDs when starting new day
+      setRelatedJournalIds([]);
+
       chatRef.current = await initChat(
         activeChars, 
         context, 
@@ -1712,7 +1757,8 @@ console.log("Processing bot responses:", responses);
         currentLevel,
         chatReviewVocabularies,
         storyPlot,
-        checkPronunciation
+        checkPronunciation,
+        '' // No related journal messages for new chat
       );
       
       alert("Cuộc trò chuyện đã được tóm tắt và một ngày mới đã bắt đầu!");
@@ -1758,8 +1804,9 @@ console.log("Processing bot responses:", responses);
         parsedThoughts.map(async (thought: any) => {
           const character = characters.find(c => c.name === thought.CharacterName);
           const voiceName = character?.voiceName || 'echo';
+          const voiceModel = character?.voiceModel || 'elevenlabs';
           const voiceSettings = character?.voiceSettings;
-          const audioData = await textToSpeech(thought.Text, thought.Tone || 'thoughtfully', voiceName, false, voiceSettings);
+          const audioData = await textToSpeech(thought.Text, thought.Tone || 'thoughtfully', voiceName, false, voiceSettings, voiceModel);
           return {
             characterName: thought.CharacterName,
             text: thought.Text,
@@ -2200,6 +2247,7 @@ console.log("Processing bot responses:", responses);
         currentLevel,
         realtimeContext,
         storyPlot,
+        relatedJournalIds,
         fsrsSettings,
         chatReviewVocabularies,
               };
@@ -2207,7 +2255,7 @@ console.log("Processing bot responses:", responses);
         console.error("Failed to auto-save from memory scene:", err);
       });
     }
-  }, [currentStoryId, characters, activeCharacterIds, context, relationshipSummary, currentLevel, realtimeContext, storyPlot, fsrsSettings, vocabularyStore]);
+  }, [currentStoryId, characters, activeCharacterIds, context, relationshipSummary, currentLevel, realtimeContext, storyPlot, relatedJournalIds, fsrsSettings, vocabularyStore]);
 
   // Review mode handlers
   const handleStartReview = useCallback(() => {
@@ -2278,9 +2326,9 @@ console.log("Processing bot responses:", responses);
           parts: [{ text: msg.rawText || msg.text }],
         }));
         const previousSummary = journal.length > 1 ? journal[journal.length - 2]?.summary || '' : '';
-        chatRef.current = await initChat(activeChars, context, history, previousSummary, relationshipSummary, newLevel, chatReviewVocabularies, storyPlot, checkPronunciation);
+        chatRef.current = await initChat(activeChars, context, history, previousSummary, relationshipSummary, newLevel, chatReviewVocabularies, storyPlot, checkPronunciation, relatedJournalMessages);
       } else {
-        chatRef.current = await initChat(activeChars, context, [], '', relationshipSummary, newLevel, chatReviewVocabularies, storyPlot, checkPronunciation);
+        chatRef.current = await initChat(activeChars, context, [], '', relationshipSummary, newLevel, chatReviewVocabularies, storyPlot, checkPronunciation, relatedJournalMessages);
       }
     }
     
@@ -2295,6 +2343,7 @@ console.log("Processing bot responses:", responses);
         relationshipSummary,
         currentLevel: newLevel,
         storyPlot,
+        relatedJournalIds,
         translationSettings,
         chatReviewVocabularies,
               };
@@ -2306,7 +2355,7 @@ console.log("Processing bot responses:", responses);
     } catch (error) {
       console.error("Failed to save level:", error);
     }
-  }, [currentLevel, journal, characters, activeCharacterIds, context, relationshipSummary, getActiveCharacters, getCurrentChat, currentStoryId, storyPlot, chatReviewVocabularies, vocabularyStore, translationSettings]);
+  }, [currentLevel, journal, characters, activeCharacterIds, context, relationshipSummary, getActiveCharacters, getCurrentChat, currentStoryId, storyPlot, relatedJournalIds, chatReviewVocabularies, vocabularyStore, translationSettings]);
 
   const handleSaveJournal = async () => {
     try {
@@ -2320,6 +2369,7 @@ console.log("Processing bot responses:", responses);
         relationshipSummary,
         currentLevel,
         storyPlot,
+        relatedJournalIds,
         translationSettings,
         chatReviewVocabularies,
       };
@@ -2356,6 +2406,7 @@ console.log("Processing bot responses:", responses);
         relationshipSummary,
         currentLevel,
         storyPlot,
+        relatedJournalIds,
         translationSettings,
         translationDrillStore,
         chatReviewVocabularies,
@@ -2688,7 +2739,11 @@ console.log("Processing bot responses:", responses);
 
     const activeChars = loadedCharacters.filter(c => loadedActiveIds.includes(c.id));
     
-    chatRef.current = await initChat(activeChars, loadedContext, history, previousSummary, loadedRelationshipSummary, loadedLevel, loadedChatReviewVocabularies, loadedStoryPlot, checkPronunciation);
+    // Load related journal IDs from saved data
+    const loadedRelatedJournalIds = loadedData.relatedJournalIds || [];
+    setRelatedJournalIds(loadedRelatedJournalIds);
+    
+    chatRef.current = await initChat(activeChars, loadedContext, history, previousSummary, loadedRelationshipSummary, loadedLevel, loadedChatReviewVocabularies, loadedStoryPlot, checkPronunciation, relatedJournalMessages);
 
     setView('journal');
     setIsDataLoaded(true);
@@ -2884,6 +2939,7 @@ console.log("Processing bot responses:", responses);
       relationshipSummary,
       currentLevel,
       storyPlot,
+      relatedJournalIds,
       translationSettings,
       chatReviewVocabularies,
           };
@@ -2995,7 +3051,11 @@ console.log("Processing bot responses:", responses);
 
         const activeChars = loadedCharacters.filter(c => loadedActiveIds.includes(c.id));
         
-        chatRef.current = await initChat(activeChars, loadedContext, history, previousSummary, loadedRelationshipSummary, loadedLevel, loadedChatReviewVocabularies, loadedStoryPlot, checkPronunciation);
+        // Load related journal IDs from uploaded data
+        const loadedRelatedJournalIds = loadedData.relatedJournalIds || [];
+        setRelatedJournalIds(loadedRelatedJournalIds);
+        
+        chatRef.current = await initChat(activeChars, loadedContext, history, previousSummary, loadedRelationshipSummary, loadedLevel, loadedChatReviewVocabularies, loadedStoryPlot, checkPronunciation, relatedJournalMessages);
 
         setView('journal');
 
@@ -3025,7 +3085,8 @@ console.log("Processing bot responses:", responses);
           currentLevel,
           realtimeContext,
           storyPlot,
-            translationSettings,
+          relatedJournalIds,
+          translationSettings,
           chatReviewVocabularies,
                   };
         
@@ -3044,9 +3105,13 @@ console.log("Processing bot responses:", responses);
     const timeoutId = setTimeout(saveData, 3000); // Debounce 3s
 
     return () => clearTimeout(timeoutId);
-  }, [journal, characters, activeCharacterIds, context, relationshipSummary, currentLevel, isDataLoaded, currentStoryId, realtimeContext, storyPlot, chatReviewVocabularies, vocabularyStore, translationSettings]);
+  }, [journal, characters, activeCharacterIds, context, relationshipSummary, currentLevel, isDataLoaded, currentStoryId, realtimeContext, storyPlot, relatedJournalIds, chatReviewVocabularies, vocabularyStore, translationSettings]);
 
   const currentMessages = getCurrentChat()?.messages || [];
+  const currentDailyChatId = getCurrentDailyChatId();
+  const availableRelatedJournals = journal
+    .filter(dc => dc.id !== currentDailyChatId)
+    .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
 
   return (
     <div className="flex flex-col h-screen max-w-2xl mx-auto bg-white shadow-2xl rounded-lg overflow-hidden">
@@ -3365,7 +3430,7 @@ console.log("Processing bot responses:", responses);
             characters={characters}
             isListeningMode={isListeningMode}
             onToggleListeningMode={() => setIsListeningMode(!isListeningMode)}
-            dailyChatId={getCurrentDailyChatId()}
+            dailyChatId={currentDailyChatId}
             dailyChatDate={getCurrentChat()?.date || new Date().toISOString().split('T')[0]}
             vocabularyStore={vocabularyStore}
           />
@@ -3474,6 +3539,21 @@ console.log("Processing bot responses:", responses);
                 <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                   <path strokeLinecap="round" strokeLinejoin="round" d="M17 8h2a2 2 0 012 2v6a2 2 0 01-2 2h-2v4l-4-4H9a1.994 1.994 0 01-1.414-.586m0 0L11 14h4a2 2 0 002-2V6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2v4l.586-.586z" />
                 </svg>
+              </button>
+              <button
+                onClick={() => setIsRelatedJournalPickerOpen(true)}
+                disabled={isLoading || isSummarizing}
+                className={`p-2 hover:bg-gray-100 rounded-full disabled:opacity-50 transition-colors relative ${relatedJournalIds.length > 0 ? 'text-purple-600' : 'text-gray-500'}`}
+                title="Ngày chat liên quan"
+              >
+                <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M13.828 10.172a4 4 0 010 5.656m-1.414-1.414a2 2 0 010-2.828m-2.122 2.122L7.05 16.95a4 4 0 01-5.657-5.657l2.122-2.122a4 4 0 015.657 5.657l-.707.707m9.193-9.193l2.122-2.122a4 4 0 115.657 5.657l-2.122 2.122a4 4 0 01-5.657-5.657l.707-.707" />
+                </svg>
+                {relatedJournalIds.length > 0 && (
+                  <span className="absolute -top-1 -right-1 bg-purple-600 text-white text-xs rounded-full w-4 h-4 flex items-center justify-center font-bold">
+                    {relatedJournalIds.length}
+                  </span>
+                )}
               </button>
               <button
                 onClick={() => setIsChatVocabularyModalOpen(true)}
@@ -3658,6 +3738,89 @@ console.log("Processing bot responses:", responses);
         selectedVocabularies={chatReviewVocabularies}
         onVocabulariesChange={setChatReviewVocabularies}
       />
+
+      {/* Related Journal Picker Modal */}
+      {isRelatedJournalPickerOpen && (
+        <div
+          className="fixed inset-0 bg-black bg-opacity-30 z-50 flex items-center justify-center p-4"
+          onClick={() => setIsRelatedJournalPickerOpen(false)}
+        >
+          <div
+            className="bg-white rounded-lg shadow-xl w-full max-w-sm max-h-[60vh] flex flex-col"
+            onClick={e => e.stopPropagation()}
+          >
+            <div className="p-3 border-b flex items-start justify-between gap-3">
+              <div>
+                <h3 className="font-semibold text-gray-800">🔗 Chọn ngày chat liên quan</h3>
+                <p className="text-xs text-gray-500">AI sẽ tham khảo nội dung ngày chat được chọn.</p>
+              </div>
+              <button
+                onClick={() => setIsRelatedJournalPickerOpen(false)}
+                className="text-gray-400 hover:text-gray-600"
+              >
+                ×
+              </button>
+            </div>
+            <div className="flex-1 overflow-y-auto p-2 space-y-1">
+              {availableRelatedJournals.length === 0 ? (
+                <div className="p-4 text-sm text-gray-500 text-center">
+                  Chưa có ngày chat trước để chọn.
+                </div>
+              ) : (
+                availableRelatedJournals.map(dc => {
+                  const charNames = [...new Set(dc.messages.filter(m => m.characterName).map(m => m.characterName))];
+                  const isSelected = relatedJournalIds.includes(dc.id);
+                  return (
+                    <label
+                      key={dc.id}
+                      className={`flex items-start p-2 rounded cursor-pointer transition-colors ${
+                        isSelected ? 'bg-purple-100 border border-purple-300' : 'hover:bg-gray-100'
+                      }`}
+                    >
+                      <input
+                        type="checkbox"
+                        checked={isSelected}
+                        onChange={(e) => {
+                          if (e.target.checked) {
+                            setRelatedJournalIds(prev => [...prev, dc.id]);
+                          } else {
+                            setRelatedJournalIds(prev => prev.filter(id => id !== dc.id));
+                          }
+                        }}
+                        className="h-4 w-4 mt-0.5 rounded text-purple-500 focus:ring-purple-400 mr-2"
+                      />
+                      <div className="flex-1 min-w-0">
+                        <div className="font-medium text-sm text-gray-800">📅 {dc.date}</div>
+                        <div className="text-xs text-gray-500">
+                          {dc.messages.length} tin nhắn {charNames.length > 0 && `• ${charNames.slice(0, 3).join(', ')}`}
+                        </div>
+                        {dc.summary && (
+                          <div className="text-xs text-gray-400 truncate">{dc.summary}</div>
+                        )}
+                      </div>
+                    </label>
+                  );
+                })
+              )}
+            </div>
+            <div className="p-2 border-t flex items-center justify-between gap-2">
+              <button
+                onClick={() => setRelatedJournalIds([])}
+                disabled={relatedJournalIds.length === 0}
+                className="px-3 py-2 text-xs text-red-500 hover:text-red-700 disabled:opacity-50"
+              >
+                Xóa tất cả
+              </button>
+              <button
+                onClick={() => setIsRelatedJournalPickerOpen(false)}
+                className="px-3 py-2 bg-purple-500 text-white rounded-lg text-sm font-medium hover:bg-purple-600"
+              >
+                Xong
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Floating Action Menu */}
       <FloatingActionMenu

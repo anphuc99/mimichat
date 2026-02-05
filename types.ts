@@ -24,6 +24,22 @@ export const DEFAULT_VOICE_SETTINGS: VoiceSettings = {
   use_speaker_boost: true,
 };
 
+// Voice Model Types
+export type VoiceModel = 'elevenlabs' | 'openai';
+
+// OpenAI Available Voices
+export const OPENAI_VOICES = [
+  { value: "alloy", label: "Alloy – Nữ trẻ, tự nhiên" },
+  { value: "ballad", label: "Ballad – Nữ dịu dàng, mềm, tình cảm" },
+  { value: "coral", label: "Coral – Nữ tươi sáng, rõ ràng" },
+  { value: "cedar", label: "Cedar – Nam trưởng thành, trầm ấm" },
+  { value: "echo", label: "Echo – Trung tính, nhẹ, có chiều sâu" },
+  { value: "fable", label: "Fable – Kể chuyện, truyền cảm" },
+  { value: "marin", label: "Marin – Nhẹ nhàng, mang hơi thở biển" },
+  { value: "nova", label: "Nova – Trẻ trung, năng lượng" },
+  { value: "onyx", label: "Onyx – Giọng trầm, huyền bí" },
+] as const;
+
 export interface Character {
   id: string;
   name: string;
@@ -31,6 +47,7 @@ export interface Character {
   appearance?: string;
   gender: 'male' | 'female';
   voiceName?: string;
+  voiceModel?: VoiceModel; // 'elevenlabs' | 'openai'
   pitch?: number;
   speakingRate?: number;
   avatar?: string;
@@ -345,11 +362,19 @@ export interface SavedData {
   pendingReviewVocabularyIds?: string[]; // IDs of vocabularies being reviewed in current chat session
   realtimeContext?: string; // Ngữ cảnh realtime có thể thay đổi trong lúc chat
   storyPlot?: string; // Mô tả cốt truyện
+  relatedJournalIds?: string[]; // IDs of related journal entries (DailyChat) for context reference
   fsrsSettings?: FSRSSettings; // FSRS algorithm settings
   translationSettings?: TranslationDrillSettings; // Settings for translation drills
   translationDrillStore?: TranslationDrillStore; // Legacy translation drill data (stored globally now)
   chatReviewVocabularies?: VocabularyItem[]; // Manually selected vocabularies for chat review
   // Note: vocabularyStore is now a separate global file (vocabulary-store.json)
+}
+
+// Related journal messages for context reference
+export interface RelatedJournalMessage {
+  characterName?: string;
+  text: string;
+  translation?: string;
 }
 
 // Story types for multi-story support

@@ -15,6 +15,7 @@ import { Readable } from "stream";
 import { ElevenLabsService, Emotion, PitchLevel } from "./modules/eleven.js";  
 import GeminiService from "./modules/geminiService.js";
 import AdmZip from "adm-zip";
+import { textToSpeech as openaiTextToSpeech } from "./modules/openai.js";
 
 import { google } from 'googleapis';
 import { pipeline } from 'stream/promises';
@@ -199,35 +200,52 @@ app.use('/voice-previews', express.static(VOICE_PREVIEW_DIR));
 // GET /api/voice-preview/:voiceId - Get or generate voice preview
 app.get("/api/voice-preview/:voiceId", async (req: Request, res: Response) => {
   const { voiceId } = req.params;
+  const voiceModel = (req.query.model as string) || 'elevenlabs'; // 'elevenlabs' or 'openai'
   
   if (!voiceId) {
     return res.status(400).json({ error: "Missing voiceId" });
   }
   
-  const previewPath = path.join(VOICE_PREVIEW_DIR, `${voiceId}.mp3`);
+  // Include model in cache key to separate ElevenLabs and OpenAI previews
+  const cacheKey = `${voiceModel}_${voiceId}`;
+  const previewPath = path.join(VOICE_PREVIEW_DIR, `${cacheKey}.mp3`);
   
   // Check if preview already exists
   if (fs.existsSync(previewPath)) {
     return res.json({ 
       success: true, 
-      url: `/voice-previews/${voiceId}.mp3`,
+      url: `/voice-previews/${cacheKey}.mp3`,
       cached: true 
     });
   }
   
   // Generate new preview
   try {
-    await elevenLabsService.generateAudio(
-      "안녕하세요!",
-      voiceId,
-      "Happy",
-      previewPath,
-      "medium"
-    );
+    const previewText = "안녕하세요!";
+    
+    if (voiceModel === 'openai') {
+      // Use OpenAI TTS for preview
+      const instructions = "Speak with a happy, cheerful tone.";
+      await openaiTextToSpeech(previewText, voiceId, 'mp3', cacheKey, instructions);
+      // Move file from data/audio to voice-previews
+      const srcPath = path.join(__dirname, "data/audio", `${cacheKey}.mp3`);
+      if (fs.existsSync(srcPath)) {
+        fs.renameSync(srcPath, previewPath);
+      }
+    } else {
+      // Use ElevenLabs TTS for preview (default)
+      await elevenLabsService.generateAudio(
+        previewText,
+        voiceId,
+        "Happy",
+        previewPath,
+        "medium"
+      );
+    }
     
     res.json({ 
       success: true, 
-      url: `/voice-previews/${voiceId}.mp3`,
+      url: `/voice-previews/${cacheKey}.mp3`,
       cached: false 
     });
   } catch (error: any) {
@@ -1822,13 +1840,20 @@ app.get("/api/text-to-speech", async (req: Request, res: Response) => {
   const voiceId = (req.query.voice as string); // Now expects voice ID directly
   const tone = (req.query.tone as string) || "Neutral, medium pitch"; // New format: "<Emotion>, <pitch>"
   const force = req.query.force === 'true';
+  const voiceModel = (req.query.model as string) || 'elevenlabs'; // 'elevenlabs' or 'openai'
   
-  // Parse voice settings from query params (optional)
+  const parseOptionalNumber = (value: unknown): number | undefined => {
+    if (value === undefined || value === null) return undefined;
+    const parsed = parseFloat(String(value));
+    return Number.isFinite(parsed) ? parsed : undefined;
+  };
+
+  // Parse voice settings from query params (optional) - Only for ElevenLabs
   const voiceSettings = {
-    speed: req.query.speed ? parseFloat(req.query.speed as string) : undefined,
-    stability: req.query.stability ? parseFloat(req.query.stability as string) : undefined,
-    similarity_boost: req.query.similarity_boost ? parseFloat(req.query.similarity_boost as string) : undefined,
-    style: req.query.style ? parseFloat(req.query.style as string) : undefined,
+    speed: parseOptionalNumber(req.query.speed),
+    stability: parseOptionalNumber(req.query.stability),
+    similarity_boost: parseOptionalNumber(req.query.similarity_boost),
+    style: parseOptionalNumber(req.query.style),
     use_speaker_boost: req.query.use_speaker_boost ? req.query.use_speaker_boost === 'true' : undefined,
   };
   
@@ -1846,9 +1871,9 @@ app.get("/api/text-to-speech", async (req: Request, res: Response) => {
   // Parse emotion and pitch from tone
   const { emotion, pitch } = parseTone(tone);
   
-  // Generate hash for caching - include voice settings if provided
-  const settingsHash = hasVoiceSettings ? JSON.stringify(voiceSettings) : '';
-  const output = crypto.createHash("md5").update(normalizeText(text) + voiceId + emotion + pitch + settingsHash).digest("hex");
+  // Generate hash for caching - include voice settings and model
+  const settingsHash = voiceModel === 'elevenlabs' && hasVoiceSettings ? JSON.stringify(voiceSettings) : '';
+  const output = crypto.createHash("md5").update(normalizeText(text) + voiceId + voiceModel + emotion + pitch + settingsHash).digest("hex");
   const outputPath = path.join(__dirname, "data/audio", output + ".mp3");
   
   if(!force && fs.existsSync(outputPath)) {
@@ -1863,12 +1888,21 @@ app.get("/api/text-to-speech", async (req: Request, res: Response) => {
     }
   }
   
-  try {    
-    await elevenLabsService.generateAudio(text, voiceId, emotion, outputPath, pitch, hasVoiceSettings ? voiceSettings : undefined);
+  try {
+    if (voiceModel === 'openai') {
+      // Use OpenAI TTS
+      // Convert tone to instructions for OpenAI
+      const instructions = `Speak with a ${emotion.toLowerCase()} tone, ${pitch} pitch.`;
+      await openaiTextToSpeech(text, voiceId, 'mp3', output, instructions);
+      console.log(`✅ OpenAI TTS generated: ${output}`);
+    } else {
+      // Use ElevenLabs TTS (default)
+      await elevenLabsService.generateAudio(text, voiceId, emotion, outputPath, pitch, hasVoiceSettings ? voiceSettings : undefined);
+    }
     addToAudioList(output);
     res.json({ success: true, output });
   } catch (e: any) {
-    console.error("ElevenLabs TTS error:", e);
+    console.error(`${voiceModel} TTS error:`, e);
     res.status(500).json({ error: e.message || "TTS failed" });
   }
 });

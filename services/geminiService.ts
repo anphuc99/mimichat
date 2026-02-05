@@ -176,6 +176,7 @@ function buildSystemInstruction(params: {
   characters: { names: string; details: string };
   vocabSection: string;
   checkPronunciation: boolean;
+  relatedStoryMessages?: string;
 }) {
   const {
     level,
@@ -187,7 +188,8 @@ function buildSystemInstruction(params: {
     contextSummary,
     characters,
     vocabSection,
-    checkPronunciation
+    checkPronunciation,
+    relatedStoryMessages
   } = params;
 
   return `
@@ -219,6 +221,15 @@ SCENE:
 ${context}
 
 ${relationshipSummary ? `RELATIONSHIPS:\n${relationshipSummary}\n` : ''}
+${relatedStoryMessages ? `====================================
+RELATED STORY REFERENCE (PREVIOUS EPISODES)
+====================================
+The following is a conversation log from related story episodes. 
+Use this as context reference to understand the story development, character relationships, and past events.
+Continue the story naturally based on this context.
+
+${relatedStoryMessages}
+` : ''}
 
 ====================================
 CHARACTERS (VALID NAMES ONLY)
@@ -243,7 +254,7 @@ DIALOGUE RULES
 TTS TEXT FORMATTING RULES (Apply strictly to 'Text' field):
 ====================================
 - **Angry**: Add "!!!" at the end. (e.g.: "하지 마!!!")
-- **Shouting**: Add "!!!!!" at the end. (e.g.: "오빠!!!!!")
+- **Shouting**: Add "...!!!" at the end. (e.g.: "오빠...!!!")
 - **Disgusted**: Start with "응... " and end with "...". (e.g.: "응... 싫어...")
 - **Sad**: Start with "..." and end with "...". (e.g.: "...오빠...")
 - **Scared**: Start with "아... " and end with "...". (e.g.: "아... 무서워...")
@@ -259,33 +270,6 @@ TTS TEXT FORMATTING RULES (Apply strictly to 'Text' field):
 TONE FORMAT (CRITICAL FOR TTS)
 ====================================
 Format: "<Emotion>, <pitch>"
-
-VALID EMOTIONS (use EXACTLY these values):
-- Neutral (default, calm)
-- Happy (cheerful, positive)
-- Sad (melancholic, sorrowful)
-- Angry (irritated, frustrated)
-- Scared (fearful, nervous)
-- Shy (timid, embarrassed)
-- Disgusted (repulsed, contempt)
-- Surprised (shocked, startled)
-- Whisper (quiet, secretive)
-- Shouting (loud, yelling)
-- Excited (enthusiastic, energetic)
-- Serious (stern, formal)
-- Affectionate (loving, tender)
-
-VALID PITCH LEVELS:
-- low pitch (deep, mature voice)
-- medium pitch (normal, default)
-- high pitch (bright, youthful voice)
-
-EXAMPLES:
-- "Happy, high pitch"
-- "Sad, low pitch"
-- "Angry, medium pitch"
-- "Whisper, low pitch"
-- "Excited, high pitch"
 
 ====================================
 INPUT MODE
@@ -341,7 +325,8 @@ export const initChat = async (
   level = 'A1',
   reviewVocabularies: VocabularyItem[] = [],
   storyPlot = '',
-  checkPronunciation = false
+  checkPronunciation = false,
+  relatedStoryMessages = ''
 ): Promise<Chat> => {
   if (!ai) {
     throw new Error('Gemini service not initialized.');
@@ -361,7 +346,8 @@ export const initChat = async (
     contextSummary,
     characters: characterSection,
     vocabSection,
-    checkPronunciation
+    checkPronunciation,
+    relatedStoryMessages
   });
   console.log(systemInstruction)
   return ai.chats.create({
@@ -579,7 +565,8 @@ export const textToSpeech = async (
   tone: string = 'Neutral, medium pitch',
   voiceId: string = '',
   force: boolean = false,
-  voiceSettings?: VoiceSettings
+  voiceSettings?: VoiceSettings,
+  voiceModel: 'elevenlabs' | 'openai' = 'elevenlabs'
 ): Promise<string | null> => {
   // Regex to remove a wide range of emojis.
   const emojiRegex = /(\u00a9|\u00ae|[\u2000-\u3300]|\ud83c[\ud000-\udfff]|\ud83d[\ud000-\udfff]|\ud83e[\ud000-\udfff])/g;
@@ -589,12 +576,12 @@ export const textToSpeech = async (
     return null;
   }
   try {
-    let url = API_URL.API_TTS + `?text=${encodeURIComponent(textWithoutEmoji)}&voice=${encodeURIComponent(voiceId)}&tone=${encodeURIComponent(tone)}`;
+    let url = API_URL.API_TTS + `?text=${encodeURIComponent(textWithoutEmoji)}&voice=${encodeURIComponent(voiceId)}&tone=${encodeURIComponent(tone)}&model=${voiceModel}`;
     if (force) {
       url += `&force=true`;
     }
-    // Add voice settings as query params if provided
-    if (voiceSettings) {
+    // Add voice settings as query params if provided (only for ElevenLabs)
+    if (voiceModel === 'elevenlabs' && voiceSettings) {
       url += `&speed=${voiceSettings.speed}`;
       url += `&stability=${voiceSettings.stability}`;
       url += `&similarity_boost=${voiceSettings.similarity_boost}`;
@@ -608,7 +595,7 @@ export const textToSpeech = async (
     return null;
 
   } catch (error) {
-    console.error("ElevenLabs TTS API error:", error);
+    console.error(`${voiceModel} TTS API error:`, error);
     return null;
   }
 };

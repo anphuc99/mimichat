@@ -1,7 +1,7 @@
 
 import React, { useState, useEffect } from 'react';
-import type { Character, RelationInfo, VoiceSettings } from '../types';
-import { DEFAULT_VOICE_SETTINGS } from '../types';
+import type { Character, RelationInfo, VoiceSettings, VoiceModel } from '../types';
+import { DEFAULT_VOICE_SETTINGS, OPENAI_VOICES } from '../types';
 import http, { API_URL } from '../services/HTTPService';
 
 interface CharacterManagerProps {
@@ -37,12 +37,13 @@ export const CharacterManager: React.FC<CharacterManagerProps> = ({
     textToSpeech,
     playAudio,
     storyPlot,
-    setStoryPlot
+    setStoryPlot,
 }) => {
   const [newCharName, setNewCharName] = useState('');
   const [newCharPersonality, setNewCharPersonality] = useState('');
   const [newCharGender, setNewCharGender] = useState<'male' | 'female'>('female');
   const [newCharVoiceName, setNewCharVoiceName] = useState('');
+  const [newCharVoiceModel, setNewCharVoiceModel] = useState<VoiceModel>('elevenlabs');
   const [newCharPitch, setNewCharPitch] = useState(0);
   const [newCharSpeakingRate, setNewCharSpeakingRate] = useState(1.0);
   const [newCharAvatar, setNewCharAvatar] = useState<string | undefined>(undefined);
@@ -53,6 +54,7 @@ export const CharacterManager: React.FC<CharacterManagerProps> = ({
   const [editedPersonality, setEditedPersonality] = useState('');
   const [editedGender, setEditedGender] = useState<'male' | 'female'>('female');
   const [editedVoiceName, setEditedVoiceName] = useState('');
+  const [editedVoiceModel, setEditedVoiceModel] = useState<VoiceModel>('elevenlabs');
   const [editedPitch, setEditedPitch] = useState(0);
   const [editedSpeakingRate, setEditedSpeakingRate] = useState(1.0);
   const [editedAvatar, setEditedAvatar] = useState<string | undefined>(undefined);
@@ -171,18 +173,20 @@ export const CharacterManager: React.FC<CharacterManagerProps> = ({
       personality: newCharPersonality,
       gender: newCharGender,
       voiceName: newCharVoiceName,
+      voiceModel: newCharVoiceModel,
       pitch: newCharPitch,
       speakingRate: newCharSpeakingRate,
       avatar: newCharAvatar,
       appearance: newCharAppearance,
       relations: {},
       userOpinion: { opinion: '', sentiment: 'neutral', closeness: 0 },
-      voiceSettings: { ...newCharVoiceSettings },
+      voiceSettings: newCharVoiceModel === 'elevenlabs' ? { ...newCharVoiceSettings } : undefined,
     };
     setCharacters(prev => [...prev, newCharacter]);
     setNewCharName('');
     setNewCharPersonality('');
     setNewCharGender('female');
+    setNewCharVoiceModel('elevenlabs');
     setNewCharVoiceName(availableVoices.length > 0 ? availableVoices[0].id : '');
     setNewCharPitch(0);
     setNewCharSpeakingRate(1.0);
@@ -197,8 +201,13 @@ export const CharacterManager: React.FC<CharacterManagerProps> = ({
     setEditedName(char.name);
     setEditedPersonality(char.personality);
     setEditedGender(char.gender);
-    // Use existing voice or first available voice
-    setEditedVoiceName(char.voiceName || (availableVoices.length > 0 ? availableVoices[0].id : ''));
+    setEditedVoiceModel(char.voiceModel || 'elevenlabs');
+    // Use existing voice or first available voice based on model
+    if (char.voiceModel === 'openai') {
+      setEditedVoiceName(char.voiceName || OPENAI_VOICES[0].value);
+    } else {
+      setEditedVoiceName(char.voiceName || (availableVoices.length > 0 ? availableVoices[0].id : ''));
+    }
     setEditedPitch(char.pitch ?? 0);
     setEditedSpeakingRate(char.speakingRate ?? 1.0);
     setEditedAvatar(char.avatar);
@@ -227,13 +236,14 @@ export const CharacterManager: React.FC<CharacterManagerProps> = ({
               personality: editedPersonality, 
               gender: editedGender, 
               voiceName: editedVoiceName, 
+              voiceModel: editedVoiceModel,
               pitch: editedPitch, 
               speakingRate: editedSpeakingRate,
               avatar: editedAvatar,
               appearance: editedAppearance,
               relations: editedRelations,
               userOpinion: editedUserOpinion,
-              voiceSettings: editedVoiceSettings,
+              voiceSettings: editedVoiceModel === 'elevenlabs' ? editedVoiceSettings : undefined,
             }
           : char
       )
@@ -253,7 +263,7 @@ export const CharacterManager: React.FC<CharacterManagerProps> = ({
     }
   };
 
-  const handlePreviewAudio = async (previewId: string, voiceId: string, pitch: number, rate: number) => {
+  const handlePreviewAudio = async (previewId: string, voiceId: string, pitch: number, rate: number, voiceModel: VoiceModel = 'elevenlabs') => {
     if (!voiceId) {
       alert("Chưa chọn giọng nói");
       return;
@@ -261,8 +271,8 @@ export const CharacterManager: React.FC<CharacterManagerProps> = ({
     
     setIsPreviewing(previewId);
     try {
-        // Fetch or generate voice preview from server
-        const response = await http.get(`${API_URL.API_VOICE_PREVIEW}/${voiceId}`);
+        // Fetch or generate voice preview from server with model parameter
+        const response = await http.get(`${API_URL.API_VOICE_PREVIEW}/${voiceId}?model=${voiceModel}`);
         if (response.ok && response.data?.url) {
             // Play the preview audio
             const audioUrl = `${http.getBaseUrl()}${response.data.url}`;
@@ -336,24 +346,78 @@ export const CharacterManager: React.FC<CharacterManagerProps> = ({
                             <option value="female">Nữ</option>
                             <option value="male">Nam</option>
                           </select>
-                           <select 
-                             value={editedVoiceName} 
-                             onChange={(e) => setEditedVoiceName(e.target.value)} 
-                             className="w-1/2 px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-400"
-                             disabled={isLoadingVoices}
-                           >
-                            {isLoadingVoices ? (
-                              <option>Đang tải...</option>
-                            ) : availableVoices.length > 0 ? (
-                              availableVoices.map(voice => (
-                                <option key={voice.id} value={voice.id}>
-                                  {voice.name}{voice.labels?.gender ? ` (${voice.labels.gender})` : ''}
+                        </div>
+                        
+                        {/* Voice Model Selection */}
+                        <div className="mt-3">
+                          <label className="text-sm font-medium text-gray-700 mb-2 block">🎤 Chọn Model giọng nói:</label>
+                          <div className="flex space-x-2">
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setEditedVoiceModel('elevenlabs');
+                                setEditedVoiceName(availableVoices.length > 0 ? availableVoices[0].id : '');
+                              }}
+                              className={`flex-1 px-3 py-2 rounded-md text-sm font-medium transition-colors ${
+                                editedVoiceModel === 'elevenlabs'
+                                  ? 'bg-purple-500 text-white'
+                                  : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
+                              }`}
+                            >
+                              ElevenLabs
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setEditedVoiceModel('openai');
+                                setEditedVoiceName(OPENAI_VOICES[0].value);
+                              }}
+                              className={`flex-1 px-3 py-2 rounded-md text-sm font-medium transition-colors ${
+                                editedVoiceModel === 'openai'
+                                  ? 'bg-green-500 text-white'
+                                  : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
+                              }`}
+                            >
+                              OpenAI
+                            </button>
+                          </div>
+                        </div>
+
+                        {/* Voice Selection based on Model */}
+                        <div className="mt-2">
+                          <label className="text-sm font-medium text-gray-700 mb-1 block">Chọn giọng:</label>
+                          {editedVoiceModel === 'elevenlabs' ? (
+                            <select 
+                              value={editedVoiceName} 
+                              onChange={(e) => setEditedVoiceName(e.target.value)} 
+                              className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-purple-400"
+                              disabled={isLoadingVoices}
+                            >
+                              {isLoadingVoices ? (
+                                <option>Đang tải...</option>
+                              ) : availableVoices.length > 0 ? (
+                                availableVoices.map(voice => (
+                                  <option key={voice.id} value={voice.id}>
+                                    {voice.name}{voice.labels?.gender ? ` (${voice.labels.gender})` : ''}
+                                  </option>
+                                ))
+                              ) : (
+                                <option>Không có giọng nói</option>
+                              )}
+                            </select>
+                          ) : (
+                            <select 
+                              value={editedVoiceName} 
+                              onChange={(e) => setEditedVoiceName(e.target.value)} 
+                              className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-green-400"
+                            >
+                              {OPENAI_VOICES.map(voice => (
+                                <option key={voice.value} value={voice.value}>
+                                  {voice.label}
                                 </option>
-                              ))
-                            ) : (
-                              <option>Không có giọng nói</option>
-                            )}
-                          </select>
+                              ))}
+                            </select>
+                          )}
                         </div>
                         <div>
                           <label htmlFor="edit-pitch" className="text-sm font-medium text-gray-700">Cao độ: {editedPitch.toFixed(1)}</label>
@@ -371,7 +435,8 @@ export const CharacterManager: React.FC<CharacterManagerProps> = ({
                           </div>
                         </div>
 
-                        {/* Voice Settings Section */}
+                        {/* Voice Settings Section - Only for ElevenLabs */}
+                        {editedVoiceModel === 'elevenlabs' && (
                         <div className="border-t border-gray-300 pt-3 mt-2">
                           <button 
                             type="button"
@@ -416,6 +481,7 @@ export const CharacterManager: React.FC<CharacterManagerProps> = ({
                             </div>
                           )}
                         </div>
+                        )}
 
                         {/* Opinions Section */}
                         <div className="border-t border-gray-300 pt-3 mt-2">
@@ -520,7 +586,7 @@ export const CharacterManager: React.FC<CharacterManagerProps> = ({
                         </div>
 
                         <div className="flex justify-between items-center">
-                          <button type="button" onClick={() => handlePreviewAudio(char.id, editedVoiceName, editedPitch, editedSpeakingRate)} disabled={isPreviewing !== null} className="px-3 py-1 text-sm bg-gray-200 text-gray-700 rounded-md hover:bg-gray-300 disabled:opacity-50">Nghe thử</button>
+                          <button type="button" onClick={() => handlePreviewAudio(char.id, editedVoiceName, editedPitch, editedSpeakingRate, editedVoiceModel)} disabled={isPreviewing !== null} className="px-3 py-1 text-sm bg-gray-200 text-gray-700 rounded-md hover:bg-gray-300 disabled:opacity-50">Nghe thử</button>
                           <div className="flex space-x-2">
                             <button onClick={cancelEditing} className="px-3 py-1 text-sm bg-gray-200 text-gray-700 rounded-md hover:bg-gray-300">Hủy</button>
                             <button onClick={saveChanges} className="px-3 py-1 text-sm bg-blue-500 text-white rounded-md hover:bg-blue-600">Lưu</button>
@@ -539,7 +605,7 @@ export const CharacterManager: React.FC<CharacterManagerProps> = ({
                       </label>
                       {editingCharId === null && (
                         <div className="flex items-center space-x-1 pl-2">
-                          <button onClick={() => handlePreviewAudio(char.id, char.voiceName, char.pitch, char.speakingRate)} title="Nghe thử" disabled={isPreviewing !== null} className="text-gray-400 hover:text-green-500 p-1 rounded-full disabled:opacity-50">
+                          <button onClick={() => handlePreviewAudio(char.id, char.voiceName, char.pitch, char.speakingRate, char.voiceModel || 'elevenlabs')} title="Nghe thử" disabled={isPreviewing !== null} className="text-gray-400 hover:text-green-500 p-1 rounded-full disabled:opacity-50">
                             <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor"><path d="M10 2a6 6 0 100 12 6 6 0 000-12zM2 10a8 8 0 1116 0 8 8 0 01-16 0z" /><path d="M10 6a1 1 0 011 1v3a1 1 0 11-2 0V7a1 1 0 011-1zM9 12a1 1 0 112 0 1 1 0 01-2 0z" /></svg>
                           </button>
                           <button onClick={() => startEditing(char)} title="Sửa" className="text-gray-400 hover:text-blue-500 p-1 rounded-full">
@@ -571,24 +637,78 @@ export const CharacterManager: React.FC<CharacterManagerProps> = ({
                     <option value="female">Nữ</option>
                     <option value="male">Nam</option>
                   </select>
-                  <select 
-                    value={newCharVoiceName} 
-                    onChange={(e) => setNewCharVoiceName(e.target.value)} 
-                    className="w-1/2 px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-400"
-                    disabled={isLoadingVoices}
-                  >
-                    {isLoadingVoices ? (
-                      <option>Đang tải...</option>
-                    ) : availableVoices.length > 0 ? (
-                      availableVoices.map(voice => (
-                        <option key={voice.id} value={voice.id}>
-                          {voice.name}{voice.labels?.gender ? ` (${voice.labels.gender})` : ''}
+                </div>
+                
+                {/* Voice Model Selection for New Character */}
+                <div className="mt-3">
+                  <label className="text-sm font-medium text-gray-700 mb-2 block">🎤 Chọn Model giọng nói:</label>
+                  <div className="flex space-x-2">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setNewCharVoiceModel('elevenlabs');
+                        setNewCharVoiceName(availableVoices.length > 0 ? availableVoices[0].id : '');
+                      }}
+                      className={`flex-1 px-3 py-2 rounded-md text-sm font-medium transition-colors ${
+                        newCharVoiceModel === 'elevenlabs'
+                          ? 'bg-purple-500 text-white'
+                          : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
+                      }`}
+                    >
+                      ElevenLabs
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setNewCharVoiceModel('openai');
+                        setNewCharVoiceName(OPENAI_VOICES[0].value);
+                      }}
+                      className={`flex-1 px-3 py-2 rounded-md text-sm font-medium transition-colors ${
+                        newCharVoiceModel === 'openai'
+                          ? 'bg-green-500 text-white'
+                          : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
+                      }`}
+                    >
+                      OpenAI
+                    </button>
+                  </div>
+                </div>
+
+                {/* Voice Selection based on Model */}
+                <div className="mt-2">
+                  <label className="text-sm font-medium text-gray-700 mb-1 block">Chọn giọng:</label>
+                  {newCharVoiceModel === 'elevenlabs' ? (
+                    <select 
+                      value={newCharVoiceName} 
+                      onChange={(e) => setNewCharVoiceName(e.target.value)} 
+                      className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-purple-400"
+                      disabled={isLoadingVoices}
+                    >
+                      {isLoadingVoices ? (
+                        <option>Đang tải...</option>
+                      ) : availableVoices.length > 0 ? (
+                        availableVoices.map(voice => (
+                          <option key={voice.id} value={voice.id}>
+                            {voice.name}{voice.labels?.gender ? ` (${voice.labels.gender})` : ''}
+                          </option>
+                        ))
+                      ) : (
+                        <option>Không có giọng nói</option>
+                      )}
+                    </select>
+                  ) : (
+                    <select 
+                      value={newCharVoiceName} 
+                      onChange={(e) => setNewCharVoiceName(e.target.value)} 
+                      className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-green-400"
+                    >
+                      {OPENAI_VOICES.map(voice => (
+                        <option key={voice.value} value={voice.value}>
+                          {voice.label}
                         </option>
-                      ))
-                    ) : (
-                      <option>Không có giọng nói</option>
-                    )}
-                  </select>
+                      ))}
+                    </select>
+                  )}
                 </div>
                 <div>
                   <label htmlFor="new-pitch" className="text-sm font-medium text-gray-700">Cao độ: {newCharPitch.toFixed(1)}</label>
@@ -606,7 +726,8 @@ export const CharacterManager: React.FC<CharacterManagerProps> = ({
                   </div>
                 </div>
                 
-                {/* Voice Settings Section for New Character */}
+                {/* Voice Settings Section for New Character - Only for ElevenLabs */}
+                {newCharVoiceModel === 'elevenlabs' && (
                 <div className="border-t border-gray-300 pt-3 mt-2">
                   <button 
                     type="button"
@@ -651,9 +772,10 @@ export const CharacterManager: React.FC<CharacterManagerProps> = ({
                     </div>
                   )}
                 </div>
+                )}
 
                 <div className="flex justify-between items-center">
-                    <button type="button" onClick={() => handlePreviewAudio('new', newCharVoiceName, newCharPitch, newCharSpeakingRate)} disabled={isPreviewing !== null} className="px-4 py-2 text-sm bg-gray-200 text-gray-700 rounded-md hover:bg-gray-300 disabled:opacity-50">Nghe thử</button>
+                    <button type="button" onClick={() => handlePreviewAudio('new', newCharVoiceName, newCharPitch, newCharSpeakingRate, newCharVoiceModel)} disabled={isPreviewing !== null} className="px-4 py-2 text-sm bg-gray-200 text-gray-700 rounded-md hover:bg-gray-300 disabled:opacity-50">Nghe thử</button>
                     <button type="submit" className="px-4 py-2 bg-green-500 text-white rounded-md hover:bg-green-600 transition-colors disabled:bg-green-300" disabled={!newCharName.trim() || !newCharPersonality.trim()}>
                       Thêm nhân vật
                     </button>

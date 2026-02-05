@@ -325,15 +325,17 @@ export const VocabularyConversation: React.FC<VocabularyConversationProps> = ({
 
       const character = selectedCharacters.find(c => c.name === CharacterName) || characters.find(c => c.name === CharacterName);
       const voiceName = character?.voiceName || 'echo';
+      const voiceModel = character?.voiceModel || 'elevenlabs';
       const pitch = character?.pitch;
       const speakingRate = character?.speakingRate;
+      const voiceSettings = character?.voiceSettings;
       const tone = Tone || 'cheerfully';
       const translation = Translation;
 
       // Tạo audio
       let audioData: string | null = null;
       if (Text) {
-        audioData = await textToSpeech(Text, tone, voiceName);
+        audioData = await textToSpeech(Text, tone, voiceName, false, voiceSettings, voiceModel);
       }
 
       const msgId = `vocab-conv-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
@@ -622,12 +624,14 @@ export const VocabularyConversation: React.FC<VocabularyConversationProps> = ({
 
       const character = characters.find(c => c.name === characterName);
       const voiceName = character?.voiceName || 'echo';
+      const voiceModel = character?.voiceModel || 'elevenlabs';
       const pitch = character?.pitch;
       const speakingRate = character?.speakingRate;
+      const voiceSettings = character?.voiceSettings;
 
       let audioData: string | null = null;
       if (speechText) {
-        audioData = await textToSpeech(speechText, tone, voiceName);
+        audioData = await textToSpeech(speechText, tone, voiceName, false, voiceSettings, voiceModel);
       }
 
       const rawTextForCopy = `User Said: ${userPromptRef.current}\n${characterName} Said: ${speechText}\nTone: ${tone}`;

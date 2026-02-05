@@ -60,6 +60,7 @@ type ElevenLabsVoiceSettingsPayload = {
     similarity_boost: number;
     style: number;
     use_speaker_boost: boolean;
+    speed?: number;
 };
 
 // Custom voice settings from client (optional override)
@@ -73,7 +74,7 @@ export interface CustomVoiceSettings {
 
 // Default voice settings
 const DEFAULT_VOICE_SETTINGS: VoiceSettings = {
-    speed: 0.8,
+    speed: 1.0,
     stability: 0.5,
     similarity_boost: 0.75,
     style: 0.3,
@@ -194,14 +195,14 @@ export class ElevenLabsService {
                 // Giận dữ: giảm stability, tăng style để giọng gắt hơn
                 settings.stability = clamp(settings.stability - 0.15);
                 settings.style = clamp(settings.style + 0.25);
-                settings.speed = clamp((settings.speed || 0.8) + 0.1, 0.25, 2.0);
+                settings.speed = clamp((settings.speed ?? 1.0) + 0.1, 0.25, 2.0);
                 break;
                 
             case "Shouting":
                 // Hét: stability thấp nhất, style cao nhất
                 settings.stability = clamp(settings.stability - 0.25);
                 settings.style = clamp(settings.style + 0.4);
-                settings.speed = clamp((settings.speed || 0.8) - 0.1, 0.25, 2.0);
+                settings.speed = clamp((settings.speed ?? 1.0) - 0.1, 0.25, 2.0);
                 break;
                 
             case "Disgusted":
@@ -214,28 +215,28 @@ export class ElevenLabsService {
                 // Nghiêm túc: tăng stability để giọng đều, giảm style
                 settings.stability = clamp(settings.stability + 0.15);
                 settings.style = clamp(settings.style - 0.2);
-                settings.speed = clamp((settings.speed || 0.8) - 0.05, 0.25, 2.0);
+                settings.speed = clamp((settings.speed ?? 1.0) - 0.05, 0.25, 2.0);
                 break;
 
             // --- Nhóm Tích cực/Năng lượng ---
             case "Happy": 
                 // Vui vẻ: tăng style, tăng speed một chút
                 settings.style = clamp(settings.style + 0.2);
-                settings.speed = clamp((settings.speed || 0.8) + 0.05, 0.25, 2.0);
+                settings.speed = clamp((settings.speed ?? 1.0) + 0.05, 0.25, 2.0);
                 break;
                 
             case "Excited":
                 // Hào hứng: tăng style mạnh, giảm stability để giọng năng động
                 settings.stability = clamp(settings.stability - 0.1);
                 settings.style = clamp(settings.style + 0.35);
-                settings.speed = clamp((settings.speed || 0.8) + 0.1, 0.25, 2.0);
+                settings.speed = clamp((settings.speed ?? 1.0) + 0.1, 0.25, 2.0);
                 break;
             
             // --- Nhóm Yếu đuối/Nhẹ nhàng ---
             case "Sad":
                 // Buồn: giảm speed, giảm style, giữ stability
                 settings.style = clamp(settings.style - 0.1);
-                settings.speed = clamp((settings.speed || 0.8) - 0.1, 0.25, 2.0);
+                settings.speed = clamp((settings.speed ?? 1.0) - 0.1, 0.25, 2.0);
                 break;
                 
             case "Scared":
@@ -248,14 +249,14 @@ export class ElevenLabsService {
                 // Ngại ngùng: tăng stability, giảm style, giảm speed
                 settings.stability = clamp(settings.stability + 0.1);
                 settings.style = clamp(settings.style - 0.15);
-                settings.speed = clamp((settings.speed || 0.8) - 0.05, 0.25, 2.0);
+                settings.speed = clamp((settings.speed ?? 1.0) - 0.05, 0.25, 2.0);
                 break;
                 
             case "Whisper":
                 // Thì thầm: tăng stability cao để rõ chữ, giảm style về 0
                 settings.stability = clamp(settings.stability + 0.2);
                 settings.style = clamp(settings.style - 0.3);
-                settings.speed = clamp((settings.speed || 0.8) - 0.1, 0.25, 2.0);
+                settings.speed = clamp((settings.speed ?? 1.0) - 0.1, 0.25, 2.0);
                 break;
                 
             case "Affectionate":
@@ -336,6 +337,7 @@ export class ElevenLabsService {
             similarity_boost: voiceSettings.similarity_boost,
             style: voiceSettings.style,
             use_speaker_boost: voiceSettings.use_speaker_boost,
+            speed: voiceSettings.speed,
         };
 
         const promptText = text;

@@ -95,6 +95,7 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({
         </div>
       )}
 
+
       <div className="space-y-4">
         {/* Only show public messages (filter out private messages) */}
         {messages.filter(m => m.chatType !== 'private').map((message) => {
